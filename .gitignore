@@ -1,0 +1,19 @@
+.DS_Store
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Generated local outputs
+output/
+output_conda_check/
+reports/inventory/*.csv
+reports/inventory/*.json
+reports/qc/
+derivatives/*
+!derivatives/README.md
+
+# Large MRI/image artifacts should be regenerated or stored outside git.
+*.nii
+*.nii.gz
+*.png
+!fiji_image.png

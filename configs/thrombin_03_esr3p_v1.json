@@ -1,0 +1,58 @@
+{
+  "dataset_name": "Thrombin_03_ESR3P",
+  "raw_root": "/Users/paul-andreaslaize/Desktop/LYS/Thrombin_03_ESR3P",
+  "derivatives_root": "derivatives/thrombin_03_esr3p",
+  "inventory_out_dir": "reports/inventory",
+  "known_scan_order": [
+    {
+      "scan_id": 1,
+      "role": "localizer"
+    },
+    {
+      "scan_id": 2,
+      "role": "t2star_or_rapid_flash_qc"
+    },
+    {
+      "scan_id": 3,
+      "role": "t1_flash_pre"
+    },
+    {
+      "scan_id": 4,
+      "role": "tof_flow_candidate"
+    },
+    {
+      "scan_id": 5,
+      "role": "t2_high_resolution_pre_or_baseline"
+    },
+    {
+      "scan_id": 6,
+      "role": "t1_flash_post"
+    },
+    {
+      "scan_id": 7,
+      "role": "t2_high_resolution_post_or_followup"
+    },
+    {
+      "scan_id": 8,
+      "role": "localizer"
+    }
+  ],
+  "detection_patterns": {
+    "t1_flash": "T1_FLASH_3D",
+    "rare_vtr": "RARE.*VTR|VTR.*RARE|RARE[-_ ]?VTR"
+  },
+  "expected_rare_vtr_tr_ms": [
+    8000,
+    3600,
+    2400,
+    1480,
+    940,
+    650,
+    501.1
+  ],
+  "notes": [
+    "Current known data order places pre/post T1_FLASH_3D_Glymphatic_Sag at scans 3 and 6.",
+    "Keep keyword-based detection because future datasets may not follow this scan order.",
+    "If RARE-VTR scans are absent, true protocol-style T1 mapping cannot be implemented for this cohort without additional acquisitions."
+  ]
+}

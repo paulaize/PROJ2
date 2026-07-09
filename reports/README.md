@@ -1,0 +1,49 @@
+# Reports
+
+Generated inventory tables, compact summaries, and QC report products go here.
+
+The inventory command writes to `reports/inventory/` by default:
+
+```bash
+conda run -n lys-bbb python scripts/inventory/inventory_sessions.py \
+  /Users/paul-andreaslaize/Desktop/LYS/Thrombin_03_ESR3P \
+  -o reports/inventory
+```
+
+Current implemented report-like outputs:
+
+- Raw session inventory under `reports/inventory/`.
+- QC manifests, manual-mask worklists, dashboards, registration summaries, and
+  analysis-manifest summaries under `reports/qc/`.
+- Per-session quantification summaries are still written beside derivatives as `*_summary.csv`.
+- Per-session QC PNGs are still written beside derivatives, not yet collected into a central index.
+- Batch FLASH quantification writes `cohort_sessions.csv`, `cohort_quantification.csv`,
+  and `cohort_metadata.json` under the chosen derivative output directory.
+  These batch outputs are a first iteration for engineering and QC; they should
+  be regenerated after the final converted images, corrected masks, lesion/ROI
+  masks, side assignments, and QC inclusion decisions are locked.
+
+Planned V1 reports:
+
+- Session inventory with animal ID and D1/D7 time point parsing.
+- Manifest-driven scan role, mask path, side, lesion, and inclusion/exclusion
+  overrides through `derivatives/manifests/analysis_manifest.csv`.
+- Mask, registration, and enhancement QC image indexes.
+- Future mask-source fields distinguishing raw cloud MouseBrainExtractor
+  pre-label, manually corrected mask, nnU-Net prediction, and final
+  QC-approved mask.
+- One combined CSV/report for all mice/sessions from the batch quantification
+  command, with future polishing once masks, side assignment, and lesion ROIs
+  are finalized.
+- Final D1 versus D7 per-animal comparison fields after duplicate sessions,
+  exclusions, and mask failures are resolved.
+- Lesion-centered endpoints once reliable T2w-derived lesion/ROI masks exist:
+  lesion volume, lesion mean/median corrected CE, lesion 95th percentile CE,
+  enhancing volume inside lesion, percent lesion enhancing, lesion integrated
+  leakage burden, lesion/mirrored contralateral enhancement ratio, and D7-D1
+  change for lesion-based metrics.
+- Optional links to T2w lesion-volume outputs later, after reliable T1 BBB
+  leakage quantification exists. T2w should define the lesion ROI; T1 pre/post
+  should remain the BBB leakage measurement.
+
+Do not use reports to store many large NIfTI intermediates. Those belong in `derivatives/`, and debug versions should be opt-in.
