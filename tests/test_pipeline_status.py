@@ -28,6 +28,8 @@ def test_status_reports_brain_mask_blocker_and_dry_run_command():
     assert status["analysis_included"] == 0
     assert status["analysis_gate_counts"] == {"mask_needs_review": 1, "missing_brain_mask": 1}
     assert any("brain masks" in blocker for blocker in status["blockers"])
+    assert any("build_study_metadata.py" in command for command in status["next_commands"])
+    assert any("--metadata-manifest" in command for command in status["next_commands"])
     assert any("--dry-run" in command for command in status["next_commands"])
 
 

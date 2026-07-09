@@ -268,6 +268,33 @@ contains one row per case, the selected brain-mask path, optional lesion/side
 fields, `include`, and a `qc_gate`. Cases with missing or unreviewed masks are
 written with `include=no`, so the cohort run cannot silently process bad masks.
 
+Build or refresh the editable study metadata table when group labels,
+ipsilateral side, lesion masks, or manual inclusion/review decisions need to be
+tracked outside the generated QC manifest:
+
+```bash
+conda run -n lys-bbb python scripts/qc/build_study_metadata.py \
+  --analysis-manifest derivatives/manifests/analysis_manifest.csv
+```
+
+This writes `derivatives/manifests/study_metadata.csv` plus validation reports
+under `reports/qc/`. Fill `group`, `ipsilateral_side`, `lesion_mask_path`,
+`review_status`, and `review_notes` there as those decisions become available.
+Accepted side values are `left`, `right`, `low-x`, and `high-x`. Then rebuild
+the analysis manifest with those editable values merged back in:
+
+```bash
+conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
+  --qc-manifest reports/qc/qc_manifest.csv \
+  --metadata-manifest derivatives/manifests/study_metadata.csv \
+  -o derivatives/manifests/analysis_manifest.csv \
+  --summary reports/qc/analysis_manifest_summary.csv
+```
+
+The metadata table can request inclusion or exclusion, but it cannot override a
+failed automated QC gate. A case with a missing/invalid mask or failed
+registration still stays `include=no`.
+
 Build the current V1 readiness report:
 
 ```bash
@@ -310,7 +337,11 @@ conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py \
   --roi-manifest derivatives/manifests/analysis_manifest.csv
 ```
 
-If you know the stroke side and want ipsilateral/contralateral correction, add:
+The preferred way to run ipsilateral/contralateral correction is to fill
+`ipsilateral_side` in `derivatives/manifests/study_metadata.csv`, rebuild
+`analysis_manifest.csv`, and run the manifest-gated cohort command above. For
+single-side debugging across all included sessions, the cohort command also
+accepts:
 
 ```bash
 --ipsilateral-side left

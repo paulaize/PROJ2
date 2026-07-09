@@ -90,7 +90,9 @@ def build_status(
     next_commands = [
         "conda run -n lys-bbb python scripts/qc/build_qc_manifest.py --input-root output/all_mice --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv",
         "conda run -n lys-bbb python scripts/masks/build_manual_mask_workflow.py",
-        "conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py",
+        "conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py --qc-manifest reports/qc/qc_manifest.csv -o derivatives/manifests/analysis_manifest.csv --summary reports/qc/analysis_manifest_summary.csv",
+        "conda run -n lys-bbb python scripts/qc/build_study_metadata.py --analysis-manifest derivatives/manifests/analysis_manifest.csv",
+        "conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py --qc-manifest reports/qc/qc_manifest.csv --metadata-manifest derivatives/manifests/study_metadata.csv -o derivatives/manifests/analysis_manifest.csv --summary reports/qc/analysis_manifest_summary.csv",
         "conda run -n lys-bbb python scripts/qc/build_project_status.py",
     ]
     if included:

@@ -69,6 +69,50 @@ def test_analysis_manifest_preserves_side_group_lesion_and_review_fields():
     assert rows[0]["review_notes"] == "registration visually failed"
 
 
+def test_analysis_manifest_uses_study_metadata_over_previous_manifest():
+    previous = [{
+        "case_id": "C25S1_D1",
+        "group": "old_group",
+        "ipsilateral_side": "left",
+        "review_status": "fail",
+    }]
+    metadata = [{
+        "case_id": "C25S1_D1",
+        "group": "treated",
+        "ipsilateral_side": "right",
+        "lesion_mask_path": "lesions/C25S1_D1.nii.gz",
+        "review_status": "pass",
+        "review_notes": "metadata-reviewed",
+    }]
+
+    rows = build_analysis_manifest_rows([qc_row()], previous_rows=previous, metadata_rows=metadata)
+
+    assert rows[0]["group"] == "treated"
+    assert rows[0]["ipsilateral_side"] == "right"
+    assert rows[0]["lesion_mask_path"] == "lesions/C25S1_D1.nii.gz"
+    assert rows[0]["review_status"] == "pass"
+    assert rows[0]["review_notes"] == "metadata-reviewed"
+    assert rows[0]["include"] == "yes"
+
+
+def test_analysis_manifest_metadata_include_cannot_override_missing_mask_gate():
+    row = qc_row()
+    row["manual_mask_path"] = ""
+    metadata = [{
+        "case_id": "C25S1_D1",
+        "include": "yes",
+        "review_status": "pass",
+        "ipsilateral_side": "left",
+    }]
+
+    rows = build_analysis_manifest_rows([row], metadata_rows=metadata)
+
+    assert rows[0]["include"] == "no"
+    assert rows[0]["qc_gate"] == "missing_brain_mask"
+    assert rows[0]["brain_mask_path"] == ""
+    assert rows[0]["ipsilateral_side"] == "left"
+
+
 def test_analysis_manifest_can_disable_auto_include():
     rows = build_analysis_manifest_rows([qc_row()], auto_include_ready=False)
 

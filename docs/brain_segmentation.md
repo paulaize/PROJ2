@@ -134,6 +134,25 @@ editable fields for `group`, `ipsilateral_side`, `lesion_mask_path`,
 automated mask or registration gates are not ready. The cohort command can read
 it through `--roi-manifest`.
 
+For side-aware and lesion-aware work, keep those editable fields in the study
+metadata table rather than hand-editing generated QC rows:
+
+```bash
+conda run -n lys-bbb python scripts/qc/build_study_metadata.py \
+  --analysis-manifest derivatives/manifests/analysis_manifest.csv
+
+conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
+  --qc-manifest reports/qc/qc_manifest.csv \
+  --metadata-manifest derivatives/manifests/study_metadata.csv \
+  -o derivatives/manifests/analysis_manifest.csv \
+  --summary reports/qc/analysis_manifest_summary.csv
+```
+
+`study_metadata.csv` is the editable source for `group`, `ipsilateral_side`,
+`lesion_mask_path`, and manual `review_status` decisions. The analysis manifest
+still owns the final QC gate, so metadata cannot include a case whose mask or
+registration gate is not ready.
+
 ## Mask Target
 
 The mask target should be consistent across manual masks, corrected pre-labels,

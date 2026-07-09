@@ -211,10 +211,12 @@ def build_analysis_manifest_rows(
     qc_rows: list[dict[str, Any]],
     *,
     previous_rows: list[dict[str, str]] | None = None,
+    metadata_rows: list[dict[str, str]] | None = None,
     auto_include_ready: bool = True,
     allow_review_masks_for_testing: bool = False,
 ) -> list[dict[str, Any]]:
     previous_by_case = row_by_case(previous_rows or [])
+    metadata_by_case = row_by_case(metadata_rows or [])
     rows: list[dict[str, Any]] = []
     for qc_row in qc_rows:
         case_id = qc_row.get("case_id", "")
@@ -254,6 +256,7 @@ def build_analysis_manifest_rows(
             "analysis_mode": analysis_mode,
         }
         row = merge_preserved_values(row, previous_by_case.get(case_id))
+        row = merge_preserved_values(row, metadata_by_case.get(case_id))
         row = apply_review_gate(row)
         rows.append(row)
     return sorted(rows, key=lambda item: (item["animal_id"], item["timepoint"], item["case_id"]))
@@ -289,6 +292,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="optional manifest whose editable group/side/lesion/review fields should be preserved",
     )
     parser.add_argument(
+        "--metadata-manifest",
+        "--study-metadata",
+        dest="metadata_manifest",
+        type=Path,
+        default=None,
+        help=(
+            "optional study metadata CSV with editable include/group/ipsilateral_side/"
+            "lesion_mask_path/review fields; values override preserved manifest fields"
+        ),
+    )
+    parser.add_argument(
         "--no-auto-include-ready",
         action="store_true",
         help="write include=no even for cases that pass automated mask and registration gates",
@@ -305,11 +319,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     qc_rows = read_csv_rows(args.qc_manifest)
-    previous_path = args.previous_manifest or (args.output if args.output.exists() else None)
+    previous_path = args.previous_manifest
+    if previous_path is None and args.metadata_manifest is None:
+        previous_path = args.output if args.output.exists() else None
     previous_rows = read_csv_rows(previous_path) if previous_path else []
+    metadata_rows = read_csv_rows(args.metadata_manifest) if args.metadata_manifest else []
     rows = build_analysis_manifest_rows(
         qc_rows,
         previous_rows=previous_rows,
+        metadata_rows=metadata_rows,
         auto_include_ready=not args.no_auto_include_ready,
         allow_review_masks_for_testing=args.allow_review_masks_for_testing,
     )

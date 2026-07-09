@@ -86,6 +86,7 @@ Main active files:
 - [scripts/qc/qc_pre_post_registration.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/qc/qc_pre_post_registration.py): registration QC for converted pre/post coronal pairs; writes raw-versus-registered montages, transforms, and a summary table without running segmentation or quantification.
 - [scripts/qc/build_analysis_manifest.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/qc/build_analysis_manifest.py): builds `derivatives/manifests/analysis_manifest.csv`, the QC-gated handoff into cohort quantification.
 - [scripts/qc/build_project_status.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/qc/build_project_status.py): builds `reports/qc/project_status.md/json`, the compact V1 readiness report.
+- [scripts/qc/build_study_metadata.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/qc/build_study_metadata.py): builds `derivatives/manifests/study_metadata.csv`, the editable side/group/lesion/review table consumed by the analysis manifest.
 - [src/lys_bbb/conversion.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/conversion.py): reusable Bruker conversion implementation; the root `buker_nifty_flip.py` is only a compatibility wrapper.
 - [src/lys_bbb/flash_pair.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/flash_pair.py): reusable implementation for the current FLASH pair pipeline.
 - [src/lys_bbb/flash_cohort.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/flash_cohort.py): reusable cohort discovery, metric extraction, and D7-D1 delta implementation.
@@ -94,6 +95,7 @@ Main active files:
 - [src/lys_bbb/brain_mask_postprocess.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/brain_mask_postprocess.py): reusable candidate-mask post-processing implementation.
 - [src/lys_bbb/mask_workflow.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/mask_workflow.py): reusable manual-mask worklist/dashboard and nnU-Net preparation implementation.
 - [src/lys_bbb/pipeline_status.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/pipeline_status.py): reusable readiness summary and Markdown/JSON status report implementation.
+- [src/lys_bbb/study_metadata.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/study_metadata.py): reusable study metadata builder and validator for side-aware quantification inputs.
 - [docs/nnunet_active_learning.md](/Users/paul-andreaslaize/Documents/LYS_PROJ2/docs/nnunet_active_learning.md): Mac/cloud active-learning workflow for corrected pre masks and nnU-Net v2.
 - [docs/t2_lesion_t1_integration.md](/Users/paul-andreaslaize/Documents/LYS_PROJ2/docs/t2_lesion_t1_integration.md): planned T2w lesion-model integration with T1 FLASH enhancement quantification.
 - [deprecated/sherm/](/Users/paul-andreaslaize/Documents/LYS_PROJ2/deprecated/sherm): retired SHERM-inspired mask code, kept only for historical reference or controlled comparison.
@@ -189,6 +191,7 @@ Current operational path:
 - Save corrected masks on the exact native pre-contrast `_coronal.nii.gz` grid.
 - Refresh `reports/qc/qc_manifest.csv`, then run `scripts/masks/build_manual_mask_workflow.py` to update `reports/qc/manual_mask_worklist.csv`, `reports/qc/manual_mask_dashboard.html`, and `derivatives/brain_seg/nnunet_manifest.csv`.
 - Run `scripts/qc/build_analysis_manifest.py` to update `derivatives/manifests/analysis_manifest.csv`. This manifest is the preferred handoff to `scripts/quantification/quantify_flash_cohort.py --roi-manifest`.
+- Keep `group`, `ipsilateral_side`, `lesion_mask_path`, and manual review decisions in `derivatives/manifests/study_metadata.csv` from `scripts/qc/build_study_metadata.py`, then rebuild the analysis manifest with `--metadata-manifest`. Metadata can request include/exclude decisions but cannot bypass missing-mask, bad-mask, or registration QC gates.
 - When a brain-mask model produces predictions, run `scripts/masks/postprocess_brain_masks.py` on `derivatives/brain_seg/nnunet_preds/{case_id}.nii.gz`, then run `scripts/masks/build_brain_mask_manifest.py` on the cleaned predictions before building the analysis manifest.
 - For development-only downstream testing with non-final masks, use `build_analysis_manifest.py --allow-review-masks-for-testing`; never treat those outputs as final biological results.
 - Run `scripts/qc/build_project_status.py` after those manifests to update the compact current-blocker and next-command report.
