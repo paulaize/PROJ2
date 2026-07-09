@@ -17,6 +17,7 @@ scripts/inventory/               # raw-session inventory CLIs
 scripts/quantification/          # pair and cohort quantification CLIs
 scripts/qc/                      # visual QC and benchmarking tools
 scripts/qc/build_analysis_manifest.py
+scripts/qc/build_project_status.py
 scripts/masks/                   # mask editing/opening helpers
 scripts/masks/build_manual_mask_workflow.py
 scripts/masks/open_manual_mask_editor.py
@@ -26,6 +27,7 @@ src/lys_bbb/                     # reusable pipeline modules
 src/lys_bbb/analysis_manifest.py # QC-gated quantification manifest builder
 src/lys_bbb/conversion.py        # Bruker T1 FLASH conversion implementation
 src/lys_bbb/mask_workflow.py     # manual-mask dashboard and nnU-Net prep helpers
+src/lys_bbb/pipeline_status.py   # V1 readiness summary/report builder
 deprecated/sherm/                # retired SHERM-inspired mask code
 reports/inventory/               # generated scan inventories, ignored by git
 reports/qc/                      # compact QC summaries, dashboards, and worklists
@@ -67,6 +69,9 @@ Output policy:
 - Refresh `derivatives/manifests/analysis_manifest.csv` from
   `scripts/qc/build_analysis_manifest.py` after QC updates. This is the
   intended handoff into manifest-gated cohort quantification.
+- Refresh `reports/qc/project_status.md` from
+  `scripts/qc/build_project_status.py` to summarize current blockers, mask
+  readiness, registration readiness, nnU-Net readiness, and next commands.
 - Write large debug NIfTI intermediates only when explicitly requested.
 - Keep requested debug products in a clear debug folder such as `derivatives/flash_v1_debug/`.
 - Generate Fiji display NIfTIs only when explicitly requested; they are visualization-only.

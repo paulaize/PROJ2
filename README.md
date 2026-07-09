@@ -268,6 +268,18 @@ contains one row per case, the selected brain-mask path, optional lesion/side
 fields, `include`, and a `qc_gate`. Cases with missing or unreviewed masks are
 written with `include=no`, so the cohort run cannot silently process bad masks.
 
+Build the current V1 readiness report:
+
+```bash
+conda run -n lys-bbb python scripts/qc/build_project_status.py
+```
+
+This writes `reports/qc/project_status.md` and
+`reports/qc/project_status.json`. The report summarizes analysis-manifest
+gates, manual-mask status, nnU-Net readiness, registration QC, current blockers,
+and the next commands to run. It is a technical status artifact, not a
+biological result.
+
 Run a manifest-gated cohort dry run:
 
 ```bash
