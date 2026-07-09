@@ -449,6 +449,60 @@ conda run -n lys-bbb python scripts/masks/prepare_nnunet_brain_extraction.py \
   --dry-run
 ```
 
+After a brain-mask model produces predictions, validate them before
+quantification. The expected default prediction layout is:
+
+```text
+derivatives/brain_seg/nnunet_preds/{case_id}.nii.gz
+```
+
+Build a model-mask candidate manifest:
+
+```bash
+conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/nnunet_preds \
+  --mask-source nnunet \
+  --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv
+```
+
+Then build the final-style analysis manifest from validated model masks:
+
+```bash
+conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
+  --qc-manifest reports/qc/brain_mask_manifest.csv \
+  -o derivatives/manifests/analysis_manifest.csv \
+  --summary reports/qc/analysis_manifest_summary.csv
+```
+
+For development only, the same path can be exercised with current non-final
+manual masks:
+
+```bash
+conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/manual \
+  --mask-source manual_test \
+  --mask-pattern "{case_id}_pre_manual_mask_done.nii.gz" \
+  --mask-pattern "{case_id}_pre_manual_mask.nii.gz" \
+  --manifest-name brain_mask_manifest_manual_test.csv \
+  --summary-name brain_mask_manifest_manual_test_summary.json
+
+conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
+  --qc-manifest reports/qc/brain_mask_manifest_manual_test.csv \
+  -o derivatives/manifests/analysis_manifest_manual_test.csv \
+  --summary reports/qc/analysis_manifest_manual_test_summary.csv \
+  --allow-review-masks-for-testing
+
+conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py \
+  output/all_mice \
+  --roi-manifest derivatives/manifests/analysis_manifest_manual_test.csv \
+  -o derivatives/flash_v1_manual_mask_test
+```
+
+`--allow-review-masks-for-testing` is intentionally non-final. It exists to
+exercise the downstream code path before masks are approved.
+
 Run quantification with a corrected or QC-approved predicted mask:
 
 ```bash

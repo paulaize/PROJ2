@@ -80,6 +80,7 @@ Main active files:
 - [scripts/quantification/quantify_flash_cohort.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/quantification/quantify_flash_cohort.py): initial cohort-level D1/D7 quantification table, including provisional D7-D1 rows and optional side-aware metrics when side metadata is supplied.
 - [scripts/masks/open_manual_mask_editor.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/masks/open_manual_mask_editor.py): ITK-SNAP-only launcher for correcting MouseBrainExtractor pre-label masks on the matching pre-contrast image.
 - [scripts/masks/build_manual_mask_workflow.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/masks/build_manual_mask_workflow.py): builds the manual T1 brain-mask worklist, local HTML review dashboard, and nnU-Net manifest from the QC manifest.
+- [scripts/masks/build_brain_mask_manifest.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/masks/build_brain_mask_manifest.py): validates candidate brain masks from manual labels or model predictions before analysis-manifest gating.
 - [scripts/masks/prepare_nnunet_brain_extraction.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/masks/prepare_nnunet_brain_extraction.py): validates the nnU-Net mask manifest and creates `Dataset501_MouseBrainMask` raw data when enough corrected labels are marked done.
 - [scripts/qc/qc_pre_post_registration.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/qc/qc_pre_post_registration.py): registration QC for converted pre/post coronal pairs; writes raw-versus-registered montages, transforms, and a summary table without running segmentation or quantification.
 - [scripts/qc/build_analysis_manifest.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/scripts/qc/build_analysis_manifest.py): builds `derivatives/manifests/analysis_manifest.csv`, the QC-gated handoff into cohort quantification.
@@ -88,6 +89,7 @@ Main active files:
 - [src/lys_bbb/flash_pair.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/flash_pair.py): reusable implementation for the current FLASH pair pipeline.
 - [src/lys_bbb/flash_cohort.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/flash_cohort.py): reusable cohort discovery, metric extraction, and D7-D1 delta implementation.
 - [src/lys_bbb/analysis_manifest.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/analysis_manifest.py): reusable QC gate for the final analysis manifest.
+- [src/lys_bbb/brain_mask_manifest.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/brain_mask_manifest.py): reusable validator for candidate manual/model brain masks and mask-QC reports.
 - [src/lys_bbb/mask_workflow.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/mask_workflow.py): reusable manual-mask worklist/dashboard and nnU-Net preparation implementation.
 - [src/lys_bbb/pipeline_status.py](/Users/paul-andreaslaize/Documents/LYS_PROJ2/src/lys_bbb/pipeline_status.py): reusable readiness summary and Markdown/JSON status report implementation.
 - [docs/nnunet_active_learning.md](/Users/paul-andreaslaize/Documents/LYS_PROJ2/docs/nnunet_active_learning.md): Mac/cloud active-learning workflow for corrected pre masks and nnU-Net v2.
@@ -185,6 +187,8 @@ Current operational path:
 - Save corrected masks on the exact native pre-contrast `_coronal.nii.gz` grid.
 - Refresh `reports/qc/qc_manifest.csv`, then run `scripts/masks/build_manual_mask_workflow.py` to update `reports/qc/manual_mask_worklist.csv`, `reports/qc/manual_mask_dashboard.html`, and `derivatives/brain_seg/nnunet_manifest.csv`.
 - Run `scripts/qc/build_analysis_manifest.py` to update `derivatives/manifests/analysis_manifest.csv`. This manifest is the preferred handoff to `scripts/quantification/quantify_flash_cohort.py --roi-manifest`.
+- When a brain-mask model produces predictions, run `scripts/masks/build_brain_mask_manifest.py` on `derivatives/brain_seg/nnunet_preds/{case_id}.nii.gz` before building the analysis manifest.
+- For development-only downstream testing with non-final masks, use `build_analysis_manifest.py --allow-review-masks-for-testing`; never treat those outputs as final biological results.
 - Run `scripts/qc/build_project_status.py` after those manifests to update the compact current-blocker and next-command report.
 - Use those corrected masks directly for quantification or as nnU-Net labels.
 - Treat masks marked `_pre_manual_mask_done.nii.gz` as the default eligible nnU-Net labels after QC; unmarked review masks should not silently become training labels.

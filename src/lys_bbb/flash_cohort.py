@@ -124,6 +124,7 @@ class SessionSpec:
     include: bool = True
     ipsilateral_side: str = ""
     brain_mask_path: Path | None = None
+    brain_mask_source: str = ""
     lesion_mask_path: Path | None = None
     notes: str = ""
 
@@ -227,6 +228,7 @@ def apply_overrides(spec: SessionSpec, overrides: dict[str, dict[str, Any]]) -> 
     lesion_mask = row.get("lesion_mask_path") or row.get("lesion_mask")
     if brain_mask:
         spec.brain_mask_path = Path(brain_mask)
+    spec.brain_mask_source = row.get("brain_mask_source") or spec.brain_mask_source or ""
     if lesion_mask:
         spec.lesion_mask_path = Path(lesion_mask)
     note = row.get("notes") or row.get("note") or ""
@@ -307,6 +309,7 @@ def session_manifest_rows(sessions: list[SessionSpec]) -> list[dict[str, Any]]:
                 "pre_path": str(spec.pre_path),
                 "post_path": str(spec.post_path),
                 "brain_mask_path": str(spec.brain_mask_path or ""),
+                "brain_mask_source": spec.brain_mask_source,
                 "lesion_mask_path": str(spec.lesion_mask_path or ""),
                 "notes": spec.notes,
             }
@@ -595,7 +598,7 @@ def process_session(spec: SessionSpec, args: argparse.Namespace) -> dict[str, An
         "mask_qc_png": str(session_out / f"{spec.case_id}_mask_qc.png"),
         "enhancement_qc_png": str(session_out / f"{spec.case_id}_enhancement_qc.png"),
         "brain_mask_path": str(spec.brain_mask_path or brain_mask_path),
-        "brain_mask_source": metadata.get("mask_source", ""),
+        "brain_mask_source": spec.brain_mask_source or metadata.get("mask_source", ""),
         "lesion_mask_path": str(spec.lesion_mask_path or ""),
         "ipsilateral_side": spec.ipsilateral_side,
         "registration_metric": registration.get("metric", ""),
@@ -831,6 +834,7 @@ def main(argv: list[str] | None = None) -> int:
             "pre_path",
             "post_path",
             "brain_mask_path",
+            "brain_mask_source",
             "lesion_mask_path",
             "notes",
         ],

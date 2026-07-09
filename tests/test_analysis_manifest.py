@@ -74,3 +74,42 @@ def test_analysis_manifest_can_disable_auto_include():
 
     assert rows[0]["qc_gate"] == "ready_for_provisional_quantification"
     assert rows[0]["include"] == "no"
+
+
+def test_analysis_manifest_accepts_generic_model_brain_mask_fields():
+    row = qc_row()
+    row.pop("manual_mask_path")
+    row.pop("manual_mask_done_name")
+    row.pop("manual_mask_components")
+    row["brain_mask_path"] = "derivatives/brain_seg/nnunet_preds/C25S1_D1.nii.gz"
+    row["brain_mask_source"] = "nnunet"
+    row["brain_mask_grid_ok"] = True
+    row["brain_mask_status"] = "ready_candidate"
+    row["brain_mask_components"] = 1
+    row["brain_mask_qc_png"] = "reports/qc/brain_masks/nnunet/C25S1_D1_qc.png"
+
+    rows = build_analysis_manifest_rows([row])
+
+    assert rows[0]["include"] == "yes"
+    assert rows[0]["brain_mask_path"].endswith("C25S1_D1.nii.gz")
+    assert rows[0]["brain_mask_source"] == "nnunet"
+    assert rows[0]["brain_mask_qc_png"].endswith("C25S1_D1_qc.png")
+
+
+def test_analysis_manifest_testing_mode_can_include_review_level_masks():
+    row = qc_row()
+    row.pop("manual_mask_path")
+    row["brain_mask_path"] = "derivatives/brain_seg/manual/C25S1_D1_pre_manual_mask.nii.gz"
+    row["brain_mask_source"] = "manual_test"
+    row["brain_mask_grid_ok"] = True
+    row["brain_mask_status"] = "needs_review"
+    row["brain_mask_notes"] = "components 3 > 1"
+
+    final_rows = build_analysis_manifest_rows([row])
+    testing_rows = build_analysis_manifest_rows([row], allow_review_masks_for_testing=True)
+
+    assert final_rows[0]["include"] == "no"
+    assert final_rows[0]["brain_mask_path"] == ""
+    assert testing_rows[0]["include"] == "yes"
+    assert testing_rows[0]["qc_gate"] == "testing_review_mask"
+    assert testing_rows[0]["analysis_mode"] == "testing_nonfinal_masks"

@@ -40,6 +40,24 @@ def test_discover_sessions_finds_converted_pre_post_folders(tmp_path):
     assert sessions[0].timepoint == "D7"
 
 
+def test_discover_sessions_applies_brain_mask_source_override(tmp_path):
+    case_dir = tmp_path / "C25S1_D7"
+    case_dir.mkdir()
+    (case_dir / "pre_coronal.nii.gz").touch()
+    (case_dir / "post_coronal.nii.gz").touch()
+    overrides = {
+        "C25S1_D7": {
+            "brain_mask_path": "masks/C25S1_D7.nii.gz",
+            "brain_mask_source": "nnunet",
+        }
+    }
+
+    sessions = discover_sessions(tmp_path, overrides=overrides)
+
+    assert str(sessions[0].brain_mask_path) == "masks/C25S1_D7.nii.gz"
+    assert sessions[0].brain_mask_source == "nnunet"
+
+
 def test_hemisphere_masks_map_left_to_low_x_when_axis0_increases_rightward():
     brain = np.zeros((6, 2, 2), dtype=bool)
     brain[1:5, :, :] = True

@@ -221,6 +221,59 @@ By default, only masks marked `_done` and passing basic grid/QC checks become
 `split=train`; remaining converted pre images become unlabeled `split=test`
 prediction images.
 
+## Model-Mask Integration
+
+Once a brain-mask model produces predictions, do not pass those masks directly
+to quantification. First validate them as candidate brain masks:
+
+```bash
+conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/nnunet_preds \
+  --mask-source nnunet \
+  --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv
+```
+
+The default prediction filename pattern is:
+
+```text
+derivatives/brain_seg/nnunet_preds/{case_id}.nii.gz
+```
+
+The candidate manifest checks that each predicted mask matches the native
+pre-contrast image grid, reports brain volume, connected components, largest
+component percentage, registration QC linkage, and writes mask QC montages.
+Then use the generated manifest as the input to the analysis-manifest gate:
+
+```bash
+conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
+  --qc-manifest reports/qc/brain_mask_manifest.csv \
+  -o derivatives/manifests/analysis_manifest.csv
+```
+
+For development only, current non-final manual masks can exercise the same
+downstream path with:
+
+```bash
+conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+  --mask-dir derivatives/brain_seg/manual \
+  --mask-source manual_test \
+  --mask-pattern "{case_id}_pre_manual_mask_done.nii.gz" \
+  --mask-pattern "{case_id}_pre_manual_mask.nii.gz" \
+  --manifest-name brain_mask_manifest_manual_test.csv \
+  --summary-name brain_mask_manifest_manual_test_summary.json
+
+conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
+  --qc-manifest reports/qc/brain_mask_manifest_manual_test.csv \
+  -o derivatives/manifests/analysis_manifest_manual_test.csv \
+  --summary reports/qc/analysis_manifest_manual_test_summary.csv \
+  --allow-review-masks-for-testing
+```
+
+Testing manifests use the `testing_review_mask` gate and
+`testing_nonfinal_masks` analysis mode. They are useful for pipeline
+development, but they are not final biological analysis inputs.
+
 ## Future Lesion ROI Integration
 
 Brain masking, lesion segmentation, and BBB enhancement quantification should
