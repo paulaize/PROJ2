@@ -224,13 +224,28 @@ prediction images.
 ## Model-Mask Integration
 
 Once a brain-mask model produces predictions, do not pass those masks directly
-to quantification. First validate them as candidate brain masks:
+to quantification. First post-process them into a clean candidate folder:
+
+```bash
+conda run -n lys-bbb python scripts/masks/postprocess_brain_masks.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/nnunet_preds \
+  -o derivatives/brain_seg/nnunet_preds_cleaned \
+  --summary-csv reports/qc/brain_mask_postprocess_nnunet.csv \
+  --summary-json reports/qc/brain_mask_postprocess_nnunet_summary.json
+```
+
+The postprocessor binarizes masks and keeps the largest connected component by
+default. Missing masks are reported as `missing_mask`, not command failures, so
+partial model-prediction batches can still be inspected.
+
+Then validate the cleaned masks as candidate brain masks:
 
 ```bash
 conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
   --input-root output/all_mice \
-  --mask-dir derivatives/brain_seg/nnunet_preds \
-  --mask-source nnunet \
+  --mask-dir derivatives/brain_seg/nnunet_preds_cleaned \
+  --mask-source nnunet_cleaned \
   --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv
 ```
 
@@ -255,18 +270,24 @@ For development only, current non-final manual masks can exercise the same
 downstream path with:
 
 ```bash
-conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+conda run -n lys-bbb python scripts/masks/postprocess_brain_masks.py \
   --mask-dir derivatives/brain_seg/manual \
-  --mask-source manual_test \
   --mask-pattern "{case_id}_pre_manual_mask_done.nii.gz" \
   --mask-pattern "{case_id}_pre_manual_mask.nii.gz" \
-  --manifest-name brain_mask_manifest_manual_test.csv \
-  --summary-name brain_mask_manifest_manual_test_summary.json
+  -o derivatives/brain_seg/manual_test_cleaned \
+  --summary-csv reports/qc/brain_mask_postprocess_manual_test.csv \
+  --summary-json reports/qc/brain_mask_postprocess_manual_test_summary.json
+
+conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+  --mask-dir derivatives/brain_seg/manual_test_cleaned \
+  --mask-source manual_test_cleaned \
+  --manifest-name brain_mask_manifest_manual_test_cleaned.csv \
+  --summary-name brain_mask_manifest_manual_test_cleaned_summary.json
 
 conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
-  --qc-manifest reports/qc/brain_mask_manifest_manual_test.csv \
-  -o derivatives/manifests/analysis_manifest_manual_test.csv \
-  --summary reports/qc/analysis_manifest_manual_test_summary.csv \
+  --qc-manifest reports/qc/brain_mask_manifest_manual_test_cleaned.csv \
+  -o derivatives/manifests/analysis_manifest_manual_test_cleaned.csv \
+  --summary reports/qc/analysis_manifest_manual_test_cleaned_summary.csv \
   --allow-review-masks-for-testing
 ```
 

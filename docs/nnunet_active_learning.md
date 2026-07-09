@@ -237,13 +237,24 @@ nnUNetv2_predict \
 Copy predicted masks back to the Mac and QC them in ITK-SNAP.
 
 Before using predictions for quantification, validate them as candidate brain
-masks:
+masks. Post-process predictions first:
+
+```bash
+conda run -n lys-bbb python scripts/masks/postprocess_brain_masks.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/nnunet_preds \
+  -o derivatives/brain_seg/nnunet_preds_cleaned \
+  --summary-csv reports/qc/brain_mask_postprocess_nnunet.csv \
+  --summary-json reports/qc/brain_mask_postprocess_nnunet_summary.json
+```
+
+Then validate the cleaned predictions:
 
 ```bash
 conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
   --input-root output/all_mice \
-  --mask-dir derivatives/brain_seg/nnunet_preds \
-  --mask-source nnunet \
+  --mask-dir derivatives/brain_seg/nnunet_preds_cleaned \
+  --mask-source nnunet_cleaned \
   --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv
 ```
 

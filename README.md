@@ -456,13 +456,27 @@ quantification. The expected default prediction layout is:
 derivatives/brain_seg/nnunet_preds/{case_id}.nii.gz
 ```
 
-Build a model-mask candidate manifest:
+First post-process predictions into a clean candidate folder. This binarizes
+the masks and keeps the largest connected component by default. Missing masks
+are reported but are not treated as command failures, which allows partial
+prediction batches during development:
+
+```bash
+conda run -n lys-bbb python scripts/masks/postprocess_brain_masks.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/nnunet_preds \
+  -o derivatives/brain_seg/nnunet_preds_cleaned \
+  --summary-csv reports/qc/brain_mask_postprocess_nnunet.csv \
+  --summary-json reports/qc/brain_mask_postprocess_nnunet_summary.json
+```
+
+Build a model-mask candidate manifest from the cleaned predictions:
 
 ```bash
 conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
   --input-root output/all_mice \
-  --mask-dir derivatives/brain_seg/nnunet_preds \
-  --mask-source nnunet \
+  --mask-dir derivatives/brain_seg/nnunet_preds_cleaned \
+  --mask-source nnunet_cleaned \
   --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv
 ```
 
@@ -479,25 +493,32 @@ For development only, the same path can be exercised with current non-final
 manual masks:
 
 ```bash
-conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+conda run -n lys-bbb python scripts/masks/postprocess_brain_masks.py \
   --input-root output/all_mice \
   --mask-dir derivatives/brain_seg/manual \
-  --mask-source manual_test \
   --mask-pattern "{case_id}_pre_manual_mask_done.nii.gz" \
   --mask-pattern "{case_id}_pre_manual_mask.nii.gz" \
-  --manifest-name brain_mask_manifest_manual_test.csv \
-  --summary-name brain_mask_manifest_manual_test_summary.json
+  -o derivatives/brain_seg/manual_test_cleaned \
+  --summary-csv reports/qc/brain_mask_postprocess_manual_test.csv \
+  --summary-json reports/qc/brain_mask_postprocess_manual_test_summary.json
+
+conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+  --input-root output/all_mice \
+  --mask-dir derivatives/brain_seg/manual_test_cleaned \
+  --mask-source manual_test_cleaned \
+  --manifest-name brain_mask_manifest_manual_test_cleaned.csv \
+  --summary-name brain_mask_manifest_manual_test_cleaned_summary.json
 
 conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
-  --qc-manifest reports/qc/brain_mask_manifest_manual_test.csv \
-  -o derivatives/manifests/analysis_manifest_manual_test.csv \
-  --summary reports/qc/analysis_manifest_manual_test_summary.csv \
+  --qc-manifest reports/qc/brain_mask_manifest_manual_test_cleaned.csv \
+  -o derivatives/manifests/analysis_manifest_manual_test_cleaned.csv \
+  --summary reports/qc/analysis_manifest_manual_test_cleaned_summary.csv \
   --allow-review-masks-for-testing
 
 conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py \
   output/all_mice \
-  --roi-manifest derivatives/manifests/analysis_manifest_manual_test.csv \
-  -o derivatives/flash_v1_manual_mask_test
+  --roi-manifest derivatives/manifests/analysis_manifest_manual_test_cleaned.csv \
+  -o derivatives/flash_v1_manual_mask_cleaned_test
 ```
 
 `--allow-review-masks-for-testing` is intentionally non-final. It exists to

@@ -113,3 +113,21 @@ def test_analysis_manifest_testing_mode_can_include_review_level_masks():
     assert testing_rows[0]["include"] == "yes"
     assert testing_rows[0]["qc_gate"] == "testing_review_mask"
     assert testing_rows[0]["analysis_mode"] == "testing_nonfinal_masks"
+
+
+def test_analysis_manifest_does_not_final_include_testing_sources_even_if_ready():
+    row = qc_row()
+    row.pop("manual_mask_path")
+    row["brain_mask_path"] = "derivatives/brain_seg/manual_test_cleaned/C25S1_D1.nii.gz"
+    row["brain_mask_source"] = "manual_test_cleaned"
+    row["brain_mask_grid_ok"] = True
+    row["brain_mask_status"] = "ready_candidate"
+    row["brain_mask_components"] = 1
+
+    final_rows = build_analysis_manifest_rows([row])
+    testing_rows = build_analysis_manifest_rows([row], allow_review_masks_for_testing=True)
+
+    assert final_rows[0]["include"] == "no"
+    assert final_rows[0]["qc_gate"] == "testing_mask_source"
+    assert testing_rows[0]["include"] == "yes"
+    assert testing_rows[0]["qc_gate"] == "testing_review_mask"

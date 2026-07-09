@@ -84,6 +84,11 @@ def selected_brain_mask_source(row: dict[str, Any]) -> str:
     return ""
 
 
+def is_testing_source(row: dict[str, Any]) -> bool:
+    source = selected_brain_mask_source(row).lower()
+    return "test" in source or source in {"debug", "development"}
+
+
 def manual_mask_done(row: dict[str, Any]) -> bool:
     if "brain_mask_status" in row and row.get("brain_mask_source") and row.get("brain_mask_source") != "manual":
         return True
@@ -97,6 +102,8 @@ def brain_mask_gate(row: dict[str, Any]) -> tuple[str, str, str]:
         return "missing_brain_mask", "needs_manual_mask", "missing corrected brain mask"
     if not as_bool(selected_brain_mask_grid_ok(row)):
         return "mask_grid_error", "needs_correction", "manual mask grid does not match pre image"
+    if is_testing_source(row):
+        return "testing_mask_source", "needs_review", "brain mask source is marked as testing/non-final"
 
     generic_status = selected_brain_mask_status(row)
     if generic_status and generic_status != "ready_candidate":
@@ -143,7 +150,8 @@ def gate_qc_row(
     notes = unique_notes(manual_notes, registration_notes, row.get("qc_notes", ""))
     if manual_status == "missing_conversion":
         return False, "missing_conversion", manual_review, notes, "standard"
-    if manual_status in {"needs_review", "mask_needs_review"} and allow_review_masks_for_testing:
+    testing_statuses = {"needs_review", "mask_needs_review", "testing_mask_source"}
+    if manual_status in testing_statuses and allow_review_masks_for_testing:
         if registration_status == "registration_ready":
             return True, "testing_review_mask", manual_review, notes, "testing_nonfinal_masks"
         return False, registration_status, manual_review, notes, "testing_nonfinal_masks"
