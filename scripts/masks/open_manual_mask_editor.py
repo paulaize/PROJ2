@@ -63,20 +63,23 @@ def find_cases(prelabel_dir: Path,
                manual_dir: Path,
                filters: list[str],
                prelabel_glob: str,
-               prelabel_suffix: str) -> list[dict[str, Path | str]]:
+               prelabel_suffix: str) -> list[dict[str, Path | str | bool]]:
     filters_lc = [f.lower() for f in filters]
-    cases: list[dict[str, Path | str]] = []
+    cases: list[dict[str, Path | str | bool]] = []
     for prelabel in sorted(prelabel_dir.glob(prelabel_glob)):
         case_id = case_from_mask(prelabel, prelabel_suffix)
         if filters_lc and not any(f in case_id.lower() for f in filters_lc):
             continue
         image = input_root / case_id / "pre_coronal.nii.gz"
-        manual_mask = manual_dir / f"{case_id}_pre_manual_mask.nii.gz"
+        working_mask = manual_dir / f"{case_id}_pre_manual_mask.nii.gz"
+        done_mask = manual_dir / f"{case_id}_pre_manual_mask_done.nii.gz"
+        manual_mask = done_mask if done_mask.exists() else working_mask
         cases.append({
             "case_id": case_id,
             "image": image,
             "prelabel": prelabel,
             "manual_mask": manual_mask,
+            "manual_mask_is_done": done_mask.exists(),
         })
     return cases
 
@@ -170,12 +173,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     records: list[dict[str, str]] = []
-    prepared: list[dict[str, Path | str]] = []
+    prepared: list[dict[str, Path | str | bool]] = []
     for case in cases:
         case_id = str(case["case_id"])
         image = Path(case["image"])
         prelabel = Path(case["prelabel"])
         manual_mask = Path(case["manual_mask"])
+        manual_mask_is_done = bool(case.get("manual_mask_is_done"))
         try:
             if not image.exists():
                 raise FileNotFoundError(f"missing image: {image}")
@@ -183,10 +187,16 @@ def main(argv: list[str] | None = None) -> int:
                 raise FileNotFoundError(f"missing prelabel: {prelabel}")
             if args.dry_run:
                 validate_grid(image, prelabel)
+                if manual_mask.exists():
+                    validate_grid(image, manual_mask)
                 status = "dry_run"
                 prepared.append(case)
             elif args.skip_existing and manual_mask.exists():
                 status = "skipped_existing"
+            elif manual_mask_is_done:
+                validate_grid(image, manual_mask)
+                status = "existing_done"
+                prepared.append(case)
             else:
                 status = copy_prelabel(prelabel, manual_mask, overwrite=args.overwrite_manual)
                 validate_grid(image, manual_mask)

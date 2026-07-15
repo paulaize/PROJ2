@@ -190,6 +190,7 @@ Current operational path:
 - Correct MouseBrainExtractor pre-labels in ITK-SNAP.
 - Save corrected masks on the exact native pre-contrast `_coronal.nii.gz` grid.
 - Refresh `reports/qc/qc_manifest.csv`, then run `scripts/masks/build_manual_mask_workflow.py` to update `reports/qc/manual_mask_worklist.csv`, `reports/qc/manual_mask_dashboard.html`, and `derivatives/brain_seg/nnunet_manifest.csv`.
+- The manual-mask workflow preserves `mask_review`, `registration_review`, and `review_notes` across rebuilds. Use `pass`, `review`, or `fail`. Its comparison montages show manual versus MouseBrainExtractor contours plus added/removed voxels; nnU-Net inclusion requires an explicit mask-review pass.
 - Run `scripts/qc/build_analysis_manifest.py` to update `derivatives/manifests/analysis_manifest.csv`. This manifest is the preferred handoff to `scripts/quantification/quantify_flash_cohort.py --roi-manifest`.
 - Keep `group`, `ipsilateral_side`, `lesion_mask_path`, and manual review decisions in `derivatives/manifests/study_metadata.csv` from `scripts/qc/build_study_metadata.py`, then rebuild the analysis manifest with `--metadata-manifest`. Metadata can request include/exclude decisions but cannot bypass missing-mask, bad-mask, or registration QC gates.
 - When a brain-mask model produces predictions, run `scripts/masks/postprocess_brain_masks.py` on `derivatives/brain_seg/nnunet_preds/{case_id}.nii.gz`, then run `scripts/masks/build_brain_mask_manifest.py` on the cleaned predictions before building the analysis manifest.

@@ -463,13 +463,26 @@ This writes:
 ```text
 reports/qc/manual_mask_worklist.csv
 reports/qc/manual_mask_dashboard.html
+reports/qc/brain_masks/comparison/*_manual_vs_mbe_qc.png
 derivatives/brain_seg/nnunet_manifest.csv
 ```
 
-After manual correction, rerun those commands. Only masks marked with the
-`_pre_manual_mask_done.nii.gz` suffix and passing basic grid checks are used as
-default nnU-Net training labels; other converted pre images remain unlabeled
-prediction/test rows.
+The dashboard prioritizes manual edits rather than only showing independent
+mask thumbnails. Its comparison montages show the manual contour in lime, the
+MouseBrainExtractor contour in magenta, voxels added during correction in cyan,
+and voxels removed during correction in orange. It also shows connected-component
+metrics, case/status filters, and a copyable one-case ITK-SNAP launcher command.
+
+Human review decisions are entered in `manual_mask_worklist.csv` using
+`mask_review`, `registration_review`, and `review_notes`. Accepted review values
+are `pass`, `review`, and `fail`; common variants such as `approved` and `passed`
+are normalized. These fields survive subsequent workflow rebuilds. The worklist
+quantification flag requires both reviews to pass, while the generated nnU-Net
+manifest requires `mask_review=pass` in addition to the existing filename, grid,
+changed-prelabel, and connected-component checks.
+
+After manual correction, rerun those commands. Masks that are not explicitly
+approved remain unlabeled prediction/test rows in the nnU-Net manifest.
 
 Dry-run the T1 brain-mask nnU-Net raw dataset preparation:
 

@@ -106,13 +106,25 @@ Outputs:
 ```text
 reports/qc/manual_mask_worklist.csv
 reports/qc/manual_mask_dashboard.html
+reports/qc/brain_masks/comparison/*_manual_vs_mbe_qc.png
 derivatives/brain_seg/nnunet_manifest.csv
 ```
 
 The HTML dashboard is a local review page linking each pre image, manual mask,
 MouseBrainExtractor pre-label, brain-mask QC montage, and registration QC
-montage. The CSV contains editable review columns, but the generated QC
-manifest remains the source of truth for discovered files and computed metrics.
+montage. It also includes an edit-focused comparison montage: manual contours
+are lime, pre-label contours are magenta, added voxels are cyan, and removed
+voxels are orange. The changed slices are prioritized so a reviewer can see
+what was actually corrected. Connected-component metrics, case/status filters,
+and a copyable single-case ITK-SNAP command are shown alongside the images.
+
+The CSV contains editable `mask_review`, `registration_review`, and
+`review_notes` fields. Use `pass`, `review`, or `fail`; these fields are
+preserved when the workflow is rebuilt. The generated QC manifest remains the
+source of truth for discovered files and computed metrics. A case only receives
+`include_for_nnunet=yes` after automated readiness checks and an explicit
+`mask_review=pass`. Its worklist quantification flag additionally requires
+`registration_review=pass`.
 
 After finishing manual correction, rerun both commands above. Masks should be
 considered ready only when the file is on the correct grid, visually reviewed,
