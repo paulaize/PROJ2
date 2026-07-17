@@ -1,0 +1,13 @@
+# Frozen first open-weight T1 brain-extraction benchmark cohort.
+# It contains D1/D7 pairs, existing difficult MouseBrainExtractor cases,
+# different animals, and both acute and later scans.
+C23S5_D1
+C23S5_D7
+C24S3_D1
+C24S4_D1
+C24S4_D7
+C25S1_D1
+C25S1_D7
+C26S1_D1
+C26S2_D1
+C26S3_D7

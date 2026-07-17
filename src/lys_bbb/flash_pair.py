@@ -470,7 +470,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "The percent_enhancement map is always saved.")
     return parser.parse_args(argv)
 
-
+# could you describe the current setup used to run models for brian extraction
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     metadata = process_pair(args)

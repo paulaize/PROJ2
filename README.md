@@ -107,13 +107,42 @@ conda run -n lys-bbb python scripts/conversion/convert_inventory_t1_flash.py \
   --out-root output/all_mice
 ```
 
-Prepare a model-neutral Colab benchmark package:
+The first ten-image Colab benchmark package has been prepared locally at
+`derivatives/brain_extraction/colab/t1_brain_extraction_benchmark_10.zip`. Rebuild the
+same frozen cohort with:
 
 ```bash
 conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py \
   --input-root output/all_mice \
-  --random-count 12
+  --case-file config/brain_extraction_benchmark_10.txt \
+  --package-name t1_brain_extraction_benchmark_10 \
+  --overwrite
 ```
+
+Upload [`notebooks/brain_extraction_colab_benchmark.ipynb`](notebooks/brain_extraction_colab_benchmark.ipynb)
+to Google Colab, choose a T4 GPU, run all cells, and upload the prepared archive when
+prompted. After Colab downloads `t1_brain_extraction_results.zip`, compare every mask
+with its T1 in ITK-SNAP:
+
+```bash
+conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
+  ~/Downloads/t1_brain_extraction_results.zip
+```
+
+The primary notebook has now run successfully on the 10 frozen images. To add two
+optional diagnostic controls without disturbing it, run
+[`notebooks/brain_extraction_colab_extra_baselines.ipynb`](notebooks/brain_extraction_colab_extra_baselines.ipynb)
+in a fresh T4 runtime with the same upload archive. It produces
+`t1_brain_extraction_extra_results.zip`. Compare the primary and extra masks together:
+
+```bash
+conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
+  ~/Downloads/t1_brain_extraction_results.zip \
+  ~/Downloads/t1_brain_extraction_extra_results.zip
+```
+
+The extras are a rodent T2/T2* cross-contrast control and a human-T1 cross-species
+control. They are not presented as mouse-T1-validated replacements for MBE or RS2-Net.
 
 Build the compact technical readiness report:
 

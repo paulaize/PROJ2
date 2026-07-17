@@ -48,6 +48,15 @@ def select_cases(
     return selected
 
 
+def read_case_file(path: Path) -> list[str]:
+    """Read one case ID per line, ignoring blank lines and comments."""
+    return [
+        line.strip()
+        for line in path.read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
 def find_reference(case_id: str, reference_dir: Path | None) -> Path | None:
     if reference_dir is None:
         return None
@@ -118,6 +127,7 @@ def build_package(
         "purpose": "Open-weight T1 mouse brain-extraction benchmark",
         "input_space": "native pre-Gd coronal T1",
         "case_count": len(rows),
+        "cases": [row["case_id"] for row in rows],
         "selection_seed": seed,
         "warning": "Reference masks must be human-reviewed before quantitative scoring.",
     }
@@ -136,6 +146,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--input-root", type=Path, default=Path("output/all_mice"))
     parser.add_argument("--reference-dir", type=Path, default=None)
     parser.add_argument("--case", action="append", default=[])
+    parser.add_argument(
+        "--case-file",
+        type=Path,
+        default=None,
+        help="Text file containing one case ID per line; blank lines and # comments are ignored.",
+    )
     parser.add_argument("--random-count", type=int, default=None)
     parser.add_argument("--seed", type=int, default=20260717)
     parser.add_argument("--out-dir", type=Path, default=Path("derivatives/brain_extraction/colab"))
@@ -150,7 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     input_root = args.input_root.expanduser()
     available = discover_cases(input_root)
-    selected = select_cases(available, args.case, args.random_count, args.seed)
+    requested = list(args.case)
+    if args.case_file:
+        requested.extend(read_case_file(args.case_file.expanduser()))
+    selected = select_cases(available, requested, args.random_count, args.seed)
     if not selected:
         raise ValueError(f"no converted cases found under {input_root}")
 

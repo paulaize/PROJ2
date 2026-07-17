@@ -22,9 +22,12 @@ external-model adapters. Generated outputs belong under ignored `output/`,
 | Convert inventory-selected T1 pairs | `scripts/conversion/convert_inventory_t1_flash.py` |
 | Convert selected raw session folders | `scripts/conversion/convert_bruker_t1_flash.py` |
 | Package Colab benchmark inputs | `scripts/brain_extraction/prepare_colab_package.py` |
+| Run benchmark in Colab | `notebooks/brain_extraction_colab_benchmark.ipynb` |
+| Run optional control models in Colab | `notebooks/brain_extraction_colab_extra_baselines.ipynb` |
+| Compare downloaded model masks | `scripts/brain_extraction/review_colab_results.py` |
 | Run current MBE adapter | `scripts/brain_extraction/mbe/run_one.py` or `run_batch.py` |
 | Registration QC | `scripts/qc/qc_pre_post_registration.py` |
-| Open masks in ITK-SNAP | `scripts/masks/open_manual_mask_editor.py` |
+| Edit a selected mask in ITK-SNAP | `scripts/masks/open_manual_mask_editor.py` |
 | Build manual review dashboard | `scripts/masks/build_manual_mask_workflow.py` |
 | Clean candidate masks | `scripts/masks/postprocess_brain_masks.py` |
 | Validate candidate masks | `scripts/masks/build_brain_mask_manifest.py` |

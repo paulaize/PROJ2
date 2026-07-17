@@ -5,6 +5,7 @@ import pytest
 from scripts.brain_extraction.prepare_colab_package import (
     build_package,
     discover_cases,
+    read_case_file,
     select_cases,
 )
 
@@ -26,6 +27,12 @@ def test_discover_and_select_cases(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unknown or unconverted"):
         select_cases(available, ["missing"], None, 7)
+
+
+def test_read_case_file_ignores_comments_and_blank_lines(tmp_path: Path) -> None:
+    path = tmp_path / "cases.txt"
+    path.write_text("# benchmark\nC1S1_D1\n\n  C2S1_D7  \n")
+    assert read_case_file(path) == ["C1S1_D1", "C2S1_D7"]
 
 
 def test_build_package_copies_images_and_reviewed_reference(tmp_path: Path) -> None:
@@ -54,3 +61,4 @@ def test_build_package_copies_images_and_reviewed_reference(tmp_path: Path) -> N
     assert (package / "benchmark_manifest.csv").is_file()
     assert (package / rows[0]["image"]).read_bytes() == b"image"
     assert (package / rows[0]["reference_mask"]).read_bytes() == b"mask"
+    assert '"cases": [' in (package / "package_metadata.json").read_text()

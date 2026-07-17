@@ -18,7 +18,10 @@ zero cases because reviewed T1 brain masks are unavailable.
 | MouseBrainExtractor pre-labels | 8 |
 | Explicitly approved T1 brain masks | 0 |
 | Final analysis cases | 0 |
-| Tests | 52 passing after cleanup |
+| Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
+| Colab benchmark implementation | Three primary models plus optional two-control companion notebook |
+| Brain-extraction decision | Five-model visual review and reviewed-reference scoring remain pending |
+| Tests | 65 passing; biological validation is separate |
 
 The data contain static pre/post `T1_FLASH_3D_Glymphatic_Sag` scans. They do not
 contain the multi-TR or dynamic acquisitions required for quantitative T1 mapping or
@@ -63,6 +66,17 @@ Current final gate:
 Largest-component cleanup and an eight-case testing-only cohort have run successfully.
 Those masks and cohort outputs are engineering artifacts, not accepted labels or
 biological results.
+
+The first model-comparison cohort is frozen in
+`config/brain_extraction_benchmark_10.txt`. Its 10-image local upload archive and exact
+Colab notebook generated MBE isotropic, MBE anisotropic, and RS2-Net masks successfully
+under one manifest/output contract. The downloaded masks have not yet been reviewed or
+scored against accepted references, so no benchmark winner has been selected.
+
+An optional companion notebook is ready for two explicitly mismatched diagnostic
+controls: the CAMRI rodent T2/T2* U-Net and human-T1 deepbet. Its outputs use the same
+manifest and native-grid mask contract, and the local review launcher can combine both
+archives into one five-model ITK-SNAP comparison.
 
 ## Registration and quantification
 
