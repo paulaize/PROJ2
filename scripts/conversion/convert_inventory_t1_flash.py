@@ -7,7 +7,6 @@ import argparse
 import csv
 import json
 import re
-import shutil
 import sys
 from pathlib import Path
 
@@ -65,9 +64,7 @@ def final_output_exists(case_dir: Path) -> bool:
     return all(
         (case_dir / name).exists()
         for name in (
-            "pre_sagital.nii.gz",
             "pre_coronal.nii.gz",
-            "post_sagital.nii.gz",
             "post_coronal.nii.gz",
         )
     )
@@ -142,16 +139,14 @@ def convert_session(session: dict, out_root: Path, overwrite: bool) -> dict:
 
         sag_path = case_dir / f"{result['stem']}_sag.nii.gz"
         cor_path = Path(result["cor_path"])
-        final_sag = case_dir / f"{clean_role}_sagital.nii.gz"
         final_cor = case_dir / f"{clean_role}_coronal.nii.gz"
-        move_output(sag_path, final_sag, overwrite=overwrite)
         move_output(cor_path, final_cor, overwrite=overwrite)
+        sag_path.unlink(missing_ok=True)
 
         metadata["outputs"][clean_role] = {
             "scan_id": scan_id,
             "source_role": inventory_role,
             "source_protocol": row.get("protocol", ""),
-            "sagital": str(final_sag),
             "coronal": str(final_cor),
         }
 
@@ -171,7 +166,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Convert inventory-listed Bruker pre/post T1 FLASH scans into the clean "
-            "output/<case>/{pre,post}_{sagital,coronal}.nii.gz layout."
+            "output/<case>/{pre,post}_coronal.nii.gz layout."
         )
     )
     parser.add_argument(

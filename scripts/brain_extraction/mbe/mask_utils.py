@@ -1,4 +1,4 @@
-"""Shared helpers for external/cloud brain-mask pre-label scripts."""
+"""Grid and mask helpers for the MouseBrainExtractor adapter."""
 
 from __future__ import annotations
 

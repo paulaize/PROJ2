@@ -16,7 +16,7 @@ import nibabel as nib
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from external_mask_utils import auto_mbe_dataset_type, binarize_to_reference
+from mask_utils import auto_mbe_dataset_type, binarize_to_reference
 
 
 def check_python_monai_compatibility() -> None:

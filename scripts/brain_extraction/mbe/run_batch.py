@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Run cloud MouseBrainExtractor inference for a manifest of pre-label cases."""
+"""Run MouseBrainExtractor on a benchmark-package manifest."""
 
 from __future__ import annotations
 
@@ -27,11 +27,11 @@ def zip_dir(source_dir: Path, zip_path: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MouseBrainExtractor on all cases listed in a cloud package manifest. "
+            "Run MouseBrainExtractor on all cases listed in a benchmark manifest. "
             "Outputs are pre-label masks for manual correction, not final analysis masks."
         )
     )
-    parser.add_argument("--manifest", type=Path, default=Path("manifest.csv"))
+    parser.add_argument("--manifest", type=Path, default=Path("benchmark_manifest.csv"))
     parser.add_argument("--package-root", type=Path, default=None)
     parser.add_argument("--out-dir", type=Path,
                         default=Path("derivatives/brain_seg/external/mousebrainextractor"))
@@ -49,7 +49,7 @@ def main() -> int:
     args = parse_args()
     manifest = args.manifest.expanduser().resolve()
     package_root = args.package_root.expanduser().resolve() if args.package_root else manifest.parent.resolve()
-    script = Path(__file__).resolve().with_name("run_mousebrainextractor.py")
+    script = Path(__file__).resolve().with_name("run_one.py")
     out_dir = args.out_dir.expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
 

@@ -1,8 +1,19 @@
 [project]
 name = "lys-bbb"
 version = "0.1.0"
-description = "Staged BBB leakage MRI processing utilities for Bruker mouse MRI data."
+description = "Mouse T1 MRI gadolinium-enhancement analysis backend."
 requires-python = ">=3.10"
+dependencies = [
+  "matplotlib>=3.8",
+  "nibabel>=5.2",
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "SimpleITK>=2.3",
+]
+
+[project.optional-dependencies]
+conversion = ["brkraw==0.5.7"]
+test = ["pytest>=8"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

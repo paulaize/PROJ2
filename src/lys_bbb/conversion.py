@@ -441,10 +441,9 @@ def parse_args(argv=None):
     p.add_argument("--write-slab-mm", type=float, default=None,
                    help="also write a same-grid moving-slab coronal NIfTI for visual review; "
                         "not for quantification")
-    p.add_argument("--no-fiji-display", action="store_true",
-                   help="skip Fiji-friendly display NIfTI outputs. By default, these are "
-                        "vertically flipped and resampled to square XY pixels for Fiji only; "
-                        "use the regular coronal NIfTI for quantification.")
+    p.add_argument("--write-fiji-display", action="store_true",
+                   help="write an additional vertically flipped, square-pixel NIfTI for "
+                        "Fiji viewing only; never use it for quantification")
     p.add_argument("--fiji-display-xy-mm", type=float, default=None,
                    help="target X/Y pixel size in mm for Fiji display copies. "
                         "Default: min(native coronal X/Y voxel size).")
@@ -456,6 +455,8 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.fiji_display_xy_mm is not None and not args.write_fiji_display:
+        raise ValueError("--fiji-display-xy-mm requires --write-fiji-display")
     failures = []
     for d in args.bruker_dirs:
         d = d.expanduser()
@@ -466,7 +467,7 @@ def main(argv=None):
         try:
             process_session(d, args.out_dir, args.iso, not args.no_qc,
                             args.qc_slab_mm, args.write_slab_mm,
-                            not args.no_pair_qc, not args.no_fiji_display,
+                            not args.no_pair_qc, args.write_fiji_display,
                             args.fiji_display_xy_mm)
         except Exception as exc:                  # keep the batch going; report at end
             print(f"FAILED {d.name}: {exc}", file=sys.stderr)

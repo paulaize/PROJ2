@@ -1,0 +1,14 @@
+name: lys-bbb
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - matplotlib
+  - nibabel
+  - numpy
+  - scipy
+  - simpleitk
+  - pytest
+  - pip
+  - pip:
+      - brkraw==0.5.7

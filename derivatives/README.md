@@ -1,23 +1,23 @@
-# Derivatives
+# Generated derivatives
 
-Generated pipeline outputs go here during local development.
+This directory is ignored except for this file. It contains working predictions, masks,
+transforms, manifests, maps, and tables produced from raw data and explicit code/model
+versions.
 
-This folder is ignored by git because MRI derivatives can be large and should be regenerated from raw Bruker data plus explicit configuration.
+Preserve user-created manual masks and review decisions. Other derivatives should be
+reproducible, but a branch switch does not regenerate or remove them.
 
-V1 output policy:
+Recommended organization for new work:
 
-- Keep default outputs lightweight.
-- Store compact pair outputs under `derivatives/flash_v1_minimal/` or the
-  chosen quantification output folder.
-- Store initial cohort outputs under the chosen `derivatives/flash_v1_cohort/`
-  style folder. These cohort tables are engineering/QC products until final
-  masks and inclusion decisions are locked.
-- Store requested debug/intermediate outputs under a clear debug folder such as `derivatives/flash_v1_debug/`.
-- Do not mix visualization-only Fiji/slab outputs with quantitative derivatives.
+```text
+brain_extraction/   automatic, editable, reviewed, and benchmark masks
+registration/       transforms, registered images, and QC
+manifests/          generated internal handoffs
+quantification/     enhancement maps and cohort outputs
+```
 
-The most important V1 derivatives are trustworthy corrected brain masks on
-coronal slices 50-170. Quantification should not be trusted when mask QC or
-post-to-pre registration QC fails.
+Existing `brain_seg/` and `flash_v1_*` folders are transitional historical outputs. Do
+not bulk-delete them until manual masks and review state have been migrated and checked.
 
-Final V1 should produce one locked combined CSV/report for all included
-mice/sessions, while keeping per-session artifacts compact and reproducible.
+Whole-brain quantification uses the full approved mask. Slices 50–170 are only the
+standard QC display range.
