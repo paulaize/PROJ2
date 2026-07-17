@@ -247,11 +247,12 @@ against the official 0.50 mask, and generates native-grid masks at 0.50, 0.60, 0
 0.80, 0.90, and 0.95. It also creates an interactive case/slice viewer and saved QC
 montages inside Colab.
 
-RS2 exports separate background and foreground sigmoid channels. The calibration cell
-identifies the foreground channel against the official discrete mask, recovers the two
-class logits, and applies softmax before thresholding. The reconstructed 0.50 mask must
-reach Dice ≥0.99 against the official output or the cell stops rather than writing
-misoriented candidates.
+RS2 exports two sigmoid channels, but the pinned release's label manager defines its
+discrete mask specifically as channel 0 greater than 0.5 rather than applying argmax or
+softmax. The calibration cell tests the exported channels against the official mask and
+then thresholds the matching raw sigmoid channel. The reconstructed 0.50 mask must reach
+Dice ≥0.99 against the official output or the cell stops rather than writing misoriented
+candidates.
 
 The cell downloads `rs2_threshold_sweep_results.zip`. These are calibration candidates,
 not approved masks. A threshold must be selected across the complete reviewed calibration
