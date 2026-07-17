@@ -40,6 +40,9 @@ def test_colab_notebook_pins_models_and_conforms_to_result_contract() -> None:
     assert "--save_probabilities" in source
     assert "RS2_THRESHOLDS = (0.50, 0.60, 0.70, 0.80, 0.90, 0.95)" in source
     assert "orientation_validation_dice_at_0.50" in source
+    assert "softmax reconstructed from official per-class sigmoid exports" in source
+    assert "winning_channel = np.argmax(raw_probability, axis=0)" in source
+    assert "foreground_channel" in source
     assert "widgets.interactive_output" in source
     assert "rs2_threshold_sweep_results.zip" in source
 
