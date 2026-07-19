@@ -1,6 +1,6 @@
 # Current project state
 
-Last audited: 2026-07-17. This file records operational facts, not future design.
+Last audited: 2026-07-19. This file records operational facts, not future design.
 
 ## Readiness summary
 
@@ -19,9 +19,9 @@ zero cases because reviewed T1 brain masks are unavailable.
 | Explicitly approved T1 brain masks | 0 |
 | Final analysis cases | 0 |
 | Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
-| Colab benchmark implementation | Three primary models plus optional two-control companion notebook |
-| Brain-extraction decision | Five-model visual review and reviewed-reference scoring remain pending |
-| Tests | 65 passing; biological validation is separate |
+| Colab benchmark implementation | Three primary models, two mismatched controls, and a separate RS2 correction experiment |
+| Brain-extraction decision | RS2-Net is the visual front-runner; corrected-mask selection and reviewed-reference scoring remain pending |
+| Tests | Test suite passes; biological validation is separate |
 
 The data contain static pre/post `T1_FLASH_3D_Glymphatic_Sag` scans. They do not
 contain the multi-TR or dynamic acquisitions required for quantitative T1 mapping or
@@ -77,6 +77,19 @@ An optional companion notebook is ready for two explicitly mismatched diagnostic
 controls: the CAMRI rodent T2/T2* U-Net and human-T1 deepbet. Its outputs use the same
 manifest and native-grid mask contract, and the local review launcher can combine both
 archives into one five-model ITK-SNAP comparison.
+
+The two controls performed worse than RS2-Net on visual inspection. RS2-Net closely
+follows the brain but recurrently includes a bright superior skull cap, most prominently
+in high-contrast images where a dark M-shaped brain--skull separation is visible.
+Increasing the RS2 probability threshold did not remove this false positive reliably.
+
+`notebooks/brain_extraction_rs2_refinement_colab.ipynb` is now ready to rerun RS2 once
+and compare three T1-guided postprocessors on the same ten images: a direct M-seam cut,
+marker-controlled watershed, and random walker. It preserves raw RS2, writes every
+candidate separately, generates interactive and durable QC, and packages all four masks
+for the existing ITK-SNAP review launcher. The algorithms were exercised locally on the
+downloaded ten-case results, but the exact notebook still awaits its first Colab run and
+formal human selection.
 
 ## Registration and quantification
 

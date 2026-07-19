@@ -265,6 +265,51 @@ conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
   ~/Downloads/rs2_threshold_sweep_results.zip
 ```
 
+## RS2-Net T1-guided superior-boundary experiment
+
+Visual comparison currently favors RS2-Net, but it recurrently includes a bright
+superior skull cap. In the strongest cases, a dark M-shaped intensity valley visibly
+separates that cap from cortex. Probability thresholding did not resolve the error, so
+the next experiment uses the T1 boundary rather than changing RS2 confidence.
+
+Run
+[`notebooks/brain_extraction_rs2_refinement_colab.ipynb`](../notebooks/brain_extraction_rs2_refinement_colab.ipynb)
+in a fresh T4 runtime and upload the same
+`t1_brain_extraction_benchmark_10.zip`. The notebook runs pinned RS2-Net once and creates:
+
+| Model ID | Candidate | Purpose |
+|---|---|---|
+| `rs2net_raw` | Untouched RS2 output | Immutable comparison baseline |
+| `rs2_m_seam` | Direct cut superior to the detected dark gap | Test the simplest targeted correction |
+| `rs2_marker_watershed` | Marker watershed on the local T1 gradient | Let the local edge reposition the boundary |
+| `rs2_random_walker` | Marker-based random walker on local T1 intensity | Test a diffusion-based alternative |
+
+All refinements operate in anatomical R/S/A orientation and are returned exactly to the
+native input grid. They are removal-only: no corrected mask may contain a voxel absent
+from raw RS2. The gap must meet contrast, continuous-width, adjacent-slice, seed, and
+removed-fraction gates. A slice or complete case that fails those checks retains the raw
+RS2 prediction. These checks limit damage but do not establish anatomical validity.
+
+Colab displays all four outputs together. Yellow is the raw RS2 boundary, cyan is the
+candidate boundary, and magenta marks removed voxels. The download also includes one
+saved multi-slice montage per case, method metadata, detected-gap surfaces, removed-voxel
+maps, validation results, and a summary of the number of corrected slices and removed
+volume. Review the full anterior--posterior extent; a clean removal at one central slice
+is insufficient evidence.
+
+After Colab downloads `t1_brain_extraction_rs2_refinement_results.zip`, run:
+
+```bash
+conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
+  ~/Downloads/t1_brain_extraction_rs2_refinement_results.zip
+```
+
+The archive contains four automatic pre-labels per case, not approved masks. Compare the
+same correction across all ten cases and look specifically for superior cortex removal,
+anterior/posterior discontinuities, isolated remnants, and unchanged skull. If no one
+deterministic method is safe across the cohort, retain raw RS2 as the pre-label and move
+to reviewed corrections followed by cohort-specific fine-tuning.
+
 ## Human review
 
 The review workflow must preserve three products:

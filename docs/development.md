@@ -24,6 +24,7 @@ external-model adapters. Generated outputs belong under ignored `output/`,
 | Package Colab benchmark inputs | `scripts/brain_extraction/prepare_colab_package.py` |
 | Run benchmark in Colab | `notebooks/brain_extraction_colab_benchmark.ipynb` |
 | Run optional control models in Colab | `notebooks/brain_extraction_colab_extra_baselines.ipynb` |
+| Compare T1-guided RS2 corrections in Colab | `notebooks/brain_extraction_rs2_refinement_colab.ipynb` |
 | Compare downloaded model masks | `scripts/brain_extraction/review_colab_results.py` |
 | Run current MBE adapter | `scripts/brain_extraction/mbe/run_one.py` or `run_batch.py` |
 | Registration QC | `scripts/qc/qc_pre_post_registration.py` |

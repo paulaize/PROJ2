@@ -144,6 +144,23 @@ conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
 The extras are a rodent T2/T2* cross-contrast control and a human-T1 cross-species
 control. They are not presented as mouse-T1-validated replacements for MBE or RS2-Net.
 
+Visual inspection found RS2-Net to be the strongest current pre-label, with a recurring
+superior skull-cap false positive separated from cortex by a dark M-shaped T1 boundary.
+To test three image-guided corrections without changing the successful primary run, use
+[`notebooks/brain_extraction_rs2_refinement_colab.ipynb`](notebooks/brain_extraction_rs2_refinement_colab.ipynb)
+in a fresh T4 runtime and upload the same frozen archive. It produces untouched RS2,
+direct M-seam, marker-watershed, and random-walker masks plus interactive and saved QC.
+After downloading the result, compare all four candidates in ITK-SNAP:
+
+```bash
+conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
+  ~/Downloads/t1_brain_extraction_rs2_refinement_results.zip
+```
+
+These corrections are experimental automatic pre-labels. The notebook never adds mask
+voxels, falls back to raw RS2 when its dark-gap gate is not satisfied, and does not
+approve or select a corrected mask automatically.
+
 Build the compact technical readiness report:
 
 ```bash

@@ -4,6 +4,7 @@ from pathlib import Path
 
 NOTEBOOK = Path("notebooks/brain_extraction_colab_benchmark.ipynb")
 EXTRA_NOTEBOOK = Path("notebooks/brain_extraction_colab_extra_baselines.ipynb")
+REFINEMENT_NOTEBOOK = Path("notebooks/brain_extraction_rs2_refinement_colab.ipynb")
 
 
 def test_colab_notebook_is_clean_valid_json_with_compilable_code() -> None:
@@ -83,3 +84,39 @@ def test_extra_colab_notebook_pins_controls_and_declares_domain_mismatch() -> No
     assert "t1_brain_extraction_extra_results" in source
     assert "expected when all enabled: {len(CASES) * 2}" in source
     assert "SynthStrip" not in source
+
+
+def test_refinement_colab_notebook_is_clean_valid_json_with_compilable_code() -> None:
+    notebook = json.loads(REFINEMENT_NOTEBOOK.read_text())
+    assert notebook["nbformat"] == 4
+    assert len(notebook["cells"]) == 11
+    assert all(cell.get("id") for cell in notebook["cells"])
+    for index, cell in enumerate(notebook["cells"]):
+        if cell["cell_type"] == "code":
+            assert cell["execution_count"] is None
+            assert cell["outputs"] == []
+            compile("".join(cell["source"]), f"refinement-notebook-cell-{index}", "exec")
+
+
+def test_refinement_notebook_is_pinned_gated_and_self_contained() -> None:
+    notebook = json.loads(REFINEMENT_NOTEBOOK.read_text())
+    source = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
+    algorithm_cell = next(
+        cell for cell in notebook["cells"] if cell["id"] == "refinement-algorithms"
+    )
+    assert "".join(algorithm_cell["source"]) == Path(
+        "src/lys_bbb/brain_mask_refinement.py"
+    ).read_text()
+    assert "144b032df4885a3da00e0d1824fdd777b3cd304f" in source
+    assert "monai==1.4.0" in source
+    assert "weights_only=False" in source
+    assert "rs2net_raw" in source
+    assert "rs2_m_seam" in source
+    assert "rs2_marker_watershed" in source
+    assert "rs2_random_walker" in source
+    assert "detect_gap_volume" in source
+    assert "unchanged_no_confident_correction" in source
+    assert "subset_of_raw_rs2" in source
+    assert "widgets.interactive_output" in source
+    assert "t1_brain_extraction_rs2_refinement_results.zip" in source
+    assert "human review required" in source.lower()

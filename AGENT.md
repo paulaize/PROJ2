@@ -38,9 +38,10 @@ The repository is technically functional but not biologically ready:
 - 34 T1 pre/post cases are converted and have registration outputs.
 - 0 cases currently pass the final analysis gate.
 - T1 brain-mask quality and explicit review are the immediate blocker.
-- The frozen 10-image upload package, pinned Colab notebook, and ITK-SNAP comparison
-  launcher are ready. The three-model primary Colab run succeeded; visual review,
-  reviewed-reference scoring, and the model decision remain outstanding.
+- The frozen 10-image upload package, pinned Colab notebooks, and ITK-SNAP comparison
+  launcher are ready. The primary and control runs make RS2-Net the visual front-runner,
+  but it includes a recurring superior skull cap. A separate T1-guided correction
+  notebook is ready; corrected-mask selection and reviewed-reference scoring remain.
 - A separate optional Colab notebook adds CAMRI rodent T2/T2* and deepbet human-T1
   controls. Their domain mismatch must remain explicit in outputs and documentation.
 - Current enhancement normalization and bias correction remain method-development
