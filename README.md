@@ -1,40 +1,36 @@
 # LYS BBB MRI
 
-This repository contains the scientific backend for semi-quantitative analysis of
-static pre- and post-gadolinium mouse T1-weighted MRI after thrombin/MAC stroke.
-It is not yet a production pipeline: conversion and quantification work, but no case
-is currently eligible for final biological analysis because T1 brain masks and human
-review decisions are incomplete.
+This repository contains the scientific backend and emerging desktop application for
+subject-centred mouse T1 enhancement and T2 lesion quantification workflows. It is not
+yet a production pipeline: parts of the T1 backend work, but no current case is eligible
+for final biological analysis, and the T2 desktop workflow is not yet implemented.
 
-The immediate milestone is to benchmark several open-weight mouse/rodent brain
-extraction models on the same representative pre-Gd T1 images in Google Colab. The
-winning model will become a pre-label generator; human QC remains required.
+Scientific validation currently focuses on selecting and reviewing the T1 brain-mask
+pre-label generator and validating enhancement signal preservation. Desktop development
+now focuses on a study/subject/artifact model that will expose approved T1 and T2
+workflows to non-technical users without moving scientific logic into Qt widgets.
 
 ## What belongs here
 
 ```text
-Bruker inventory and T1 conversion
-        ↓
-pre-Gd T1 brain extraction and human review
-        ↓
-post-Gd → pre-Gd rigid registration and review
-        ↓
-semi-quantitative enhancement maps and cohort tables
-        ↓
-later: imported T2 lesion masks, atlas regions, and a desktop application
+Study
+└── Subject
+    ├── T1: pre/post import → brain-mask review → registration review → enhancement
+    ├── T2: scan + released draft mask → review → native-space lesion volume
+    └── Combined MRI results with explicit approval, method, and missingness states
 ```
 
 Two boundaries are deliberate:
 
-- The T2w lesion-segmentation model is being developed in another repository. This
-  repository will later import its released masks and provenance; it will not contain
-  or duplicate that model's training code.
-- The final deliverable is a desktop application for non-programmers. The current CLI
-  and Python modules are the testable backend that the application will call.
+- The sibling `~/Documents/LYS_PROJ1` repository owns T2 lesion-model development. This
+  repository integrates its immutable, checksummed releases; it does not run from that
+  live checkout or duplicate model-development code.
+- The final deliverable is a desktop application for non-programmers. Qt pages call
+  typed services, which call the independently tested scientific backend.
 
 ## Current state
 
-As of 2026-07-17:
+As of 2026-07-20:
 
 - 36 raw sessions and 285 scans have been inventoried.
 - 35 cases are expected to contain T1 pairs; 34 converted successfully.
@@ -45,6 +41,11 @@ As of 2026-07-17:
 - The final analysis manifest includes 0 cases: 8 need mask review, 26 lack a brain
   mask, and 1 lacks conversion.
 - Study metadata and review decisions are not yet complete.
+- The PySide6 application now includes a connected, explicitly synthetic design preview
+  for the launcher, overview, subjects, subject workspace, review/QC, results/export,
+  and settings screens. Real schema-v1 projects still contain only project identity and
+  folder references; production subject/artifact/job/review/result persistence and
+  T2 execution is not yet implemented.
 - The test suite passes, but biological validation is not complete.
 
 See [current state](docs/current_state.md) for the exact cases, branch history, and
@@ -88,6 +89,44 @@ Existing environments can run commands without activation:
 ```bash
 conda run -n lys-bbb python ...
 ```
+
+## Desktop application preview
+
+Open the application launcher:
+
+```bash
+conda run -n lys-bbb lys-bbb-desktop
+```
+
+Open the connected visual preview immediately:
+
+```bash
+conda run -n lys-bbb lys-bbb-desktop --demo
+```
+
+The preview has representative T1 and T2 states and connected navigation. Every
+preview subject, image, review, and result is visibly labelled synthetic and is never
+written to project state. It is intended for discussing layout, terminology, and user
+flow while scientific backends and durable study state are developed. Settings includes
+a blinded-review preview: groups can be hidden during review and deferred until an
+explicit later unblinding/group-assignment step.
+
+The existing foundation can still create/reopen a `.lysbbb` project and remember T1 and
+optional T2w input folders. Reopen one directly with:
+
+```bash
+conda run -n lys-bbb lys-bbb-desktop /path/to/study.lysbbb
+```
+
+Images stay in their source folders, including mounted hard drives; project setup neither
+copies nor modifies them. The application does not yet create the target study-root
+layout, import real subjects, or execute pipeline stages. New MVP studies will use a
+directory containing `project.sqlite`, `project.json`, imports, workspaces, outputs,
+reports, exports, and logs. Existing `.lysbbb` projects remain supported as migration
+sources.
+
+The target screens and implementation phases are defined in
+[Desktop application MVP](docs/desktop_application.md).
 
 ## Core commands
 
@@ -184,8 +223,8 @@ manifest contains reviewed cases.
 - Raw images and immutable automatic predictions must not be overwritten.
 - Quantitative work uses native `*_coronal.nii.gz` images.
 - Fiji-oriented NIfTI files and slab volumes are optional display products only.
-- Automatic masks, editable masks, reviewed masks, transforms, QC decisions, and final
-  tables are separate products.
+- Automatic masks, editable masks, reviewed masks, transforms, QC decisions, and
+  approved/provisional result tables are separate products.
 - Generated files are shared across local branches and can be older than the checked-out
   code. Record the code revision and model version when producing new results.
 

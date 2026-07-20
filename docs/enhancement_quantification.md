@@ -100,6 +100,18 @@ remain secondary engineering outputs until:
 Do not select thresholds after inspecting all experimental groups together. Prefer a
 predeclared control or reference distribution and report threshold sensitivity.
 
+## Desktop result status
+
+Human approval of a brain mask and registration is necessary but not sufficient to make
+the enhancement measurement official. Until a specific normalization/measurement
+method passes the signal-preservation tests above and its method record is approved, the
+desktop application must label resulting measurements `Provisional` even if their input
+artifacts have been reviewed.
+
+Artifact review, method approval, result review, and successful execution are separate
+records. Updating an approved mask, registration, input image, or method marks dependent
+measurements outdated; it does not delete or silently recompute their previous values.
+
 ## Biological confounds
 
 Bright signal may represent vessels, venous sinuses, meninges, choroid plexus, CSF,

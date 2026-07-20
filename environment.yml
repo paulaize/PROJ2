@@ -6,9 +6,11 @@ dependencies:
   - matplotlib
   - nibabel
   - numpy
+  - pyside6
   - scipy
   - simpleitk
   - pytest
   - pip
   - pip:
       - brkraw==0.5.7
+      - -e .

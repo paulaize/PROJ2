@@ -2,52 +2,95 @@
 
 ## Stable scientific design
 
-Native pre-Gd T1 is the quantitative reference space. Other images and labels are
-mapped into that space only when needed.
+The desktop product is subject-centred and owns two independent workflows. Combined
+MRI results join approved subject-level records; they do not erase each workflow's native
+space, method status, or review history.
 
 ```text
-post-Gd T1 ── rigid ────────────────> pre-Gd T1
-                                              │
-pre-Gd brain mask ────────────────────────────┤
-                                              ├─> enhancement maps and metrics
-external T2 lesion mask ─ T2→T1 transform ───┤
-                                              │
-atlas labels ─ optional transform chain ──────┘
+Subject
+├── T1 Enhancement
+│   post-Gd T1 ── rigid ──> native pre-Gd T1
+│   approved pre-Gd brain mask ────────┤
+│                                      └─> semi-quantitative enhancement
+│
+├── T2 Lesion
+│   native T2 + approved native-grid lesion mask ─> lesion volume in mm³
+│
+└── Combined MRI Results
+    approved/provisional records + explicit missingness and method versions
 ```
 
-Brain extraction, lesion segmentation, enhancement measurement, and atlas mapping are
-separate tasks. A success in one stage does not imply QC acceptance in another.
+Native pre-Gd T1 remains the quantitative reference for T1 enhancement. Native T2 is
+the reference for MVP lesion volume. T2-to-T1 registration is not required for that
+measurement and is deferred for later lesion-associated T1 analyses.
+
+Brain extraction, lesion segmentation, registration, enhancement measurement, and human
+review are separate tasks. Success in one stage never implies acceptance in another.
+
+## Upstream backend ownership and handoff
+
+The sibling repository `~/Documents/LYS_PROJ1` is the scientific development source for
+the T2 lesion backend. This repository, `LYS_PROJ2`, owns desktop integration,
+study/subject state, job execution, human review, dependency invalidation, results, and
+exports.
+
+The workstation path is a developer reference only. Production code must not add
+`LYS_PROJ1` to `sys.path`, import its live source tree, depend on its current Git branch,
+or read uncommitted training outputs. The handoff is:
+
+```text
+LYS_PROJ1 development and scientific validation
+    → frozen backend/model release + contract + checksums + provenance
+    → explicit installation/import into a LYS_PROJ2 study/application
+    → draft artifacts → LYS_PROJ2 human review → versioned results
+```
+
+`LYS_PROJ1` remains authoritative for algorithm behavior, model/threshold selection,
+scientific validation, and release contents. `LYS_PROJ2` validates compatibility and
+checksums, invokes the declared interface, and records outputs without modifying the
+upstream release. Updating the backend requires a new release/version and can mark
+dependent desktop results outdated.
 
 ## Processing stages
 
 | Stage | Current status | Required output |
 |---|---|---|
+| Study/project state | Foundation implemented | Versioned local state; subject/artifact schema still planned |
 | Input inventory and validation | Implemented | Case/scan inventory |
 | Bruker T1 conversion | Implemented | Native pre/post coronal NIfTI |
 | T1 brain extraction | Model selection in progress | Immutable prediction plus reviewed mask |
 | Post-to-pre T1 registration | Implemented, review incomplete | Transform, registered image, QC decision |
 | Enhancement quantification | Implemented, method provisional | Maps, metrics, provenance |
-| T2 lesion segmentation | External repository | Released T2-space lesion mask and provenance |
-| T2-to-T1 linkage | Planned here | Transform, transferred mask, registration QC |
-| Atlas mapping | Deferred | Subject-space labels and QC |
-| Desktop application | Planned | Non-programmer project workflow |
+| T2 lesion model development | Active in `LYS_PROJ1` | Frozen release package or released mask and provenance |
+| T2 lesion import/inference | Planned MVP | Draft native-grid mask with release provenance |
+| Native T2 lesion volume | Planned MVP | Approved-mask voxel count and volume in mm³ |
+| T2-to-T1 linkage | Post-MVP | Transform, transferred mask, registration QC |
+| Atlas mapping | Explicitly excluded from MVP | Subject-space labels and QC |
+| Desktop application | Foundation implemented | Project create/open and folder setup; six-screen subject workflow remains planned |
 
-## Human review states
+## Review, method, and result states
 
-Automatic output and human decisions must be distinct. The target state machine is:
+Automatic output and human decisions must be distinct. The artifact review path is:
 
 ```text
-auto_generated
+draft_auto
       ↓
-needs_review ──> accepted_auto
+awaiting_review ──> human_approved
       ├────────> manually_corrected
       ├────────> rejected
-      └────────> excluded
+      └────────> superseded
 ```
 
 Each accepted mask should eventually record source prediction, model and version,
 reviewer, decision time, notes, and a checksum. The current `_done` filename convention
 is transitional and must not become the desktop application's source of truth.
+
+Artifact approval, method approval, result approval, and job success are independent.
+A successful job creates a draft artifact or provisional result; it never creates human
+approval. A human-approved artifact produced under a method-development policy can feed
+a reviewed provisional measurement, but not an official approved measurement. Changing
+an approved dependency marks downstream artifacts/results outdated without deleting
+their history.
 
 ## Provenance contract
 
@@ -60,6 +103,8 @@ Every processing stage should record:
 - parameters and transform paths;
 - automatic QC values;
 - human review state;
+- method status and immutable method ID;
+- dependency artifact IDs and supersession links;
 - code revision and timestamp;
 - output paths and failure details.
 
@@ -69,15 +114,15 @@ files so model performance and reviewer changes remain auditable.
 ## Backend layers
 
 ```text
-Desktop interface (future)
+Desktop interface in src/lys_bbb_app
         ↓
-Application services and canonical project state (future)
+Application services, view models, workflow policies, and canonical project state
         ↓
-Workflow orchestration and resume logic (future)
+Worker-process job orchestration, cancellation, and recovery
         ↓
 Reusable scientific modules in src/lys_bbb
         ↓
-Versioned derivatives, transforms, QC, and exports
+Versioned artifacts, transforms, QC, results, audit history, and exports
 ```
 
 The CLI remains useful for development, testing, reproducibility, and support. Ordinary
@@ -85,22 +130,48 @@ end users should eventually interact only with the desktop application.
 
 ## Canonical project state
 
-The current workflow spreads state across a QC manifest, manual-mask worklist, study
-metadata, analysis manifest, and nnU-Net manifest. These remain valid internal products,
-but future users should edit only one source of truth.
+The current developer workflow spreads state across a QC manifest, manual-mask worklist,
+study metadata, analysis manifest, and nnU-Net manifest. These remain valid transitional
+products, but desktop users edit only canonical SQLite state through application
+services.
 
-The desktop product should use:
+The target study root uses:
 
-- SQLite for processing attempts, model versions, errors, and review decisions;
+- SQLite for studies, subjects, artifacts, dependencies, processing attempts, methods,
+  model releases, reviews, results, errors, audit events, and timestamps;
 - CSV/TSV imports and exports for transparency;
-- generated analysis/training manifests derived from the database;
+- generated analysis and worker-handoff manifests derived from the database;
 - migrations so older projects remain openable.
 
-Until that layer exists, `study_metadata.csv` is the editable scientific metadata table,
-the manual worklist stores mask/registration review, and `analysis_manifest.csv` is the
-QC-gated quantification handoff.
+Schema version 1 establishes only project identity, migration history, and T1/T2w
+folder assignments in a `.lysbbb` file. Phase 1 introduces schema version 2 and migrates
+that prototype into a study root containing `project.sqlite`, `project.json`, and
+managed derivative directories. The original prototype remains unchanged during
+migration. Saved raw-data paths may point to mounted hard drives and may be temporarily
+unavailable when a study is opened.
+
+Until the foundation schema expands to own scientific metadata and review records,
+`study_metadata.csv` remains the editable metadata table, the manual worklist stores
+mask/registration review, and `analysis_manifest.csv` is the QC-gated quantification
+handoff.
 
 ## Output organization
+
+Target desktop study:
+
+```text
+study-root/
+  project.sqlite       canonical mutable state
+  project.json         portable identity and schema manifest
+  imports/             import manifests and optional explicit managed copies
+  work/                uncommitted job workspaces
+  outputs/             immutable versioned artifacts and results
+  reports/             QC and study reports
+  exports/             user-requested exports and reproducibility bundles
+  logs/                structured application and worker logs
+```
+
+Current repository-development outputs remain:
 
 ```text
 output/                 converted working images

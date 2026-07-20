@@ -5,14 +5,16 @@ Do not reconstruct project status from old branches or ignored outputs alone.
 
 ## Purpose
 
-Build a reproducible backend, and later a desktop application, for mouse MRI analysis:
+Build a reproducible scientific backend and subject-centred desktop application for
+mouse T1 and T2 MRI analysis:
 
 1. import and validate pre/post T1-weighted scans;
 2. create and review a brain mask on native pre-Gd T1;
 3. rigidly register post-Gd T1 into pre-Gd T1 space;
 4. calculate semi-quantitative gadolinium-enhancement outputs;
-5. later import external T2 lesion masks and atlas labels;
-6. expose the workflow through a non-programmer desktop interface.
+5. import a released T2 lesion mask or invoke a validated frozen external model release;
+6. calculate reviewed native-space T2 lesion volume; and
+7. expose both workflows through a non-programmer desktop interface.
 
 ## Non-negotiable rules
 
@@ -25,11 +27,22 @@ Build a reproducible backend, and later a desktop application, for mouse MRI ana
 - Final masks and registrations require an explicit human decision.
 - Report the current static scans as semi-quantitative T1-weighted gadolinium
   enhancement—not absolute T1, `Ktrans`, `Ki`, DCE, or absolute permeability.
-- The T2 lesion model is developed in a different repository. Do not add or recreate its
-  training code here. Import a released mask plus model provenance later.
-- Keep scientific processing outside the future GUI. The application calls stable,
+- T2 model development is owned by the sibling `~/Documents/LYS_PROJ1` repository.
+  Never recreate its training, tuning, checkpoint-selection, or validation logic here.
+  The desktop integrates only a versioned, checksummed release contract from that
+  repository.
+- Never make the production application import Python from a live `LYS_PROJ1` checkout.
+  The local path identifies development ownership, not a portable runtime dependency.
+- Artifact approval, method approval, result approval, and job success are independent.
+  Never promote one merely because another passed.
+- Keep scientific processing outside the GUI. The application calls stable,
   tested backend services.
 - Add or update focused tests with behavior changes.
+- Keep product scope strictly to the registered T1 enhancement and T2 lesion workflows.
+  Do not add another modality or scientific workflow without an explicit user decision.
+- Blinded review hides or defers group assignment, never reviewer identity. Record the
+  blinding state on review decisions; make unblinding and group import explicit audited
+  actions, and never infer groups from subject names or folders.
 
 ## Current truth
 
@@ -46,6 +59,7 @@ The repository is technically functional but not biologically ready:
   controls. Their domain mismatch must remain explicit in outputs and documentation.
 - Current enhancement normalization and bias correction remain method-development
   choices, not validated primary endpoints.
+- No released `LYS_PROJ1` T2 backend is integrated in this repository yet.
 - Slices 50–170 are a standardized QC display range only. Quantification uses the full
   approved brain mask.
 
@@ -53,15 +67,17 @@ Exact counts and dataset exceptions live in `docs/current_state.md`.
 
 ## Current priority order
 
-1. Benchmark open-weight T1 brain-extraction models in Colab on the same cases.
-2. Select one pre-label generator using manual QC, surface metrics, failure rate, and
-   downstream measurement stability.
-3. Review/correct enough masks to unlock final T1 cohort validation.
-4. Validate registration and enhancement signal preservation.
-5. Stabilize one canonical project data model and review state machine.
-6. Add the minimal desktop application.
-7. Integrate released T2 lesion outputs from the external repository.
-8. Add atlas mapping only after T1/T2 registration is reliable.
+1. Preserve progress on T1 brain-mask selection, reviewed references, registration QC,
+   and enhancement signal-preservation validation.
+2. Implement desktop Phase 1: study roots, schema-v1 migration, recent studies,
+   subjects, persistent navigation, subject table, and audit history.
+3. Implement canonical artifacts, reviews, methods, results, dependencies, and outdated
+   state before connecting scientific actions.
+4. Connect T1 import/mask review, then registration and provisional quantification.
+5. Integrate released T2 masks and validated frozen-release invocation without model
+   development code.
+6. Add combined T1/T2 results, QC, and reproducibility exports.
+7. Keep atlas mapping outside the MVP.
 
 ## Documentation authority
 
@@ -71,7 +87,7 @@ Exact counts and dataset exceptions live in `docs/current_state.md`.
 - `docs/brain_extraction.md`: current mask policy and Colab benchmark contract.
 - `docs/enhancement_quantification.md`: formulas, terminology, and unresolved method
   validation.
-- `docs/t2_lesion_integration.md`: external lesion-model interface.
+- `docs/t2_lesion_integration.md`: `LYS_PROJ1` T2 release interface.
 - `docs/desktop_application.md`: non-programmer product architecture.
 - `docs/development.md`: active CLI entry points and developer workflow.
 
@@ -95,12 +111,17 @@ but do not delete user-created artifacts merely to tidy the worktree.
 ## Implementation boundaries
 
 Current supported code includes inventory, conversion, mask workflow/QC, rigid pre/post
-registration, analysis-manifest gating, and provisional pair/cohort quantification.
+registration, analysis-manifest gating, provisional pair/cohort quantification, a
+schema-v1 PySide6 project foundation, and a connected synthetic design preview for the
+planned desktop pages.
 
 Not implemented as production features: a single end-to-end workflow, external T2 model
 invocation, T2-to-T1 transform/QC, atlas registration, validated enhancement thresholds,
-long-format regional results, SQLite project state, desktop GUI, or installers.
+durable subject/artifact/review/job state, long-format regional results,
+production-connected desktop processing/review/results behavior, or installers.
 
-Prefer reusable functions in `src/lys_bbb/` and thin CLIs in `scripts/`. Model-specific
-inference adapters belong under `scripts/brain_extraction/<model>/` and must conform to
-the output contract in `docs/brain_extraction.md`.
+Scientific functions belong in `src/lys_bbb/`; all desktop code belongs in
+`src/lys_bbb_app/`. Do not create a second Qt shell or compatibility package. Keep CLIs
+and external-model adapters thin. Model-specific T1 inference adapters belong under
+`scripts/brain_extraction/<model>/` and must conform to the output contract in
+`docs/brain_extraction.md`.

@@ -1,6 +1,6 @@
 # Current project state
 
-Last audited: 2026-07-19. This file records operational facts, not future design.
+Last audited: 2026-07-20. This file records operational facts, not future design.
 
 ## Readiness summary
 
@@ -21,6 +21,8 @@ zero cases because reviewed T1 brain masks are unavailable.
 | Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
 | Colab benchmark implementation | Three primary models, two mismatched controls, and a separate RS2 correction experiment |
 | Brain-extraction decision | RS2-Net is the visual front-runner; corrected-mask selection and reviewed-reference scoring remain pending |
+| Desktop application | Connected PySide6 design preview for launcher, overview, subjects, workspace, review/QC, results/export, and settings; schema-v1 SQLite project creation/reopening remains available; production processing is not connected |
+| T2 desktop workflow | Not implemented; controlled model development is active in sibling `LYS_PROJ1`, but no frozen app release is installed here |
 | Tests | Test suite passes; biological validation is separate |
 
 The data contain static pre/post `T1_FLASH_3D_Glymphatic_Sag` scans. They do not
@@ -110,6 +112,57 @@ The bias-correction and normalization choices may suppress broad biological
 enhancement. They remain provisional until the validation experiments in
 `docs/enhancement_quantification.md` pass.
 
+## Desktop foundation
+
+The first PySide6 milestone is implemented on `feat/pyside-project-foundation`. The
+launcher can create or open a `.lysbbb` project, store T1 and optional T2w input-folder
+paths in a schema-versioned SQLite database, reopen that state, and report when a
+previously selected drive is unavailable. Source image folders are referenced in place;
+project setup does not copy or modify their contents.
+
+This milestone contains no scientific processing inside Qt widgets and does not invoke
+or reproduce the external T2 lesion model. Production pipeline execution, persisted
+review queues, metadata editing, results, and exports remain future desktop milestones.
+
+The application also has a connected design-preview mode (`lys-bbb-desktop --demo`). It
+uses immutable typed view models and explicitly synthetic subjects to render the planned
+launcher, persistent shell, Overview, Subjects, Subject Workspace, Review/QC,
+Results/Export, and Settings screens. Subject filtering, workspace navigation,
+subject-focused review routing, local preview decisions, result filtering, and preview
+export actions are connected. The preview also has a blinded-review toggle that hides
+group columns/filters, labels the subject workspace, collapses cohort plots, and warns
+that grouped exports require audited unblinding. These interactions are intentionally
+non-persistent and do not imply that production artifacts, approvals, results, jobs, or
+exports exist.
+
+## Adopted desktop MVP
+
+The 2026-07-20 MVP contract expands the desktop target from a T1/T2 folder shell into a
+subject-centred application with two workflows: T1 enhancement and T2 lesion volume.
+The authoritative product contract is `docs/desktop_application.md`.
+
+The target replaces new single-file projects with a study root containing
+`project.sqlite`, `project.json`, imports, job workspaces, immutable outputs, reports,
+exports, and logs. Existing schema-v1 `.lysbbb` files remain a supported migration input
+and must never be overwritten during migration. Desktop Phase 1 will introduce schema
+version 2 for the study/subject/audit foundation.
+
+No durable code for the expanded study/subject/artifact model has been implemented yet.
+The design preview exercises view models and navigation only. In particular, the
+current folder selectors do not scan subjects, validate MRI inputs, run jobs, or
+create persistent review/approval records.
+
+### Upstream repository state
+
+The local `~/Documents/LYS_PROJ1` checkout is the upstream scientific-development source.
+Its active `dl-ratlesnetv2-finetune` workflow compares Tversky and CE+Dice across five
+grouped LYS development folds, evaluates direct versus external-mouse initialization,
+then freezes five models, an OOF-selected threshold, an unweighted mean-probability
+ensemble, and `postprocessing=none` before one locked-test evaluation.
+
+No frozen T2 application release from that development workflow is currently installed
+in `LYS_PROJ2`.
+
 ## Metadata
 
 The editable study metadata table contains 35 rows. Group, lesion side, lesion-mask
@@ -152,9 +205,17 @@ current dashboard/manifests were generated on 2026-07-08 or 2026-07-09, before t
 workflow evidence. Preserve manual masks and decisions while regenerating derived
 reports.
 
-## Definition of the next milestone
+## Scientific validation milestone
 
 The next milestone is complete when the same representative cases have been run through
 the selected open-weight models in Colab, outputs satisfy a common grid/provenance
 contract, reviewed references exist for quantitative comparison, and a model-selection
 report identifies failure modes and the preferred pre-label generator.
+
+## Desktop implementation milestone
+
+Desktop Phase 1 is complete when a user can create a study root, migrate a schema-v1
+project, see recent studies, add subjects with expected T1/T2 workflows, close and
+reopen the application with the same subjects/statuses, navigate the Overview and
+Subjects screens, and inspect an append-only audit history. Scientific processing does
+not belong in this phase.

@@ -10,9 +10,10 @@ env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   conda run -n lys-bbb python -m pytest tests -q
 ```
 
-Reusable code belongs in `src/lys_bbb/`. `scripts/` contains stage-oriented CLIs and
-external-model adapters. Generated outputs belong under ignored `output/`,
-`derivatives/`, or `reports/` directories.
+Reusable scientific code belongs in `src/lys_bbb/`; all Qt application code belongs in
+`src/lys_bbb_app/`. `scripts/` contains stage-oriented CLIs and thin external-model
+adapters. Generated development outputs belong under ignored `output/`, `derivatives/`,
+or `reports/` directories.
 
 ## Active entry points
 
@@ -37,6 +38,8 @@ external-model adapters. Generated outputs belong under ignored `output/`,
 | Build readiness report | `scripts/qc/build_project_status.py` |
 | Quantify one pair | `scripts/quantification/quantify_flash_pair.py` |
 | Quantify a gated cohort | `scripts/quantification/quantify_flash_cohort.py` |
+| Launch desktop application | `lys-bbb-desktop [project.lysbbb]` |
+| Launch connected design preview | `lys-bbb-desktop --demo` |
 
 Use `python <script> --help` for the complete option set. Documentation should explain
 workflow decisions, not copy every CLI flag.
@@ -119,6 +122,70 @@ conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py \
 
 Current cohort outputs remain method-development products until masks, registrations,
 metadata, normalization, and thresholds are validated.
+
+## Desktop project foundation and next phase
+
+`environment.yml` installs the repository in editable mode and includes PySide6. For an
+existing environment created before the desktop milestone, refresh the install with:
+
+```bash
+conda install -n lys-bbb pyside6
+conda run -n lys-bbb python -m pip install --no-deps -e .
+```
+
+Launch the study launcher, open the explicitly synthetic design preview, or pass an
+existing schema-v1 project directly:
+
+```bash
+conda run -n lys-bbb lys-bbb-desktop
+conda run -n lys-bbb lys-bbb-desktop --demo
+conda run -n lys-bbb lys-bbb-desktop /path/to/study.lysbbb
+```
+
+The preview is implemented in `src/lys_bbb_app/` and is the current place to evaluate
+the persistent shell, page layout, navigation, status semantics, review interaction,
+and results presentation. Its typed demo records are not persisted. Opening a real
+schema-v1 project shows an empty real-study state rather than injecting preview subjects.
+
+The schema-v1 `.lysbbb` file stores only project identity and absolute T1/T2w folder
+paths. It does not copy source images or run scientific stages. Persistence and folder
+validation live in non-Qt modules.
+
+New MVP studies will use a study root:
+
+```text
+study-root/
+├── project.sqlite
+├── project.json
+├── imports/
+├── work/
+├── outputs/
+├── reports/
+├── exports/
+└── logs/
+```
+
+Phase 1 must migrate a legacy `.lysbbb` file without modifying it, add subjects and
+expected T1/T2 workflows, create the persistent shell/Overview/Subjects screens,
+record audit events, and restore the same state after reopening. It must not connect
+scientific processing yet.
+
+Application tests should progressively use `pytest-qt`. Domain and service tests must
+remain runnable without showing a window; scientific backend tests remain responsible
+for geometry and measurement behavior.
+
+## Sibling backend integration
+
+The local `~/Documents/LYS_PROJ1` checkout owns T2 model development. It is useful for
+inspecting the upstream release contract during development, but it is never a
+production import path for this application.
+
+Integrate an upstream backend only after `LYS_PROJ1` produces an immutable release with
+an ID/version, source revision, checksums, declared inputs/outputs, structured errors,
+completion manifest, method status, and validation provenance. Install or copy that
+release through an explicit application service and record it in `model_releases` or
+`methods`. Do not modify `LYS_PROJ1`, add it to `PYTHONPATH`, invoke whatever branch
+happens to be checked out, or infer success from output files alone.
 
 ## Branches and generated outputs
 
