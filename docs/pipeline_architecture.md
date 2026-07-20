@@ -55,18 +55,18 @@ dependent desktop results outdated.
 
 | Stage | Current status | Required output |
 |---|---|---|
-| Study/project state | Input foundation implemented | Schema-v3 study root, subjects, expected workflows, blinding/groups, MRI roots, versioned converted inputs, and audit; general artifact schema remains planned |
+| Study/project state | Input + first T2 artifact slice implemented | Schema-v6 study root, subjects, expected workflows, blinding/groups, MRI roots, versioned inputs, model releases, jobs, draft T2 artifacts, and audit |
 | Input inventory and validation | Implemented | Case/scan inventory |
 | Bruker T1 conversion | Implemented | Native pre/post coronal NIfTI |
 | T1 brain extraction | Model selection in progress | Immutable prediction plus reviewed mask |
 | Post-to-pre T1 registration | Implemented, review incomplete | Transform, registered image, QC decision |
 | Enhancement quantification | Implemented, method provisional | Maps, metrics, provenance |
 | T2 lesion model development | Active in `LYS_PROJ1` | Frozen release package or released mask and provenance |
-| T2 lesion import/inference | Planned MVP | Draft native-grid mask with release provenance |
-| Native T2 lesion volume | Planned MVP | Approved-mask voxel count and volume in mm³ |
+| T2 lesion inference | Implemented for frozen LYS v1 bundle | Native-grid probability map and draft mask with release/job provenance and QC preview |
+| Native T2 lesion volume | Provisional draft value implemented | Human-approved-mask voxel count and official volume in mm³ remain gated on review |
 | T2-to-T1 linkage | Post-MVP | Transform, transferred mask, registration QC |
 | Atlas mapping | Explicitly excluded from MVP | Subject-space labels and QC |
-| Desktop application | Persistent shell implemented | Study create/open/migrate, recent studies, subjects, blinding/groups, source folders, and audit; scientific actions remain planned |
+| Desktop application | Persistent shell + T2 inference implemented | Study create/open/migrate, subjects, inputs, release selection, single/cohort T2 run, draft inspection, blinding/groups, and audit; approval/results/exports remain planned |
 
 ## Review, method, and result states
 

@@ -10,6 +10,15 @@ from typing import Callable
 from uuid import uuid4
 
 from lys_bbb.input_validation import NiftiInputValidation, validate_managed_nifti
+from lys_bbb.t2_inference import (
+    T2InferenceOutput,
+    create_t2_qc_preview,
+    run_frozen_t2_ensemble,
+)
+from lys_bbb.t2_model_release import (
+    FrozenT2ModelRelease,
+    validate_frozen_t2_model_release,
+)
 from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source
 from lys_bbb.project_state import ProjectDatabase, ProjectStateError
@@ -32,6 +41,7 @@ from lys_bbb_app.domain.study import (
     LegacyProjectRecord,
     StudySnapshot,
 )
+from lys_bbb_app.domain.t2_lesion import T2ArtifactDraft, T2InferenceReadiness
 from lys_bbb_app.infrastructure.study_database import StudyRepository
 from lys_bbb_app.infrastructure.external_viewer import (
     ExternalViewerError,
@@ -42,8 +52,11 @@ from lys_bbb_app.infrastructure.external_viewer import (
 
 ScanConverter = Callable[..., ScanConversionResult]
 InputValidator = Callable[..., NiftiInputValidation]
-ViewerLauncher = Callable[[Path, Path | str | None], ViewerLaunch]
+ViewerLauncher = Callable[..., ViewerLaunch]
 ProgressCallback = Callable[[int, int, str], None]
+T2ReleaseValidator = Callable[[Path | str], FrozenT2ModelRelease]
+T2InferenceRunner = Callable[..., T2InferenceOutput]
+T2QCBuilder = Callable[[Path, Path, Path], Path]
 
 
 class StudyService:
@@ -55,11 +68,17 @@ class StudyService:
         scan_converter: ScanConverter = convert_scan_assignment,
         input_validator: InputValidator = validate_managed_nifti,
         viewer_launcher: ViewerLauncher = launch_itksnap,
+        t2_release_validator: T2ReleaseValidator = validate_frozen_t2_model_release,
+        t2_inference_runner: T2InferenceRunner = run_frozen_t2_ensemble,
+        t2_qc_builder: T2QCBuilder = create_t2_qc_preview,
     ) -> None:
         self._repository: StudyRepository | None = None
         self._scan_converter = scan_converter
         self._input_validator = input_validator
         self._viewer_launcher = viewer_launcher
+        self._t2_release_validator = t2_release_validator
+        self._t2_inference_runner = t2_inference_runner
+        self._t2_qc_builder = t2_qc_builder
 
     @property
     def current_study(self) -> StudySnapshot | None:
@@ -280,6 +299,213 @@ class StudyService:
         )
         return repository.snapshot()
 
+    def register_t2_model_release(
+        self,
+        release_root: Path | str,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        """Validate and activate one immutable LYS_PROJ1 inference release."""
+
+        repository = self._require_repository()
+        try:
+            release = self._t2_release_validator(release_root)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            raise StudyStateError(f"The T2 model release is not valid: {exc}") from exc
+        repository.register_t2_model_release(release, actor=actor)
+        return repository.snapshot()
+
+    def t2_inference_readiness(
+        self,
+        subject_ids: tuple[str, ...] | None = None,
+    ) -> T2InferenceReadiness:
+        """Return active subjects whose current native T2 is release-compatible."""
+
+        snapshot = self._require_repository().snapshot()
+        requested = set(subject_ids) if subject_ids is not None else None
+        active_ids = {subject.id for subject in snapshot.subjects}
+        subjects_with_current_drafts = {
+            artifact.subject_id for artifact in snapshot.artifacts if artifact.active
+        }
+        if requested is not None and requested - active_ids:
+            raise StudyStateError("One or more selected subjects are no longer active.")
+        eligible: list[str] = []
+        blocked: list[tuple[str, str]] = []
+        for subject in snapshot.subjects:
+            if requested is not None and subject.id not in requested:
+                continue
+            if requested is None and subject.id in subjects_with_current_drafts:
+                blocked.append(
+                    (subject.id, "A current draft lesion mask already awaits review.")
+                )
+                continue
+            if not subject.expected_t2:
+                blocked.append((subject.id, "T2 is marked not applicable."))
+                continue
+            t2 = next(
+                (
+                    record
+                    for record in snapshot.inputs_for_subject(subject.id)
+                    if record.active and record.role is ScanRole.T2
+                ),
+                None,
+            )
+            if t2 is None or t2.state is not ScanImportState.CONVERTED:
+                blocked.append((subject.id, "No converted T2 input is available."))
+                continue
+            if t2.validation_state is not InputValidationState.VALID:
+                blocked.append((subject.id, "The active T2 input has not passed validation."))
+                continue
+            if t2.output_path is None or not t2.output_path.is_file():
+                blocked.append((subject.id, "The managed T2 NIfTI is unavailable."))
+                continue
+            if len(t2.output_spacing_mm) != 3 or any(
+                abs(observed - expected) > 1e-5
+                for observed, expected in zip(
+                    t2.output_spacing_mm,
+                    (0.07, 0.07, 0.5),
+                    strict=True,
+                )
+            ):
+                blocked.append(
+                    (
+                        subject.id,
+                        "Voxel spacing is incompatible with this release "
+                        "(expected 0.07 × 0.07 × 0.5 mm).",
+                    )
+                )
+                continue
+            eligible.append(subject.id)
+        return T2InferenceReadiness(tuple(eligible), tuple(blocked))
+
+    def run_t2_lesion_inference(
+        self,
+        *,
+        actor: str,
+        subject_ids: tuple[str, ...] | None = None,
+        device_name: str = "auto",
+        progress: ProgressCallback | None = None,
+    ) -> StudySnapshot:
+        """Run the frozen ensemble and commit immutable draft artifacts on success."""
+
+        repository = self._require_repository()
+        snapshot = repository.snapshot()
+        release_record = snapshot.active_t2_model_release
+        if release_record is None:
+            raise StudyStateError(
+                "Select and validate the frozen LYS v1 RatLesNetV2 release first."
+            )
+        try:
+            release = self._t2_release_validator(release_record.root_path)
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            raise StudyStateError(
+                f"The registered T2 model release is no longer valid: {exc}"
+            ) from exc
+        if (
+            release.id != release_record.id
+            or release.manifest_sha256 != release_record.manifest_sha256
+            or release.frozen_spec_sha256 != release_record.frozen_spec_sha256
+            or release.threshold_sha256 != release_record.threshold_sha256
+            or release.model_sha256 != release_record.model_sha256
+            or release.metadata.get("runtime_sha256")
+            != release_record.metadata.get("runtime_sha256")
+        ):
+            raise StudyStateError(
+                "The installed T2 release changed after validation. Select it again."
+            )
+
+        readiness = self.t2_inference_readiness(subject_ids)
+        if not readiness.eligible_subject_ids:
+            raise StudyStateError(
+                "No active subjects have a validated, release-compatible T2 input."
+            )
+        inputs_by_subject = {
+            subject_id: next(
+                record
+                for record in snapshot.inputs_for_subject(subject_id)
+                if record.active
+                and record.role is ScanRole.T2
+                and record.state is ScanImportState.CONVERTED
+                and record.output_path is not None
+            )
+            for subject_id in readiness.eligible_subject_ids
+        }
+        job_id = repository.create_t2_inference_job(
+            readiness.eligible_subject_ids,
+            release_id=release.id,
+            actor=actor,
+        )
+        work_root = repository.root_path / "work" / "t2_lesion" / job_id
+        output_root = repository.root_path / "outputs" / "t2_lesion" / "jobs" / job_id
+        repository.start_t2_inference_job(job_id)
+
+        def report(current: int, total: int, message: str) -> None:
+            repository.update_t2_inference_job(job_id, current, total, message)
+            if progress is not None:
+                progress(current, total, message)
+
+        try:
+            inference = self._t2_inference_runner(
+                release,
+                {
+                    subject_id: record.output_path
+                    for subject_id, record in inputs_by_subject.items()
+                },
+                work_root=work_root,
+                output_root=output_root,
+                device_name=device_name,
+                progress=report,
+            )
+            drafts: list[T2ArtifactDraft] = []
+            for index, case in enumerate(inference.cases, start=1):
+                record = inputs_by_subject.get(case.case_id)
+                if record is None or record.output_path is None:
+                    raise RuntimeError(
+                        f"Inference returned an unexpected subject ID: {case.case_id}"
+                    )
+                qc_path = case.mask_path.parent / "qc_preview.png"
+                self._t2_qc_builder(record.output_path, case.mask_path, qc_path)
+                drafts.append(
+                    T2ArtifactDraft(
+                        subject_id=case.case_id,
+                        source_scan_input_id=record.id,
+                        mask_path=case.mask_path,
+                        mask_sha256=case.mask_sha256,
+                        probability_path=case.probability_path,
+                        probability_sha256=case.probability_sha256,
+                        qc_preview_path=qc_path,
+                        lesion_voxel_count=case.lesion_voxel_count,
+                        provisional_volume_mm3=case.lesion_volume_mm3,
+                        threshold=release.threshold,
+                        device=inference.device,
+                        metadata={
+                            "shape": list(case.shape),
+                            "spacing_mm": list(case.spacing_mm),
+                            "axis_codes": list(case.axis_codes),
+                            "ensemble": "unweighted_mean_lesion_probability",
+                            "postprocessing": "none",
+                            "native_affine_preserved": True,
+                            "predictions_are_drafts": True,
+                            "human_review_required": True,
+                            "inference_summary": str(inference.summary_path),
+                        },
+                    )
+                )
+                report(index, len(inference.cases), f"Creating T2 QC preview {index} of {len(inference.cases)}")
+            repository.complete_t2_inference_job(
+                job_id,
+                tuple(drafts),
+                release_id=release.id,
+                output_path=output_root,
+                actor=actor,
+            )
+        except Exception as exc:
+            repository.fail_t2_inference_job(job_id, str(exc), actor=actor)
+            if isinstance(exc, StudyStateError):
+                raise
+            raise StudyStateError(f"T2 lesion inference failed: {exc}") from exc
+        return repository.snapshot()
+
     def open_mri_in_itksnap(
         self,
         subject_id: str,
@@ -315,6 +541,56 @@ class StudyService:
                 "role": record.role.value,
                 "version": record.version,
                 "image_path": str(record.output_path),
+            },
+        )
+        return launch
+
+    def open_t2_draft_in_itksnap(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        actor: str,
+        viewer_path: Path | str | None = None,
+    ) -> ViewerLaunch:
+        repository = self._require_repository()
+        snapshot = repository.snapshot()
+        artifact = next(
+            (
+                item
+                for item in snapshot.t2_artifacts_for_subject(subject_id)
+                if item.id == artifact_id
+            ),
+            None,
+        )
+        if artifact is None:
+            raise StudyStateError("The selected T2 lesion artifact is unavailable.")
+        scan = next(
+            (
+                record
+                for record in snapshot.inputs_for_subject(subject_id)
+                if record.id == artifact.source_scan_input_id
+            ),
+            None,
+        )
+        if scan is None or scan.output_path is None:
+            raise StudyStateError("The native T2 input for this artifact is unavailable.")
+        try:
+            launch = self._viewer_launcher(
+                scan.output_path,
+                viewer_path,
+                segmentation_path=artifact.mask_path,
+            )
+        except ExternalViewerError as exc:
+            raise StudyStateError(str(exc)) from exc
+        repository.record_audit_event(
+            "T2_DRAFT_OPENED_IN_ITKSNAP",
+            actor=actor,
+            subject_id=subject_id,
+            details={
+                "artifact_id": artifact.id,
+                "image_path": str(scan.output_path),
+                "mask_path": str(artifact.mask_path),
             },
         )
         return launch

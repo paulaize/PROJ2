@@ -21,8 +21,8 @@ zero cases because reviewed T1 brain masks are unavailable.
 | Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
 | Colab benchmark implementation | Three primary models, two mismatched controls, and a separate RS2 correction experiment |
 | Brain-extraction decision | RS2-Net is the visual front-runner; corrected-mask selection and reviewed-reference scoring remain pending |
-| Desktop application | Schema-v3 study roots, recent studies, read-only Bruker/NIfTI discovery, editable subject/role/orientation review, versioned NIfTI conversion with provenance, persistent subjects/input state, blinding/groups/audit, plus the synthetic downstream workflow preview |
-| T2 desktop workflow | Not implemented; controlled model development is active in sibling `LYS_PROJ1`, but no frozen app release is installed here |
+| Desktop application | Schema-v6 study roots, read-only Bruker/NIfTI discovery, editable subject/role/orientation review, versioned conversion/validation, persistent subjects/jobs/draft T2 artifacts/release provenance, blinding/groups/audit, plus the synthetic downstream preview |
+| T2 desktop workflow | Frozen five-model LYS v1 release validation and cohort inference are connected; native-space draft masks, probability maps, QC previews, and provisional volumes persist; approval is pending |
 | Tests | Test suite passes; biological validation is separate |
 
 The data contain static pre/post `T1_FLASH_3D_Glymphatic_Sag` scans. They do not
@@ -115,7 +115,7 @@ enhancement. They remain provisional until the validation experiments in
 ## Desktop foundation
 
 The PySide6 input-foundation milestone is implemented on
-`feat/pyside-project-foundation`. The launcher creates or opens a schema-v5 study root,
+`feat/pyside-project-foundation`. The launcher creates or opens a schema-v6 study root,
 records recent studies, persists subjects and their expected T1/T2 workflows, stores T1
 and T2 source-root references, and restores the same state after reopening. Source image
 folders may live on mounted hard drives and are referenced in place; project setup does
@@ -135,8 +135,10 @@ pre/post/T2 roles, gives preference to high-resolution RARE for native T2 rather
 T2*, and requires a confirmation table where the user can correct identities, roles,
 coronal/native storage, and X/Y/Z storage-axis flips. Confirmed inputs are converted off
 the GUI thread into versioned NIfTI/provenance directories inside the study. Source data
-remain read-only on their original drive. Mask generation, registration, review,
-quantification, robust process cancellation, and crash recovery are not connected yet.
+remain read-only on their original drive. T2 draft-mask generation is now connected;
+T1 mask generation, registration, immutable review decisions, approved quantification,
+and robust process cancellation remain future milestones. Jobs found in `RUNNING` state
+when a study reopens are marked `INTERRUPTED` rather than assumed successful.
 
 The Subjects worklist now supports multi-selection and versioned batch axis flips. A
 single selected subject or its workspace can open any active converted T1/T2 input in
@@ -147,8 +149,8 @@ stacked key/value rows, and middle-elides long paths while preserving their full
 in a tooltip. Its workflow cards and tabs contract with smaller windows, with vertical
 scrolling used when the complete page cannot fit safely.
 The Subjects table now reports T2 import/conversion in a dedicated `T2 data` column.
-The separate `T2 lesion` column is reserved for the future released segmentation
-workflow and remains `Not started` in persistent studies until that backend is connected.
+The separate `T2 lesion` column reports released segmentation state: ready to run,
+generating, draft review required, or outdated. It never reports conversion state.
 The desktop package has an enforced dependency direction: shared records and errors are
 domain-owned, presenters live in `application`, persistence and external-tool adapters
 remain non-Qt infrastructure, services coordinate use cases, and Qt workers/pages stay
@@ -162,12 +164,29 @@ spacing, axis codes, import transforms, checksums, validation state, and plain-l
 issues. Validation runs off the GUI thread, checks each managed NIfTI against its
 conversion provenance, records reviewer/time and an audit event, and survives reopening.
 A new flipped or replacement version starts at `Input review required`; successfully
-validated T1/T2 inputs become `Ready for analysis`. The UI shows the next brain-mask and
-lesion-mask artifact steps honestly as not yet connected.
+validated T1/T2 inputs become `Ready for analysis`. Replacing or flipping the T2 makes
+its previous draft lesion artifact inactive and `OUTDATED`; renaming retains the stable
+subject association, and archived subjects are excluded from cohort inference.
 
-This milestone contains no scientific processing inside Qt widgets and does not invoke
-or reproduce the external T2 lesion model. Production pipeline execution, persisted
-review queues, metadata editing, results, and exports remain future desktop milestones.
+The first real T2 service is connected without scientific processing inside Qt widgets.
+The study registers an external immutable release directory, verifies all five model
+hashes and the frozen threshold/specification, adds only the required singleton channel
+to a native 3-D scan, performs unweighted mean-probability inference, applies threshold
+0.40 with no postprocessing, and preserves the native affine. The UI can run one subject
+or all eligible active subjects in a background thread, then show the QC preview,
+provisional volume, release/device provenance, output paths, and an ITK-SNAP shortcut.
+Every generated mask is `DRAFT_REVIEW_REQUIRED`; production review/approval, approved
+results, T1 execution, and exports remain future desktop milestones.
+
+The copied inference layer is intentionally small and inference-only. Model training,
+fold selection, threshold selection, cross-validation, and locked-test evaluation remain
+in `LYS_PROJ1`. The weights and upstream RatLesNetV2 runtime remain in the installed
+release bundle and are not committed to this repository or duplicated into studies.
+
+The new runtime was checked against the prior successful MPS result for the supplied
+256 × 256 × 18 LIP scan. In a sandbox CPU run it produced the same 7,339-voxel binary
+mask and identical affine; probability differences from the MPS output were at most
+1.73 × 10⁻⁶, which is expected device-level floating-point variation.
 
 The application also has a connected design-preview mode (`lys-bbb-desktop --demo`). It
 uses immutable typed view models and explicitly synthetic subjects to render the planned
@@ -189,13 +208,14 @@ The authoritative product contract is `docs/desktop_application.md`.
 New projects now use a study root containing
 `project.sqlite`, `project.json`, imports, job workspaces, immutable outputs, reports,
 exports, and logs. Existing schema-v1 `.lysbbb` files remain a supported migration input
-and are not overwritten during migration. Schema version 2 implements the
-study/subject/audit foundation.
+and are not overwritten during migration. Schema version 6 implements the current
+study/subject/input foundation plus T2 model-release, job, and draft-artifact records.
 
 Durable study, subject, expected-workflow, group, blinding, input-folder, scan-input
-version, conversion result/failure, audit, and recent-study state is implemented.
-General artifact, dependency, review, job, method, and result tables remain Phase 2
-work. Converted scan inputs are not approvals and do not create scientific results.
+version, conversion result/failure, audit, recent-study, frozen T2 release, inference-job,
+and draft T2 artifact state is implemented. General dependencies, review decisions,
+methods, and approved results remain Phase 2 work. Converted scan inputs and generated
+draft masks are not approvals and do not create official scientific results.
 
 ### Upstream repository state
 
@@ -205,8 +225,11 @@ grouped LYS development folds, evaluates direct versus external-mouse initializa
 then freezes five models, an OOF-selected threshold, an unweighted mean-probability
 ensemble, and `postprocessing=none` before one locked-test evaluation.
 
-No frozen T2 application release from that development workflow is currently installed
-in `LYS_PROJ2`.
+The current external application bundle is
+`~/Downloads/LYS_v1_RatLesNetV2_mac_inference`. It contains the five frozen fold models,
+OOF-selected threshold record, frozen specification, checksummed manifest, and licensed
+upstream inference runtime. `LYS_PROJ2` validates and calls that bundle; it does not
+import from the live `LYS_PROJ1` checkout.
 
 ## Metadata
 

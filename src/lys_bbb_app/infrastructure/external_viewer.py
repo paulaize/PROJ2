@@ -17,6 +17,7 @@ class ViewerLaunch:
     executable: Path
     image_path: Path
     process_id: int
+    segmentation_path: Path | None = None
 
 
 def find_itksnap(explicit_path: Path | str | None = None) -> Path:
@@ -50,21 +51,34 @@ def find_itksnap(explicit_path: Path | str | None = None) -> Path:
 def launch_itksnap(
     image_path: Path,
     viewer_path: Path | str | None = None,
+    segmentation_path: Path | None = None,
 ) -> ViewerLaunch:
-    """Open one existing MRI image as the ITK-SNAP main image."""
+    """Open an MRI image and, optionally, a matching segmentation in ITK-SNAP."""
 
     image = Path(image_path).expanduser().resolve()
     if not image.is_file():
         raise ExternalViewerError(f"The MRI image is unavailable: {image}")
+    segmentation = (
+        Path(segmentation_path).expanduser().resolve()
+        if segmentation_path is not None
+        else None
+    )
+    if segmentation is not None and not segmentation.is_file():
+        raise ExternalViewerError(
+            f"The segmentation is unavailable: {segmentation}"
+        )
     executable = find_itksnap(viewer_path)
+    command = [str(executable), "-g", str(image)]
+    if segmentation is not None:
+        command.extend(("-s", str(segmentation)))
     try:
         process = subprocess.Popen(
-            [str(executable), "-g", str(image)],
+            command,
             start_new_session=True,
         )
     except OSError as exc:
         raise ExternalViewerError(f"ITK-SNAP could not be launched: {exc}") from exc
-    return ViewerLaunch(executable, image, process.pid)
+    return ViewerLaunch(executable, image, process.pid, segmentation)
 
 
 def _configured_candidates(path: Path) -> tuple[Path, ...]:

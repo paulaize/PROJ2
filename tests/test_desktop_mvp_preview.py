@@ -172,6 +172,64 @@ def test_subject_workspace_exposes_open_mri_and_rename_actions(
     page.close()
 
 
+def test_subject_workspace_exposes_t2_inference_and_draft_result_preview(
+    qt_app: QApplication,
+) -> None:
+    study = demo_study()
+    draft_subject = study.subjects[0]
+    ready_subject = study.subjects[4]
+    page = SubjectWorkspacePage()
+    study_runs: list[bool] = []
+    subject_runs: list[str] = []
+    opened: list[tuple[str, str]] = []
+    page.t2_run_study_requested.connect(lambda: study_runs.append(True))
+    page.t2_run_subject_requested.connect(subject_runs.append)
+    page.t2_open_artifact_requested.connect(
+        lambda subject_id, artifact_id: opened.append((subject_id, artifact_id))
+    )
+
+    page.set_subject(draft_subject)
+    page.tabs.setCurrentWidget(page.t2_panel)
+    qt_app.processEvents()
+
+    assert page.tabs.tabText(page.tabs.indexOf(page.t2_panel)) == "T2 Lesion"
+    assert page.t2_panel.artifact_card.isVisibleTo(page.t2_panel)
+    assert "4.513 mm³" in {
+        widget.text()
+        for widget in page.t2_panel.artifact_card.findChildren(type(page.subject_title))
+    }
+    assert not page.t2_panel.run_subject.isEnabled()
+    page.t2_panel.open_artifact.click()
+    assert opened == [
+        (draft_subject.subject_id, draft_subject.t2_artifact.artifact_id)
+    ]
+
+    page.set_subject(ready_subject)
+    assert page.t2_panel.run_subject.isEnabled()
+    page.t2_panel.run_subject.click()
+    page.t2_panel.run_study.click()
+    assert subject_runs == [ready_subject.subject_id]
+    assert study_runs == [True]
+    page.close()
+
+
+def test_subject_worklist_offers_cohort_t2_inference(
+    qt_app: QApplication,
+) -> None:
+    page = SubjectsPage()
+    requested: list[bool] = []
+    page.t2_inference_requested.connect(lambda: requested.append(True))
+    page.set_study(demo_study())
+
+    assert page.run_t2.isEnabled()
+    assert "(1)" in page.run_t2.text()
+    page.run_t2.click()
+    qt_app.processEvents()
+
+    assert requested == [True]
+    page.close()
+
+
 def test_elided_label_preserves_and_reveals_the_complete_value(
     qt_app: QApplication,
 ) -> None:

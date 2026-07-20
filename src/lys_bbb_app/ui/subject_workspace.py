@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from lys_bbb_app.domain.view_models import StatusValue, SubjectViewModel
 from lys_bbb_app.ui.layout_helpers import clear_layout
 from lys_bbb_app.ui.subject_inputs import SubjectInputsPanel
+from lys_bbb_app.ui.t2_lesion import T2LesionPanel
 from lys_bbb_app.ui.widgets import ElidedLabel, StatusBadge, secondary_button
 
 
@@ -30,6 +31,10 @@ class SubjectWorkspacePage(QScrollArea):
     input_flip_requested = Signal(str)
     input_import_requested = Signal()
     rename_requested = Signal(str)
+    t2_release_requested = Signal()
+    t2_run_subject_requested = Signal(str)
+    t2_run_study_requested = Signal()
+    t2_open_artifact_requested = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -102,9 +107,17 @@ class SubjectWorkspacePage(QScrollArea):
         )
         self.inputs_panel.flip_requested.connect(self.input_flip_requested.emit)
         self.inputs_panel.import_requested.connect(self.input_import_requested.emit)
+        self.t2_panel = T2LesionPanel()
+        self.t2_panel.select_release_requested.connect(self.t2_release_requested.emit)
+        self.t2_panel.run_subject_requested.connect(self.t2_run_subject_requested.emit)
+        self.t2_panel.run_study_requested.connect(self.t2_run_study_requested.emit)
+        self.t2_panel.open_artifact_requested.connect(
+            self.t2_open_artifact_requested.emit
+        )
         self.history_list = QListWidget()
         self.tabs.addTab(self.summary_tab, "Summary")
         self.tabs.addTab(self.inputs_panel, "Inputs")
+        self.tabs.addTab(self.t2_panel, "T2 Lesion")
         self.tabs.addTab(self.history_list, "History")
         self.tabs.setMinimumHeight(130)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -117,6 +130,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.open_mri.setEnabled(subject.mri_input_count > 0)
         self._refresh_subject_subtitle()
         self.inputs_panel.set_subject(subject)
+        self.t2_panel.set_subject(subject)
 
         clear_layout(self.metadata_layout)
         self.metadata_value_labels.clear()
@@ -156,8 +170,8 @@ class SubjectWorkspacePage(QScrollArea):
                 "T2 Lesion",
                 "Imported → Mask generated/imported → Review → Quantification → Complete",
                 subject.t2_lesion if t2_inputs_ready else subject.t2_data,
-                "Lesion-mask step" if t2_inputs_ready else "Review inputs",
-                not t2_inputs_ready and subject.t2_data.label != "Not applicable",
+                "Open T2 workflow" if t2_inputs_ready else "Review inputs",
+                subject.t2_data.label != "Not applicable",
             ),
         )
         for title, progression, status, action, action_enabled in cards:
@@ -168,14 +182,15 @@ class SubjectWorkspacePage(QScrollArea):
                     status,
                     action,
                     action_enabled=action_enabled,
+                    target_t2=title == "T2 Lesion" and t2_inputs_ready,
                 )
             )
 
         self.summary_tab.setText(
-            "This workspace keeps every workflow under one subject identity. Use the "
-            "workflow cards above to move to the relevant review queue. Scientific "
-            "actions remain disabled until their service and state contracts are "
-            "implemented."
+            "This workspace keeps every workflow under one stable subject identity. "
+            "Use Inputs to verify the managed MRI, then open T2 Lesion to run or inspect "
+            "the frozen ensemble. T1 processing and immutable T2 approval remain "
+            "disabled until their service contracts are implemented."
         )
         self.history_list.clear()
         self.history_list.addItems(subject.history or ("No history recorded.",))
@@ -214,6 +229,7 @@ class SubjectWorkspacePage(QScrollArea):
         action_text: str,
         *,
         action_enabled: bool,
+        target_t2: bool = False,
     ) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
@@ -240,15 +256,21 @@ class SubjectWorkspacePage(QScrollArea):
             if action_enabled
             else "This input is ready. The versioned artifact/review step is the next milestone."
         )
-        button.clicked.connect(self._show_inputs)
+        button.clicked.connect(self._show_t2 if target_t2 else self._show_inputs)
         layout.addWidget(button, 1, 1, Qt.AlignRight)
         return card
 
     def _show_inputs(self) -> None:
         self.tabs.setCurrentWidget(self.inputs_panel)
 
+    def _show_t2(self) -> None:
+        self.tabs.setCurrentWidget(self.t2_panel)
+
     def _tab_changed(self, _index: int) -> None:
-        inputs_focused = self.tabs.currentWidget() is self.inputs_panel
-        self.metadata_card.setVisible(not inputs_focused)
-        self.workflow_title.setVisible(not inputs_focused)
-        self.workflow_container.setVisible(not inputs_focused)
+        workflow_focused = self.tabs.currentWidget() in {
+            self.inputs_panel,
+            self.t2_panel,
+        }
+        self.metadata_card.setVisible(not workflow_focused)
+        self.workflow_title.setVisible(not workflow_focused)
+        self.workflow_container.setVisible(not workflow_focused)

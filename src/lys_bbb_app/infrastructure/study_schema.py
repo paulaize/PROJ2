@@ -11,7 +11,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 5:
+    if schema_version != 6:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -98,6 +98,66 @@ def create_schema(
             updated_at TEXT NOT NULL,
             UNIQUE(subject_id, role, version)
         );
+        CREATE TABLE model_releases (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            version TEXT NOT NULL,
+            root_path TEXT NOT NULL,
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            architecture TEXT NOT NULL,
+            threshold REAL NOT NULL,
+            expected_spacing_json TEXT NOT NULL,
+            model_sha256_json TEXT NOT NULL,
+            manifest_sha256 TEXT NOT NULL,
+            frozen_spec_sha256 TEXT NOT NULL,
+            threshold_sha256 TEXT NOT NULL,
+            project_git_commit TEXT NOT NULL,
+            ratlesnetv2_git_commit TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            validated_at TEXT NOT NULL,
+            validated_by TEXT NOT NULL
+        );
+        CREATE TABLE jobs (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            job_type TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (
+                state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+            ),
+            stage TEXT,
+            progress_current INTEGER,
+            progress_total INTEGER,
+            model_release_id TEXT REFERENCES model_releases(id),
+            subject_ids_json TEXT NOT NULL DEFAULT '[]',
+            submitted_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            error_message TEXT,
+            output_path TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE artifacts (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            artifact_type TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (
+                state IN ('DRAFT_REVIEW_REQUIRED', 'OUTDATED')
+            ),
+            version INTEGER NOT NULL CHECK (version > 0),
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+            model_release_id TEXT NOT NULL REFERENCES model_releases(id),
+            job_id TEXT NOT NULL REFERENCES jobs(id),
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            superseded_by TEXT REFERENCES artifacts(id),
+            UNIQUE(subject_id, artifact_type, version)
+        );
         CREATE TABLE audit_events (
             id TEXT PRIMARY KEY,
             study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
@@ -114,6 +174,14 @@ def create_schema(
         CREATE INDEX idx_scan_inputs_state ON scan_inputs(study_id, state);
         CREATE UNIQUE INDEX idx_scan_inputs_active_role
             ON scan_inputs(subject_id, role) WHERE active = 1;
+        CREATE UNIQUE INDEX idx_model_releases_active
+            ON model_releases(study_id) WHERE active = 1;
+        CREATE INDEX idx_jobs_state ON jobs(study_id, state);
+        CREATE INDEX idx_artifacts_subject_type
+            ON artifacts(subject_id, artifact_type, version DESC);
+        CREATE INDEX idx_artifacts_state ON artifacts(study_id, state);
+        CREATE UNIQUE INDEX idx_artifacts_active_type
+            ON artifacts(subject_id, artifact_type) WHERE active = 1;
         CREATE INDEX idx_audit_events_study_time ON audit_events(study_id, created_at DESC);
         """
     )
@@ -223,6 +291,85 @@ def migrate_schema(
             """
         )
         version = 5
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 5:
+        connection.executescript(
+            """
+            CREATE TABLE model_releases (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                root_path TEXT NOT NULL,
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                architecture TEXT NOT NULL,
+                threshold REAL NOT NULL,
+                expected_spacing_json TEXT NOT NULL,
+                model_sha256_json TEXT NOT NULL,
+                manifest_sha256 TEXT NOT NULL,
+                frozen_spec_sha256 TEXT NOT NULL,
+                threshold_sha256 TEXT NOT NULL,
+                project_git_commit TEXT NOT NULL,
+                ratlesnetv2_git_commit TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                validated_at TEXT NOT NULL,
+                validated_by TEXT NOT NULL
+            );
+            CREATE TABLE jobs (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                job_type TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (
+                    state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+                ),
+                stage TEXT,
+                progress_current INTEGER,
+                progress_total INTEGER,
+                model_release_id TEXT REFERENCES model_releases(id),
+                subject_ids_json TEXT NOT NULL DEFAULT '[]',
+                submitted_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                error_message TEXT,
+                output_path TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE artifacts (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_type TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (
+                    state IN ('DRAFT_REVIEW_REQUIRED', 'OUTDATED')
+                ),
+                version INTEGER NOT NULL CHECK (version > 0),
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                path TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                model_release_id TEXT NOT NULL REFERENCES model_releases(id),
+                job_id TEXT NOT NULL REFERENCES jobs(id),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                superseded_by TEXT REFERENCES artifacts(id),
+                UNIQUE(subject_id, artifact_type, version)
+            );
+            CREATE UNIQUE INDEX idx_model_releases_active
+                ON model_releases(study_id) WHERE active = 1;
+            CREATE INDEX idx_jobs_state ON jobs(study_id, state);
+            CREATE INDEX idx_artifacts_subject_type
+                ON artifacts(subject_id, artifact_type, version DESC);
+            CREATE INDEX idx_artifacts_state ON artifacts(study_id, state);
+            CREATE UNIQUE INDEX idx_artifacts_active_type
+                ON artifacts(subject_id, artifact_type) WHERE active = 1;
+            """
+        )
+        version = 6
         connection.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

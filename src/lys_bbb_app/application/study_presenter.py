@@ -11,6 +11,7 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
 )
 from lys_bbb_app.domain.study import LegacyProjectRecord, StudySnapshot, SubjectRecord
+from lys_bbb_app.domain.t2_lesion import ArtifactState, ProcessingJobState
 from lys_bbb_app.domain.view_models import (
     InputIssueViewModel,
     InputScanViewModel,
@@ -19,6 +20,7 @@ from lys_bbb_app.domain.view_models import (
     StatusValue,
     StudyViewModel,
     SubjectViewModel,
+    T2LesionArtifactViewModel,
     WorkflowSummaryViewModel,
 )
 
@@ -58,11 +60,16 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
     """Represent durable Phase 1 state without inventing scientific outputs."""
 
     subjects = tuple(
-        _present_subject(subject, study.inputs_for_subject(subject.id))
+        _present_subject(
+            subject,
+            study.inputs_for_subject(subject.id),
+            study.t2_artifacts_for_subject(subject.id),
+            study,
+        )
         for subject in study.subjects
     )
     archived_subjects = tuple(
-        _present_subject(subject, ()) for subject in study.archived_subjects
+        _present_subject(subject, (), (), study) for subject in study.archived_subjects
     )
     t1_expected = sum(subject.expected_t1 for subject in study.subjects)
     t2_expected = sum(subject.expected_t2 for subject in study.subjects)
@@ -85,6 +92,22 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
     t1_validated = sum(subject.t1_data.kind == "ready" for subject in subjects)
     t2_input_reviews = sum(subject.t2_data.kind == "review" for subject in subjects)
     t2_validated = sum(subject.t2_data.kind == "ready" for subject in subjects)
+    t2_drafts = sum(subject.t2_lesion.kind == "review" for subject in subjects)
+    t2_eligible = sum(
+        subject.can_run_t2_inference
+        and (
+            subject.t2_artifact is None
+            or subject.t2_artifact.state.kind == "outdated"
+        )
+        for subject in subjects
+    )
+    t2_running_jobs = sum(
+        job.job_type == "T2_LESION_INFERENCE"
+        and job.state is ProcessingJobState.RUNNING
+        for job in study.processing_jobs
+    )
+    active_release = study.active_t2_model_release
+    review_count = input_reviews + t2_drafts
 
     workflows: tuple[WorkflowSummaryViewModel, ...] = ()
     priority_actions: tuple[PriorityActionViewModel, ...] = ()
@@ -115,17 +138,21 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 "T2 Lesion",
                 "Native T2 and released lesion-mask review workflow.",
                 (
-                    StatusValue(f"{t2_input_reviews} need input review", "review")
+                    StatusValue(f"{t2_drafts} draft masks need review", "review")
+                    if t2_drafts
+                    else StatusValue(f"{t2_running_jobs} inference job running", "processing")
+                    if t2_running_jobs
+                    else StatusValue(f"{t2_input_reviews} need input review", "review")
                     if t2_input_reviews
-                    else StatusValue(f"{t2_validated} ready for mask", "ready")
-                    if t2_validated
+                    else StatusValue(f"{t2_eligible} ready for inference", "ready")
+                    if t2_eligible
                     else WAITING_FOR_INPUT
                 ),
                 (
                     ("Expected subjects", str(t2_expected)),
                     ("T2 scans converted", str(converted_t2)),
                     ("Input reviews", str(t2_input_reviews)),
-                    ("Approved volumes", "0"),
+                    ("Draft masks", str(t2_drafts)),
                 ),
                 "View subjects",
                 "subjects",
@@ -165,6 +192,28 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 "subjects",
             ),
         )
+        if t2_eligible:
+            priority_actions = (
+                PriorityActionViewModel(
+                    f"{t2_eligible} subjects are ready for T2 lesion inference",
+                    (
+                        f"Frozen release: {active_release.version}"
+                        if active_release is not None
+                        else "Select the frozen LYS v1 release before starting"
+                    ),
+                    "ready" if active_release is not None else "review",
+                    "subjects",
+                ),
+            ) + priority_actions
+        if t2_drafts:
+            priority_actions = (
+                PriorityActionViewModel(
+                    f"{t2_drafts} draft T2 lesion masks require human review",
+                    "Drafts remain provisional until the review service is connected",
+                    "review",
+                    "subjects",
+                ),
+            ) + priority_actions
         if not study.is_blinded and unassigned:
             priority_actions += (
                 PriorityActionViewModel(
@@ -201,8 +250,8 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
             ),
             MetricViewModel(
                 "Need review",
-                str(input_reviews),
-                "Converted inputs awaiting validation",
+                str(review_count),
+                "MRI inputs or draft T2 masks",
                 "review",
             ),
             MetricViewModel("Blocked", str(failed_inputs), "Input conversion failures", "failed"),
@@ -216,12 +265,21 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         mri_input_folder=study.mri_input_folder,
         t1_input_folder=study.t1_input_folder,
         t2_input_folder=study.t2_input_folder,
+        active_t2_release_label=(
+            f"{active_release.name} · {active_release.version}"
+            if active_release is not None
+            else None
+        ),
+        t2_eligible_subject_count=t2_eligible,
+        t2_running_job_count=t2_running_jobs,
     )
 
 
 def _present_subject(
     subject: SubjectRecord,
     scan_inputs: tuple[ScanInputRecord, ...],
+    artifacts,
+    study: StudySnapshot,
 ) -> SubjectViewModel:
     expected = " · ".join(
         workflow
@@ -231,8 +289,70 @@ def _present_subject(
     active = tuple(record for record in scan_inputs if record.active)
     t1_data = _t1_input_status(active) if subject.expected_t1 else NOT_APPLICABLE
     t2_data = _t2_input_status(active) if subject.expected_t2 else NOT_APPLICABLE
+    active_t2_input = next(
+        (record for record in active if record.role is ScanRole.T2),
+        None,
+    )
+    active_t2_artifact = next(
+        (artifact for artifact in artifacts if artifact.active),
+        None,
+    )
+    latest_t2_artifact = active_t2_artifact or next(iter(artifacts), None)
+    t2_job_running = any(
+        job.job_type == "T2_LESION_INFERENCE"
+        and job.state is ProcessingJobState.RUNNING
+        and subject.id in job.subject_ids
+        for job in study.processing_jobs
+    )
+    t2_lesion = (
+        StatusValue("Generating draft mask", "processing")
+        if t2_job_running
+        else StatusValue("Draft mask · review required", "review")
+        if active_t2_artifact is not None
+        else StatusValue("Result outdated", "outdated")
+        if latest_t2_artifact is not None
+        and latest_t2_artifact.state is ArtifactState.OUTDATED
+        else StatusValue("Ready for segmentation", "ready")
+        if t2_data.kind == "ready"
+        else NOT_STARTED
+        if subject.expected_t2
+        else NOT_APPLICABLE
+    )
+    active_release = study.active_t2_model_release
+    input_available = (
+        active_t2_input is not None
+        and active_t2_input.output_path is not None
+        and active_t2_input.output_path.is_file()
+    )
+    spacing_compatible = (
+        active_t2_input is not None
+        and len(active_t2_input.output_spacing_mm) == 3
+        and all(
+            abs(observed - expected) <= 1e-5
+            for observed, expected in zip(
+                active_t2_input.output_spacing_mm,
+                (0.07, 0.07, 0.5),
+                strict=True,
+            )
+        )
+    )
+    can_run_t2 = (
+        t2_data.kind == "ready"
+        and input_available
+        and spacing_compatible
+        and not t2_job_running
+    )
+    blocked_reason = _t2_blocked_reason(
+        subject.expected_t2,
+        t2_data,
+        input_available,
+        spacing_compatible,
+        active_release is not None,
+        t2_job_running,
+    )
     ready = t1_data.label == "Inputs validated" or t2_data.label == "T2 validated"
     failed = t1_data.kind == "failed" or t2_data.kind == "failed"
+    needs_artifact_review = t2_lesion.kind == "review"
     metadata = [
         ("Expected workflows", expected),
         ("Persistent subject ID", subject.id),
@@ -241,6 +361,11 @@ def _present_subject(
     history.extend(
         f"{record.role.value} v{record.version}: {record.state.value.replace('_', ' ').title()}"
         for record in scan_inputs
+    )
+    history.extend(
+        f"T2 lesion mask v{artifact.version}: "
+        f"{artifact.state.value.replace('_', ' ').title()}"
+        for artifact in artifacts
     )
     history.extend(
         f"{record.role.value} v{record.version}: "
@@ -257,10 +382,12 @@ def _present_subject(
         registration=NOT_STARTED if subject.expected_t1 else NOT_APPLICABLE,
         t1_result=NOT_STARTED if subject.expected_t1 else NOT_APPLICABLE,
         t2_data=t2_data,
-        t2_lesion=NOT_STARTED if subject.expected_t2 else NOT_APPLICABLE,
+        t2_lesion=t2_lesion,
         overall=(
             StatusValue("Blocked", "failed")
             if failed
+            else StatusValue("Review required", "review")
+            if needs_artifact_review
             else StatusValue("Ready for analysis", "ready")
             if ready
             else StatusValue("Input review required", "review")
@@ -277,7 +404,68 @@ def _present_subject(
         can_validate_inputs=any(
             record.state is ScanImportState.CONVERTED for record in active
         ),
+        t2_artifact=(
+            _present_t2_artifact(latest_t2_artifact, study)
+            if latest_t2_artifact is not None
+            else None
+        ),
+        can_run_t2_inference=can_run_t2,
+        t2_inference_blocked_reason=blocked_reason,
+        t2_release_label=(
+            f"{active_release.name} · {active_release.version}"
+            if active_release is not None
+            else None
+        ),
     )
+
+
+def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactViewModel:
+    release = next(
+        (item for item in study.model_releases if item.id == artifact.model_release_id),
+        None,
+    )
+    return T2LesionArtifactViewModel(
+        artifact_id=artifact.id,
+        version=artifact.version,
+        state=(
+            StatusValue("Draft · human review required", "review")
+            if artifact.state is ArtifactState.DRAFT_REVIEW_REQUIRED
+            else StatusValue("Outdated", "outdated")
+        ),
+        mask_path=artifact.mask_path,
+        probability_path=artifact.probability_path,
+        qc_preview_path=artifact.qc_preview_path,
+        lesion_voxel_count=artifact.lesion_voxel_count,
+        provisional_volume_text=f"{artifact.provisional_volume_mm3:.3f} mm³",
+        threshold_text=f"{artifact.threshold:.2f}",
+        release_label=(release.version if release is not None else artifact.model_release_id),
+        device=artifact.device,
+        created_at=_format_timestamp(artifact.created_at),
+        source_scan_input_id=artifact.source_scan_input_id,
+    )
+
+
+def _t2_blocked_reason(
+    expected: bool,
+    input_status: StatusValue,
+    input_available: bool,
+    spacing_compatible: bool,
+    release_available: bool,
+    running: bool,
+) -> str | None:
+    if not expected:
+        return "T2 is marked not applicable for this subject."
+    if running:
+        return "T2 lesion inference is already running for this subject."
+    if input_status.kind != "ready":
+        return "Import, convert, visually review, and validate the active T2 input first."
+    if not input_available:
+        return "The managed T2 NIfTI is unavailable. Reconnect its study storage."
+    if not spacing_compatible:
+        return "This release expects 0.07 × 0.07 × 0.5 mm T2 voxel spacing."
+    if not release_available:
+        return "Select and validate the frozen LYS v1 RatLesNetV2 release."
+    return None
 
 
 def _t1_input_status(records: tuple[ScanInputRecord, ...]) -> StatusValue:

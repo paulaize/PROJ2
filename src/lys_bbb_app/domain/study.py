@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from lys_bbb_app.domain.scan_import import ScanInputRecord
+from lys_bbb_app.domain.t2_lesion import (
+    ProcessingJobRecord,
+    T2LesionArtifactRecord,
+    T2ModelReleaseRecord,
+)
 
 
 LEGACY_PROJECT_FILE_SUFFIX = ".lysbbb"
@@ -78,6 +83,9 @@ class StudySnapshot:
     subjects: tuple[SubjectRecord, ...]
     scan_inputs: tuple[ScanInputRecord, ...]
     group_definitions: tuple[str, ...]
+    model_releases: tuple[T2ModelReleaseRecord, ...] = ()
+    processing_jobs: tuple[ProcessingJobRecord, ...] = ()
+    artifacts: tuple[T2LesionArtifactRecord, ...] = ()
     archived_subjects: tuple[SubjectRecord, ...] = ()
     mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
@@ -97,6 +105,18 @@ class StudySnapshot:
         return tuple(
             record for record in self.scan_inputs if record.subject_id == subject_id
         )
+
+    def t2_artifacts_for_subject(
+        self,
+        subject_id: str,
+    ) -> tuple[T2LesionArtifactRecord, ...]:
+        return tuple(
+            artifact for artifact in self.artifacts if artifact.subject_id == subject_id
+        )
+
+    @property
+    def active_t2_model_release(self) -> T2ModelReleaseRecord | None:
+        return next((release for release in self.model_releases if release.active), None)
 
 
 @dataclass(frozen=True)

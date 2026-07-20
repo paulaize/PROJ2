@@ -14,6 +14,7 @@ from lys_bbb_app.domain.view_models import (
     StatusValue,
     StudyViewModel,
     SubjectViewModel,
+    T2LesionArtifactViewModel,
     WorkflowSummaryViewModel,
 )
 
@@ -32,6 +33,25 @@ WAITING_FOR_MASK = StatusValue("Waiting for mask", "unavailable")
 INPUT_REVIEW = StatusValue("Input review required", "review")
 INPUTS_VALIDATED = StatusValue("Inputs validated", "ready")
 T2_VALIDATED = StatusValue("T2 validated", "ready")
+
+
+def _demo_t2_artifact(subject_code: str) -> T2LesionArtifactViewModel:
+    root = Path(f"/synthetic-preview/{subject_code}/t2-lesion/v001")
+    return T2LesionArtifactViewModel(
+        artifact_id=f"synthetic-{subject_code}-t2-draft",
+        version=1,
+        state=StatusValue("Draft · human review required", "review"),
+        mask_path=root / "ensemble_mask.nii.gz",
+        probability_path=root / "ensemble_probability.nii.gz",
+        qc_preview_path=None,
+        lesion_voxel_count=1842,
+        provisional_volume_text="4.513 mm³",
+        threshold_text="0.40",
+        release_label="LYS_v1-6069dabd",
+        device="mps",
+        created_at="Today, 14:42",
+        source_scan_input_id=f"synthetic-{subject_code}-T2",
+    )
 
 
 def _demo_inputs(
@@ -64,9 +84,13 @@ def _demo_inputs(
                 f"/synthetic-preview/{subject_code}/inputs/{role.lower()}/v001/image.nii.gz"
             ),
             source_path=Path(f"/synthetic-source/{subject_code}/{role.lower()}"),
-            shape_text="128 × 128 × 176",
-            spacing_text="0.156 × 0.156 × 0.156 mm",
-            orientation_text="R A S",
+            shape_text="256 × 256 × 18" if role == "T2" else "128 × 128 × 176",
+            spacing_text=(
+                "0.07 × 0.07 × 0.5 mm"
+                if role == "T2"
+                else "0.156 × 0.156 × 0.156 mm"
+            ),
+            orientation_text="L I P" if role == "T2" else "R A S",
             transformation_text=(
                 "T1 Coronal · flipped X" if role.startswith("T1") else "Native"
             ),
@@ -118,6 +142,9 @@ def demo_study() -> StudyViewModel:
                 t2_validation=StatusValue("Review required", "review"),
             ),
             can_validate_inputs=True,
+            t2_artifact=_demo_t2_artifact("Mouse-001"),
+            t2_inference_blocked_reason="Validate the current T2 input first.",
+            t2_release_label="RatLesNetV2 five-fold ensemble · LYS_v1-6069dabd",
         ),
         SubjectViewModel(
             subject_id="Mouse-002",
@@ -181,6 +208,8 @@ def demo_study() -> StudyViewModel:
             metadata=(("Timepoint", "D1"), ("Expected workflows", "T1 · T2")),
             history=("Brain mask rejected: superior false positive · Monday",),
             inputs=_demo_inputs("Mouse-005"),
+            can_run_t2_inference=True,
+            t2_release_label="RatLesNetV2 five-fold ensemble · LYS_v1-6069dabd",
         ),
         SubjectViewModel(
             subject_id="Mouse-006",
@@ -324,7 +353,7 @@ def demo_study() -> StudyViewModel:
         name="LYS Design Preview 2026",
         root_path=None,
         description="Synthetic subjects for reviewing the desktop workflow and visual design.",
-        schema_version=2,
+        schema_version=6,
         last_opened="Design preview",
         is_demo=True,
         metrics=(
@@ -353,10 +382,10 @@ def demo_study() -> StudyViewModel:
                 "t2",
                 "T2 Lesion",
                 "Reviewed native-space lesion masks and volume in mm³.",
-                StatusValue("Release not installed", "unavailable"),
+                StatusValue("1 ready for inference", "ready"),
                 (
                     ("T2 scans", "18"),
-                    ("Masks imported", "12"),
+                    ("Draft masks", "12"),
                     ("Awaiting review", "5"),
                     ("Approved volumes", "7"),
                 ),
@@ -407,4 +436,6 @@ def demo_study() -> StudyViewModel:
         subjects=subjects,
         reviews=reviews,
         results=results,
+        active_t2_release_label="RatLesNetV2 five-fold ensemble · LYS_v1-6069dabd",
+        t2_eligible_subject_count=1,
     )

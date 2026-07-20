@@ -59,7 +59,10 @@ The repository is technically functional but not biologically ready:
   controls. Their domain mismatch must remain explicit in outputs and documentation.
 - Current enhancement normalization and bias correction remain method-development
   choices, not validated primary endpoints.
-- No released `LYS_PROJ1` T2 backend is integrated in this repository yet.
+- The frozen five-model LYS v1 RatLesNetV2 release is integrated through an
+  inference-only adapter. Cohort execution creates persistent native-space probability
+  maps, draft masks, provisional volumes, QC previews, job/release provenance, and audit
+  events. Human mask review and official result approval are not yet connected.
 - Slices 50–170 are a standardized QC display range only. Quantification uses the full
   approved brain mask.
 
@@ -69,14 +72,13 @@ Exact counts and dataset exceptions live in `docs/current_state.md`.
 
 1. Preserve progress on T1 brain-mask selection, reviewed references, registration QC,
    and enhancement signal-preservation validation.
-2. Preserve the implemented desktop input foundation: schema-v5 studies, read-only MRI
+2. Preserve the implemented desktop input foundation: schema-v6 studies, read-only MRI
    discovery, human-correctable subject/role/orientation proposals, versioned NIfTI
    conversion, subjects, navigation, and audit history.
-3. Implement canonical artifacts, jobs, reviews, methods, results, dependencies, and outdated
-   state before connecting scientific actions.
+3. Extend the implemented T2 release/job/draft-artifact slice with canonical immutable
+   review, correction, approval, dependencies, methods, and approved results.
 4. Connect T1 import/mask review, then registration and provisional quantification.
-5. Integrate released T2 masks and validated frozen-release invocation without model
-   development code.
+5. Add released-mask import and finish T2 human review without model-development code.
 6. Add combined T1/T2 results, QC, and reproducibility exports.
 7. Keep atlas mapping outside the MVP.
 
@@ -113,16 +115,16 @@ but do not delete user-created artifacts merely to tidy the worktree.
 
 Current supported code includes inventory, conversion, mask workflow/QC, rigid pre/post
 registration, analysis-manifest gating, provisional pair/cohort quantification, a
-schema-v5 PySide6 study-root foundation with persistent and reversibly archived subjects, expected workflows,
+schema-v6 PySide6 study-root foundation with persistent and reversibly archived subjects, expected workflows,
 read-only Bruker/NIfTI discovery, reviewed subject/role/orientation assignments,
-versioned scan-input conversion/provenance, blinding/groups, audit history and recent studies, plus a
-connected synthetic design preview for the planned scientific workflow pages.
+versioned scan-input conversion/provenance, blinding/groups, audit history and recent
+studies, frozen T2 release validation/inference, persistent T2 jobs and draft artifacts,
+plus a connected synthetic design preview for the remaining scientific workflow pages.
 
-Not implemented as production features: canonical artifact/review/job/result state, a
-single end-to-end workflow, external T2 model
-invocation, T2-to-T1 transform/QC, atlas registration, validated enhancement thresholds,
-durable subject/artifact/review/job state, long-format regional results,
-production-connected desktop processing/review/results behavior, or installers.
+Not implemented as production features: immutable artifact review/correction/approval,
+official result/method/dependency state, a fully approved end-to-end workflow, T1 desktop
+execution, T2 released-mask import, T2-to-T1 transform/QC, atlas registration, validated
+enhancement thresholds, production-connected exports, or installers.
 
 Scientific functions belong in `src/lys_bbb/`; all desktop code belongs in
 `src/lys_bbb_app/`. Do not create a second Qt shell or compatibility package. Keep CLIs

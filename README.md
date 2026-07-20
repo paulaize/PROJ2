@@ -3,7 +3,8 @@
 This repository contains the scientific backend and emerging desktop application for
 subject-centred mouse T1 enhancement and T2 lesion quantification workflows. It is not
 yet a production pipeline: parts of the T1 backend work, but no current case is eligible
-for final biological analysis, and the T2 desktop workflow is not yet implemented.
+for final biological analysis. The first T2 desktop inference workflow is connected,
+while immutable human review and result approval remain to be implemented.
 
 Scientific validation currently focuses on selecting and reviewing the T1 brain-mask
 pre-label generator and validating enhancement signal preservation. Desktop development
@@ -41,15 +42,17 @@ As of 2026-07-20:
 - The final analysis manifest includes 0 cases: 8 need mask review, 26 lack a brain
   mask, and 1 lacks conversion.
 - Study metadata and review decisions are not yet complete.
-- The PySide6 application now creates and reopens schema-v5 study directories, scans
+- The PySide6 application now creates and reopens schema-v6 study directories, scans
   external-drive Bruker/NIfTI folders read-only, lets the user correct discovered
   subjects, T1-pre/T1-post/T2 roles and storage-axis operations, converts confirmed
   inputs to versioned NIfTI/provenance artifacts, supports versioned multi-subject axis
   flips and ITK-SNAP viewing, validates managed inputs against their recorded checksums
-  and geometry, and persists subject rename/blinding/group/audit state. The
-  synthetic design preview remains available for downstream workflow pages;
-  general artifact/job/review/result persistence and T2 model execution are not yet
-  implemented.
+  and geometry, and persists subject rename/blinding/group/audit state. It can validate
+  and register the frozen five-model LYS v1 RatLesNetV2 release, run all eligible T2
+  subjects in the background, and persist native-space probability maps, draft masks,
+  provisional volumes, QC previews, jobs, release provenance, and audit events. Drafts
+  are never labelled approved. The synthetic design preview remains available for
+  downstream workflow pages.
 - The test suite passes, but biological validation is not complete.
 
 See [current state](docs/current_state.md) for the exact cases, branch history, and
@@ -111,7 +114,7 @@ conda run -n lys-bbb lys-bbb-desktop --demo
 The preview has representative T1 and T2 states and connected navigation. Every
 preview subject, image, review, and result is visibly labelled synthetic and is never
 written to project state. It is intended for discussing layout, terminology, and user
-flow while scientific backends and durable study state are developed. Settings includes
+flow while remaining scientific and review services are developed. Settings includes
 a blinded-review preview: groups can be hidden during review and deferred until an
 explicit later unblinding/group-assignment step.
 
@@ -124,9 +127,22 @@ conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
 Images stay in their source folders, including mounted hard drives; project setup neither
 copies nor modifies them. New studies contain `project.sqlite`, `project.json`, imports,
 workspaces, outputs, reports, exports, and logs. Existing `.lysbbb` projects remain
-readable and can be migrated without modifying the original file. The application can
-persist real subject identities and setup state, but it does not yet import subject MRI
-files or execute scientific pipeline stages.
+readable and can be migrated without modifying the original file. The application
+imports and converts reviewed MRI assignments, validates managed inputs, and can execute
+the frozen T2 lesion ensemble. Select the release directory containing
+`bundle_manifest.json`, `frozen_spec.json`, `selected_threshold.json`, the five model
+files, and the bundled RatLesNetV2 runtime. The release stays external and read-only;
+weights are not copied into each study or committed to this repository.
+
+On the current development workstation, that directory is:
+
+```text
+/Users/paul-andreaslaize/Downloads/LYS_v1_RatLesNetV2_mac_inference
+```
+
+Only validated T2 inputs with release-compatible spacing are offered for cohort
+inference. Generated masks and lesion volumes are explicitly provisional until the T2
+review/approval milestone is connected.
 
 The target screens and implementation phases are defined in
 [Desktop application MVP](docs/desktop_application.md).

@@ -40,6 +40,7 @@ or `reports/` directories.
 | Quantify a gated cohort | `scripts/quantification/quantify_flash_cohort.py` |
 | Launch desktop application | `lys-bbb-desktop [project.lysbbb]` |
 | Launch connected design preview | `lys-bbb-desktop --demo` |
+| Run frozen T2 inference adapter | `python -m lys_bbb.t2_inference_cli --help` |
 
 Use `python <script> --help` for the complete option set. Documentation should explain
 workflow decisions, not copy every CLI flag.
@@ -125,16 +126,17 @@ metadata, normalization, and thresholds are validated.
 
 ## Desktop project foundation and next phase
 
-`environment.yml` installs the repository in editable mode and includes PySide6. For an
+`environment.yml` installs the repository in editable mode and includes PySide6 and
+PyTorch for frozen T2 inference. For an
 existing environment created before the desktop milestone, refresh the install with:
 
 ```bash
-conda install -n lys-bbb pyside6
+conda install -n lys-bbb pyside6 pytorch
 conda run -n lys-bbb python -m pip install --no-deps -e .
 ```
 
 Launch the study launcher, open the explicitly synthetic design preview, pass a
-schema-v5 study root directly, or inspect a legacy schema-v1 project:
+schema-v6 study root directly, or inspect a legacy schema-v1 project:
 
 ```bash
 conda run -n lys-bbb lys-bbb-desktop
@@ -147,11 +149,12 @@ The preview is implemented in `src/lys_bbb_app/` and remains the place to evalua
 the persistent shell, page layout, navigation, status semantics, review interaction,
 and results presentation. Its typed demo records are not persisted.
 
-Outside demo mode, the application now creates/reopens a schema-v5 study root, scans a
+Outside demo mode, the application now creates/reopens a schema-v6 study root, scans a
 selected MRI root read-only, proposes Bruker/NIfTI subject and role assignments, converts
 confirmed inputs to versioned NIfTI artifacts, and persists geometry, hashes,
 orientation operations, managed-input validation outcomes, subjects, expected
-workflows, recent studies, audit events, and blinding. Schema-v2 roots migrate
+workflows, recent studies, audit events, blinding, T2 release records, inference jobs,
+and draft lesion artifacts. Older study roots migrate
 automatically; the schema-v1 `.lysbbb` file remains a
 non-destructive explicit migration input. Persistence, discovery, and conversion live in
 non-Qt repositories and services.
@@ -161,11 +164,13 @@ Keep the MRI import feature split across these boundaries:
 | Layer | Module | Responsibility |
 |---|---|---|
 | Scientific backend | `lys_bbb.scan_discovery`, `lys_bbb.scan_conversion`, `lys_bbb.input_validation`, `lys_bbb.image_orientation` | Read-only discovery, conversion, input validation, and image geometry; no Qt or study database access |
+| T2 inference backend | `lys_bbb.t2_model_release`, `lys_bbb.t2_inference` | Validate the immutable release, prepare a singleton channel, execute the five-model ensemble, preserve native geometry, and build QC; no Qt or study database access |
 | Domain contracts | `lys_bbb_app.domain.scan_import` | Immutable requests, states, records, and reports; no Qt or I/O |
 | Application service | `lys_bbb_app.services.study_service` | Validate and coordinate the import use case |
 | Launcher preference service | `lys_bbb_app.services.recent_studies_service` | Expose recent studies without coupling widgets to JSON storage |
 | Persistence | `lys_bbb_app.infrastructure.scan_input_repository` | Store versioned scan inputs and provenance behind a small database-context protocol |
 | Validation persistence | `lys_bbb_app.infrastructure.input_validation_repository` | Store per-version validation outcomes and audit summaries |
+| T2 persistence | `lys_bbb_app.infrastructure.t2_inference_repository` | Store release provenance, job state, immutable draft artifacts, supersession, and audit events |
 | Background bridge | `lys_bbb_app.ui.workers` | Carry service work and structured outcomes across the Qt thread boundary; no processing logic |
 | External tool adapter | `lys_bbb_app.infrastructure.external_viewer` | Resolve and launch ITK-SNAP for a validated managed NIfTI path; no Qt dependency |
 | User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.mri_action_dialogs`, `lys_bbb_app.ui.subject_workspace`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
@@ -179,6 +184,27 @@ follow the same dependency direction: UI → service → backend/repository, wit
 contracts shared between layers. Architecture tests reject Qt imports below the UI,
 direct scientific-backend imports from UI modules, cycles, and inward-to-outward layer
 dependencies.
+
+### Frozen T2 inference smoke test
+
+The desktop is the normal entry point. For a backend-only smoke test, arrange one or
+more inputs as `<input>/<case-id>/scan.nii.gz`, use new work and output directories, and
+run:
+
+```bash
+conda run -n lys-bbb python -m lys_bbb.t2_inference_cli \
+  --release /Users/paul-andreaslaize/Downloads/LYS_v1_RatLesNetV2_mac_inference \
+  --input /absolute/path/to/inference_input \
+  --work /absolute/path/to/new_work_directory \
+  --output /absolute/path/to/new_output_directory \
+  --device auto
+```
+
+The adapter refuses existing work/output directories. `auto` selects MPS on a supported
+Apple runtime, then CUDA, then CPU. It verifies the five weights, adds only a singleton
+channel, writes the continuous probability map and thresholded draft mask, and records
+the frozen threshold, release hashes, device, and native-geometry contract. It does not
+train, tune, postprocess, approve, or calculate an accuracy metric.
 
 New MVP studies use a study root:
 

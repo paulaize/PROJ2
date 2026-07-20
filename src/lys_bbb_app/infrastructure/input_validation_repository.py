@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Protocol
 
 from lys_bbb_app.domain.errors import StudyStateError
-from lys_bbb_app.domain.scan_import import InputValidationOutcome, ScanImportState
+from lys_bbb_app.domain.scan_import import (
+    InputValidationOutcome,
+    InputValidationState,
+    ScanImportState,
+    ScanRole,
+)
 from lys_bbb_app.infrastructure.database_support import (
     connect as _connect,
     insert_audit as _insert_audit,
@@ -47,7 +52,7 @@ def record_input_validations(
                 study = _single_study(connection)
                 records = connection.execute(
                     f"""
-                    SELECT id FROM scan_inputs
+                    SELECT id, role FROM scan_inputs
                     WHERE subject_id = ? AND active = 1 AND state = ?
                       AND id IN ({','.join('?' for _ in outcomes)})
                     """,
@@ -62,6 +67,8 @@ def record_input_validations(
                     raise StudyStateError(
                         "Input validation can update only active converted MRI inputs."
                     )
+                roles = {row["id"]: row["role"] for row in records}
+                invalidated_artifacts = 0
                 for outcome in outcomes:
                     issues = [
                         {
@@ -88,6 +95,17 @@ def record_input_validations(
                             outcome.scan_input_id,
                         ),
                     )
+                    if (
+                        roles[outcome.scan_input_id] == ScanRole.T2.value
+                        and outcome.state is InputValidationState.INVALID
+                    ):
+                        invalidated_artifacts += connection.execute(
+                            """
+                            UPDATE artifacts SET active = 0, state = 'OUTDATED'
+                            WHERE source_scan_input_id = ? AND active = 1
+                            """,
+                            (outcome.scan_input_id,),
+                        ).rowcount
                 connection.execute(
                     "UPDATE subjects SET updated_at = ? WHERE id = ?",
                     (now, subject_id),
@@ -114,6 +132,7 @@ def record_input_validations(
                                 for issue in outcome.issues
                             }
                         ),
+                        "t2_artifacts_invalidated": invalidated_artifacts,
                     },
                     created_at=now,
                 )

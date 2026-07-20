@@ -325,6 +325,7 @@ class SubjectsPage(QWidget):
     import_mri_requested = Signal()
     group_assignment_requested = Signal()
     audit_history_requested = Signal()
+    t2_inference_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -342,11 +343,14 @@ class SubjectsPage(QWidget):
         add_subject.clicked.connect(self.add_subject_requested)
         import_mri = QPushButton("Import MRI folder…")
         import_mri.clicked.connect(self.import_mri_requested)
+        self.run_t2 = QPushButton("Run T2 segmentation…")
+        self.run_t2.clicked.connect(self.t2_inference_requested.emit)
         self.assign_groups = secondary_button("Assign groups…")
         self.assign_groups.clicked.connect(self.group_assignment_requested)
         heading_layout.addWidget(history)
         heading_layout.addWidget(self.assign_groups)
         heading_layout.addWidget(import_mri)
+        heading_layout.addWidget(self.run_t2)
         heading_layout.addWidget(add_subject)
         layout.addWidget(heading)
 
@@ -451,6 +455,19 @@ class SubjectsPage(QWidget):
             self.group_filter.setCurrentText(current)
         self.group_filter.blockSignals(False)
         self.count_label.setText(f"{len(study.subjects)} subjects")
+        self.run_t2.setEnabled(
+            study.t2_eligible_subject_count > 0 and study.t2_running_job_count == 0
+        )
+        self.run_t2.setText(
+            f"Run T2 segmentation… ({study.t2_eligible_subject_count})"
+            if study.t2_eligible_subject_count
+            else "Run T2 segmentation…"
+        )
+        self.run_t2.setToolTip(
+            "Runs every active subject with a validated, release-compatible T2 input."
+            if study.t2_eligible_subject_count
+            else "Validate a compatible T2 input before running segmentation."
+        )
         self._apply_filters()
 
     def set_blinded_review(self, blinded: bool) -> None:

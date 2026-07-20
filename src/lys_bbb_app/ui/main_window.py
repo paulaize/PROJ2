@@ -55,7 +55,11 @@ from lys_bbb_app.ui.pages import (
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog
 from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage
 from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
-from lys_bbb_app.ui.workers import InputValidationThread, ScanImportThread
+from lys_bbb_app.ui.workers import (
+    InputValidationThread,
+    ScanImportThread,
+    T2InferenceThread,
+)
 
 
 LEGACY_PROJECT_FILTER = (
@@ -80,6 +84,8 @@ class MainWindow(QMainWindow):
         self.page_indices: dict[str, int] = {}
         self._scan_import_thread: ScanImportThread | None = None
         self._input_validation_thread: InputValidationThread | None = None
+        self._t2_inference_thread: T2InferenceThread | None = None
+        self._t2_target_subject_ids: tuple[str, ...] | None = None
         self._validation_subject_id: str | None = None
         self._scan_operation_name = "MRI import"
 
@@ -192,6 +198,9 @@ class MainWindow(QMainWindow):
         self.subjects_page.import_mri_requested.connect(self.select_mri_source_folder)
         self.subjects_page.group_assignment_requested.connect(self.manage_groups)
         self.subjects_page.audit_history_requested.connect(self.show_audit_history)
+        self.subjects_page.t2_inference_requested.connect(
+            self.run_t2_inference_for_study
+        )
         self.workspace_page.back_requested.connect(lambda: self.show_page("subjects"))
         self.workspace_page.open_mri_requested.connect(
             self.open_subject_mri_in_itksnap
@@ -209,6 +218,18 @@ class MainWindow(QMainWindow):
             self.select_mri_source_folder
         )
         self.workspace_page.rename_requested.connect(self.rename_subject)
+        self.workspace_page.t2_release_requested.connect(
+            self.select_t2_model_release
+        )
+        self.workspace_page.t2_run_subject_requested.connect(
+            lambda subject_id: self.run_t2_inference_for_study((subject_id,))
+        )
+        self.workspace_page.t2_run_study_requested.connect(
+            self.run_t2_inference_for_study
+        )
+        self.workspace_page.t2_open_artifact_requested.connect(
+            self.open_t2_draft_in_itksnap
+        )
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
         self.results_page.preview_action.connect(self._show_preview_message)
         self.settings_page.preview_action.connect(self._show_preview_message)
@@ -408,13 +429,14 @@ class MainWindow(QMainWindow):
             )
         elif persistent:
             self.release_label.setText(
-                "Persistent study\nMRI import and conversion connected"
+                "Persistent study\nMRI and T2 inference connected"
             )
             self.preview_banner.setObjectName("infoBanner")
             self.preview_banner.setText(
                 f"PERSISTENT STUDY — {len(study.subjects)} subjects stored in "
                 f"{study.root_path}. MRI discovery and versioned NIfTI conversion are "
-                "connected; mask, registration, quantification, and review jobs remain pending."
+                "connected. Frozen T2 inference creates versioned draft masks; human "
+                "approval, T1 processing, and final quantification remain pending."
             )
         else:
             self.release_label.setText(
@@ -716,6 +738,165 @@ class MainWindow(QMainWindow):
         self._input_validation_thread = None
         self._validation_subject_id = None
         self.jobs_label.setText("0 jobs running")
+
+    def select_t2_model_release(self) -> bool:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "The design preview shows a synthetic frozen release. Open a persistent "
+                "study to select the real LYS v1 bundle."
+            )
+            return False
+        suggested = Path.home() / "Downloads" / "LYS_v1_RatLesNetV2_mac_inference"
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Select frozen RatLesNetV2 release folder",
+            str(suggested if suggested.is_dir() else Path.home() / "Downloads"),
+        )
+        if not selected:
+            return False
+        try:
+            snapshot = self.study_service.register_t2_model_release(
+                selected,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The T2 model release could not be registered.", exc)
+            return False
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.statusBar().showMessage(
+            "The five-model RatLesNetV2 release passed checksum and contract validation.",
+            10000,
+        )
+        return True
+
+    def run_t2_inference_for_study(
+        self,
+        subject_ids: tuple[str, ...] | None = None,
+    ) -> None:
+        if self.current_study is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Synthetic preview: this action will run the frozen five-model ensemble "
+                "for every eligible validated T2 input."
+            )
+            return
+        if self._background_job_running():
+            self._show_preview_message("Another MRI background job is already running.")
+            return
+        if self.current_study.active_t2_release_label is None:
+            if not self.select_t2_model_release():
+                return
+        try:
+            readiness = self.study_service.t2_inference_readiness(subject_ids)
+        except StudyStateError as exc:
+            self._show_error("T2 inference readiness could not be calculated.", exc)
+            return
+        if not readiness.eligible_subject_ids:
+            self._show_error(
+                "No subjects are ready for T2 lesion inference.",
+                StudyStateError(
+                    readiness.blocked_reasons[0][1]
+                    if readiness.blocked_reasons
+                    else "Import and validate a compatible native T2 first."
+                ),
+            )
+            return
+        blocked = len(readiness.blocked_reasons)
+        confirmation = QMessageBox.question(
+            self,
+            "Run T2 lesion segmentation?",
+            f"Run the frozen five-model ensemble for "
+            f"{readiness.eligible_count} eligible subject(s)?\n\n"
+            f"{blocked} subject(s) will be skipped because a current draft already "
+            "awaits review, or T2 is missing, unvalidated, not applicable, or "
+            "incompatible. New masks will require human review.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        thread = T2InferenceThread(
+            self.study_service,
+            actor=self._reviewer_identity(),
+            subject_ids=readiness.eligible_subject_ids,
+            device_name="auto",
+        )
+        thread.progress_changed.connect(self._show_t2_inference_progress)
+        thread.inference_completed.connect(self._t2_inference_completed)
+        thread.inference_failed.connect(self._t2_inference_failed)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_t2_inference_thread)
+        self._t2_inference_thread = thread
+        self._t2_target_subject_ids = readiness.eligible_subject_ids
+        self.jobs_label.setText("1 T2 inference job running")
+        self.statusBar().showMessage(
+            f"Starting T2 lesion segmentation for {readiness.eligible_count} subject(s)…"
+        )
+        thread.start()
+
+    def _show_t2_inference_progress(
+        self,
+        current: int,
+        total: int,
+        message: str,
+    ) -> None:
+        self.jobs_label.setText(f"T2 inference {current}/{total}")
+        self.statusBar().showMessage(message)
+
+    def _t2_inference_completed(self, snapshot: StudySnapshot) -> None:
+        targets = self._t2_target_subject_ids or ()
+        self._set_study(present_study(snapshot), page_key="subjects")
+        if len(targets) == 1:
+            self.open_subject(targets[0])
+            self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self.statusBar().showMessage(
+            f"T2 inference created {len(targets)} draft lesion mask(s). "
+            "Human review is required.",
+            12000,
+        )
+
+    def _t2_inference_failed(self, error: str) -> None:
+        snapshot = self.study_service.current_study
+        if snapshot is not None:
+            self._set_study(present_study(snapshot), page_key="subjects")
+        self._show_error("T2 lesion inference did not complete.", StudyStateError(error))
+
+    def _clear_t2_inference_thread(self) -> None:
+        self._t2_inference_thread = None
+        self._t2_target_subject_ids = None
+        self.jobs_label.setText("0 jobs running")
+
+    def open_t2_draft_in_itksnap(
+        self,
+        subject_id: str,
+        artifact_id: str,
+    ) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "The design preview has no real lesion mask to open in ITK-SNAP."
+            )
+            return
+        configured_viewer = self.settings_page.external_editor.text().strip() or None
+        try:
+            launch = self.study_service.open_t2_draft_in_itksnap(
+                subject_id,
+                artifact_id,
+                actor=self._reviewer_identity(),
+                viewer_path=configured_viewer,
+            )
+        except StudyStateError as exc:
+            self._show_error("The T2 draft could not be opened in ITK-SNAP.", exc)
+            return
+        mask_name = (
+            launch.segmentation_path.name
+            if launch.segmentation_path is not None
+            else "draft mask"
+        )
+        self.statusBar().showMessage(
+            f"Opened {launch.image_path.name} with {mask_name}.",
+            8000,
+        )
 
     def bulk_flip_subjects(self, subject_ids: tuple[str, ...]) -> None:
         if self.current_study is None or not subject_ids:
@@ -1053,6 +1234,10 @@ class MainWindow(QMainWindow):
             or (
                 self._input_validation_thread is not None
                 and self._input_validation_thread.isRunning()
+            )
+            or (
+                self._t2_inference_thread is not None
+                and self._t2_inference_thread.isRunning()
             )
         )
 

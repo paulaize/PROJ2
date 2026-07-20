@@ -8,10 +8,11 @@ Operational facts about what is implemented today live in `docs/current_state.md
 
 The current code includes two deliberately separate experiences:
 
-- a real schema-v5 foundation that creates/reopens study roots, remembers recent
+- a real schema-v6 foundation that creates/reopens study roots, remembers recent
   studies and MRI source roots, persists subjects, versioned scan inputs, validation
   outcomes, and expected workflows, enforces one-way blinded review, saves group
-  assignments, and records audit history; and
+  assignments, records audit history, validates frozen T2 releases, executes T2
+  inference jobs, and persists versioned draft lesion artifacts; and
 - a connected design preview (`lys-bbb-desktop --demo`) that renders the planned shell
   and workflow pages from explicitly synthetic, non-persistent view models.
 
@@ -19,10 +20,10 @@ The preview currently covers the study launcher, Overview, Subjects, Subject Wor
 Review/QC, Results/Export, and Settings. It supports navigation, filtering, subject-to-
 review routing, local approve/reject interaction, viewer slice/overlay controls, and
 preview export actions. Study, subject, blinding, group, source-folder, scan-input,
-conversion-provenance, input-validation, and audit state are production-connected
-outside demo mode.
-Mask, registration, review, result, and export behavior remains a visual and interaction
-prototype until the later phases below.
+conversion-provenance, input-validation, T2 release/job/draft-artifact, and audit state
+are production-connected outside demo mode. T1 masks, registration, immutable review
+decisions, approved results, and export behavior remain visual and interaction
+prototypes until the later phases below.
 
 ## Product objective
 
@@ -54,9 +55,11 @@ On the development workstation, `~/Documents/LYS_PROJ1` owns the T2 lesion model
 a structured invocation/import contract, checksums, method status, and provenance.
 
 The desktop must never execute arbitrary source from the sibling working tree. A local
-developer may point an installation tool at a completed release produced there, but the
-application records and uses its installed immutable copy. This makes a study portable
-and prevents uncommitted changes in `LYS_PROJ1` from silently changing measurements.
+developer may select a completed release produced there, but the application validates
+and records the immutable external bundle before every execution. The five weights and
+licensed upstream inference runtime remain in that installed bundle rather than being
+committed to this repository or copied into every study. This prevents uncommitted
+changes in `LYS_PROJ1` from silently changing measurements.
 
 ## Product principles
 
@@ -230,7 +233,7 @@ machines or an unreliable network share is outside the MVP.
 ### Schema-v1 compatibility
 
 The `.lysbbb` single-file project is a legacy prototype and remains supported.
-Implemented schema version 5 provides the study/subject/input foundation and a tested
+Implemented schema version 6 provides the study/subject/input/T2-job foundation and a tested
 upgrade/import path that:
 
 1. opens schema-v1 files readably;
@@ -417,6 +420,14 @@ failed replacement is retained for audit without displacing the usable input.
 Opening MRI in ITK-SNAP is available for one selected subject and asks which active
 converted input to use when that subject has multiple modalities.
 
+The worklist also provides `Run T2 segmentation` for all eligible active subjects.
+Eligibility requires an expected T2 workflow, an active converted and explicitly valid
+T2 NIfTI, an available managed file, and the exact 0.07 × 0.07 × 0.5 mm spacing expected
+by the current frozen release. Archived subjects and subjects with a current draft
+awaiting review are omitted from the default cohort run; deliberate per-subject re-runs
+remain available. Renaming is safe because jobs and artifacts reference stable subject
+IDs, not visible subject codes.
+
 Later MVP bulk actions add validation, ready-job execution, selected-result export,
 group assignment, and marking a workflow not applicable. Bulk approval is prohibited.
 
@@ -433,6 +444,12 @@ to vertical scrolling rather than allowing content to be clipped outside the vie
 Tabs are Summary, Inputs, T1 Enhancement, T2 Lesion, Results, and History.
 Each workflow card shows purpose, progression, current state, thumbnail, next action,
 blocked reason, last update, and details action.
+
+The production-connected T2 tab shows the active release, subject-specific readiness,
+run/re-run controls, study cohort action, QC preview, provisional voxel count and volume,
+threshold, device, release, creation time, output paths, and `Open MRI + draft mask in
+ITK-SNAP`. It deliberately disables approval until immutable review decisions are
+implemented. Re-running preserves the previous mask as an outdated version.
 
 ### Reviews
 
@@ -724,26 +741,31 @@ and labels that do not rely on colour alone.
 
 ## Implementation phases
 
-1. **Application shell and MRI input foundation** — study-root creation/opening, recent
+1. **Application shell and MRI input foundation — implemented** — study-root creation/opening, recent
    studies, schema-v1/v2 migration, read-only source discovery, editable subject/role/
    orientation proposals, versioned NIfTI conversion, blinded-review state, deferred
    group assignment, main navigation, subject table, and audit log.
-2. **Artifact and workflow state model** — artifacts, dependencies, workflow policies,
-   status badges, subject workspace, approval gates, and outdated handling.
+2. **Artifact and workflow state model — partial** — T2 model releases, inference jobs,
+   draft artifacts, supersession/invalidation, status badges, and subject workspace are
+   implemented; general dependencies, reviews, methods, results, and approval gates remain.
 3. **T1 validation and mask review** — converted subject-owned T1 validation, draft
    mask generation/import, slice viewer, overlay, decisions, and ITK-SNAP correction flow.
 4. **Registration and T1 quantification** — background rigid registration, QC/review,
    provisional measurement, method status, and subject result display.
-5. **T2 lesion integration** — converted T2 validation, release validation, mask import/inference,
-   review, provenance, and native-space lesion volume.
+5. **T2 lesion integration — inference slice implemented** — converted T2 validation,
+   five-model release validation, single/cohort inference, native-space probability/draft
+   mask, QC preview, provisional volume, provenance, persistence, and ITK-SNAP viewing are
+   implemented; mask import, correction, review/approval, and official volume remain.
 6. **Results and exports** — cohort table, descriptive summaries, approved CSV, QC
    report, and reproducibility bundle.
 
-The implemented input slice succeeds when a user creates a study, discovers or edits
+The implemented input and T2 inference slice succeeds when a user creates a study, discovers or edits
 subjects and scan roles from a selected MRI root, converts the confirmed inputs, closes
-the application, reopens it, and sees the same versioned input and setup statuses. The
-next production slice is post-conversion image validation plus canonical artifact/job/
-review/result state.
+the application, reopens it, and sees the same versioned input and setup statuses. After
+input validation, the user can select the frozen LYS v1 release, run one or all eligible
+subjects, inspect persisted draft masks, probability maps, QC, provisional volumes, and
+provenance, and reopen the same state. The next production slice is immutable T2 mask
+review/correction and approved native-space volume.
 The full MVP succeeds only when a
 non-technical user can complete both workflows, understand every blocked or
 provisional state, approve eligible artifacts/results, export provenance-rich outputs,

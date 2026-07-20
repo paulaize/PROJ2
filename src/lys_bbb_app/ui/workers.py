@@ -74,3 +74,36 @@ class InputValidationThread(QThread):
             self.validation_failed.emit(str(exc))
             return
         self.validation_completed.emit(snapshot)
+
+
+class T2InferenceThread(QThread):
+    progress_changed = Signal(int, int, str)
+    inference_completed = Signal(object)
+    inference_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: StudyService,
+        *,
+        actor: str,
+        subject_ids: tuple[str, ...] | None = None,
+        device_name: str = "auto",
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._actor = actor
+        self._subject_ids = subject_ids
+        self._device_name = device_name
+
+    def run(self) -> None:
+        try:
+            snapshot = self._service.run_t2_lesion_inference(
+                actor=self._actor,
+                subject_ids=self._subject_ids,
+                device_name=self._device_name,
+                progress=self.progress_changed.emit,
+            )
+        except Exception as exc:
+            self.inference_failed.emit(str(exc))
+            return
+        self.inference_completed.emit(snapshot)

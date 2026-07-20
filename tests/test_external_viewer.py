@@ -49,3 +49,43 @@ def test_launch_itksnap_passes_one_existing_image_as_main_image(
 def test_launch_itksnap_rejects_a_missing_image(tmp_path: Path) -> None:
     with pytest.raises(external_viewer.ExternalViewerError, match="unavailable"):
         external_viewer.launch_itksnap(tmp_path / "missing.nii.gz")
+
+
+def test_launch_itksnap_passes_a_draft_mask_as_segmentation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = tmp_path / "itksnap"
+    executable.write_text("viewer")
+    image = tmp_path / "scan.nii.gz"
+    image.write_bytes(b"image")
+    mask = tmp_path / "mask.nii.gz"
+    mask.write_bytes(b"mask")
+    calls: list[list[str]] = []
+
+    class Process:
+        pid = 84
+
+    def popen(command: list[str], *, start_new_session: bool):
+        assert start_new_session is True
+        calls.append(command)
+        return Process()
+
+    monkeypatch.setattr(external_viewer.subprocess, "Popen", popen)
+
+    launch = external_viewer.launch_itksnap(
+        image,
+        executable,
+        segmentation_path=mask,
+    )
+
+    assert calls == [
+        [
+            str(executable.resolve()),
+            "-g",
+            str(image.resolve()),
+            "-s",
+            str(mask.resolve()),
+        ]
+    ]
+    assert launch.segmentation_path == mask.resolve()

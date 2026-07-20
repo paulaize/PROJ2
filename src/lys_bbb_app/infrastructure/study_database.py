@@ -25,6 +25,8 @@ from lys_bbb_app.domain.study import (
     StudySnapshot,
     SubjectRecord,
 )
+from lys_bbb.t2_model_release import FrozenT2ModelRelease
+from lys_bbb_app.domain.t2_lesion import T2ArtifactDraft
 from lys_bbb_app.infrastructure.database_support import (
     connect as _connect,
     insert_audit as _insert_audit,
@@ -47,9 +49,21 @@ from lys_bbb_app.infrastructure.study_schema import (
     create_schema as _create_study_schema,
     migrate_schema as _migrate_study_schema,
 )
+from lys_bbb_app.infrastructure.t2_inference_repository import (
+    artifact_from_row as _artifact_from_row,
+    complete_job as _complete_t2_job,
+    create_t2_inference_job as _create_t2_inference_job,
+    fail_job as _fail_t2_job,
+    interrupt_running_jobs as _interrupt_running_jobs,
+    job_from_row as _job_from_row,
+    model_release_from_row as _model_release_from_row,
+    register_t2_model_release as _register_t2_model_release,
+    start_job as _start_t2_job,
+    update_job_progress as _update_t2_job_progress,
+)
 
 
-STUDY_SCHEMA_VERSION = 5
+STUDY_SCHEMA_VERSION = 6
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -240,6 +254,7 @@ class StudyRepository:
             )
 
         repository = cls(root)
+        _interrupt_running_jobs(repository)
         repository.snapshot()
         return repository
 
@@ -312,6 +327,39 @@ class StudyRepository:
                         (study["id"],),
                     ).fetchall()
                 )
+                model_releases = tuple(
+                    _model_release_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM model_releases
+                        WHERE study_id = ?
+                        ORDER BY active DESC, validated_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                processing_jobs = tuple(
+                    _job_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM jobs
+                        WHERE study_id = ?
+                        ORDER BY submitted_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                artifacts = tuple(
+                    _artifact_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM artifacts
+                        WHERE study_id = ?
+                        ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
         except StudyStateError:
             raise
         except (sqlite3.Error, json.JSONDecodeError) as exc:
@@ -333,6 +381,9 @@ class StudyRepository:
             subjects=subjects,
             scan_inputs=scan_inputs,
             group_definitions=groups,
+            model_releases=model_releases,
+            processing_jobs=processing_jobs,
+            artifacts=artifacts,
             archived_subjects=archived_subjects,
             mri_input_folder=folders.get("mri"),
             t1_input_folder=folders.get("t1"),
@@ -753,6 +804,61 @@ class StudyRepository:
         actor: str,
     ) -> None:
         _record_input_validations(self, subject_id, outcomes, actor=actor)
+
+    def register_t2_model_release(
+        self,
+        release: FrozenT2ModelRelease,
+        *,
+        actor: str,
+    ) -> None:
+        _register_t2_model_release(self, release, actor=actor)
+
+    def create_t2_inference_job(
+        self,
+        subject_ids: tuple[str, ...],
+        *,
+        release_id: str,
+        actor: str,
+    ) -> str:
+        return _create_t2_inference_job(
+            self,
+            subject_ids,
+            release_id=release_id,
+            actor=actor,
+        )
+
+    def start_t2_inference_job(self, job_id: str) -> None:
+        _start_t2_job(self, job_id)
+
+    def update_t2_inference_job(
+        self,
+        job_id: str,
+        current: int,
+        total: int,
+        stage: str,
+    ) -> None:
+        _update_t2_job_progress(self, job_id, current, total, stage)
+
+    def fail_t2_inference_job(self, job_id: str, error: str, *, actor: str) -> None:
+        _fail_t2_job(self, job_id, error, actor=actor)
+
+    def complete_t2_inference_job(
+        self,
+        job_id: str,
+        drafts: tuple[T2ArtifactDraft, ...],
+        *,
+        release_id: str,
+        output_path: Path,
+        actor: str,
+    ) -> None:
+        _complete_t2_job(
+            self,
+            job_id,
+            drafts,
+            release_id=release_id,
+            output_path=output_path,
+            actor=actor,
+        )
 
     def record_audit_event(
         self,

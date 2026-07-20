@@ -69,6 +69,23 @@ class InputScanViewModel:
 
 
 @dataclass(frozen=True)
+class T2LesionArtifactViewModel:
+    artifact_id: str
+    version: int
+    state: StatusValue
+    mask_path: Path
+    probability_path: Path
+    qc_preview_path: Path | None
+    lesion_voxel_count: int
+    provisional_volume_text: str
+    threshold_text: str
+    release_label: str
+    device: str
+    created_at: str
+    source_scan_input_id: str
+
+
+@dataclass(frozen=True)
 class SubjectViewModel:
     subject_id: str
     group: str | None
@@ -86,6 +103,10 @@ class SubjectViewModel:
     mri_input_count: int = 0
     inputs: tuple[InputScanViewModel, ...] = ()
     can_validate_inputs: bool = False
+    t2_artifact: T2LesionArtifactViewModel | None = None
+    can_run_t2_inference: bool = False
+    t2_inference_blocked_reason: str | None = None
+    t2_release_label: str | None = None
 
     @property
     def label(self) -> str:
@@ -136,6 +157,9 @@ class StudyViewModel:
     mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
     t2_input_folder: Path | None = None
+    active_t2_release_label: str | None = None
+    t2_eligible_subject_count: int = 0
+    t2_running_job_count: int = 0
 
     def subject(self, subject_id: str) -> SubjectViewModel | None:
         return next(
