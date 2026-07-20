@@ -24,6 +24,7 @@ from lys_bbb_app.infrastructure.study_database import (
     STUDY_MANIFEST_NAME,
     StudyRepository,
 )
+from lys_bbb_app.infrastructure.external_viewer import ViewerLaunch
 from lys_bbb_app.services.study_service import StudyService
 
 
@@ -229,6 +230,116 @@ def test_confirmed_import_creates_subject_and_versioned_active_input(tmp_path: P
     assert current.output_path != previous.output_path
 
 
+def test_bulk_flip_plan_creates_new_versions_for_multiple_subjects(
+    tmp_path: Path,
+) -> None:
+    service = StudyService()
+    service.create_study(
+        CreateStudyRequest(tmp_path / "study", "Study", "study", actor="Reviewer")
+    )
+    initial_assignments = []
+    for index, subject_code in enumerate(("Mouse-01", "Mouse-02"), start=1):
+        source = tmp_path / "raw" / f"{subject_code}_t2w.nii.gz"
+        _write_nifti(source, value=float(index))
+        initial_assignments.append(
+            ScanImportAssignment(
+                proposal_id=f"initial-{index}",
+                subject_code=subject_code,
+                role=ScanRole.T2,
+                source_path=source,
+                source_format=SourceFormat.NIFTI,
+                session_id="direct-nifti",
+                scan_id=None,
+                protocol="T2w",
+                method="NIfTI",
+                acquisition_orientation="from affine",
+                confidence=ImportConfidence.HIGH,
+                orientation_policy=OrientationPolicy.NATIVE,
+            )
+        )
+    imported = service.import_confirmed_scans(
+        tuple(initial_assignments),
+        actor="Reviewer",
+    )
+    original_outputs = {
+        record.subject_id: record.output_path for record in imported.scan_inputs
+    }
+
+    plan = service.plan_bulk_flip(
+        tuple(subject.id for subject in imported.subjects),
+        (0,),
+        (ScanRole.T2,),
+    )
+
+    assert len(plan) == 2
+    assert all(assignment.flip_axes == (0,) for assignment in plan)
+    flipped = service.import_confirmed_scans(plan, actor="Reviewer")
+    active = tuple(record for record in flipped.scan_inputs if record.active)
+    assert len(active) == 2
+    assert all(record.version == 2 for record in active)
+    for record in active:
+        assert record.output_path is not None
+        source_image = nib.load(record.source_path)
+        flipped_image = nib.load(record.output_path)
+        np.testing.assert_array_equal(
+            flipped_image.get_fdata(),
+            source_image.get_fdata()[::-1, :, :],
+        )
+        original = original_outputs[record.subject_id]
+        assert original is not None and original.is_file()
+
+
+def test_itksnap_handoff_opens_only_a_managed_converted_input(
+    tmp_path: Path,
+) -> None:
+    launches: list[tuple[Path, Path | str | None]] = []
+
+    def launch_viewer(image: Path, configured: Path | str | None) -> ViewerLaunch:
+        launches.append((image, configured))
+        return ViewerLaunch(Path("/mock/ITK-SNAP"), image, 123)
+
+    service = StudyService(viewer_launcher=launch_viewer)
+    service.create_study(
+        CreateStudyRequest(tmp_path / "study", "Study", "study", actor="Reviewer")
+    )
+    source = tmp_path / "raw" / "Mouse-01_t2w.nii.gz"
+    _write_nifti(source)
+    imported = service.import_confirmed_scans(
+        (
+            ScanImportAssignment(
+                proposal_id="viewer-input",
+                subject_code="Mouse-01",
+                role=ScanRole.T2,
+                source_path=source,
+                source_format=SourceFormat.NIFTI,
+                session_id="direct-nifti",
+                scan_id=None,
+                protocol="T2w",
+                method="NIfTI",
+                acquisition_orientation="from affine",
+                confidence=ImportConfidence.HIGH,
+                orientation_policy=OrientationPolicy.NATIVE,
+            ),
+        ),
+        actor="Reviewer",
+    )
+    record = imported.scan_inputs[0]
+
+    launch = service.open_mri_in_itksnap(
+        record.subject_id,
+        record.id,
+        actor="Reviewer",
+        viewer_path="/Applications/ITK-SNAP.app",
+    )
+
+    assert launches == [(record.output_path, "/Applications/ITK-SNAP.app")]
+    assert launch.process_id == 123
+    event = service.list_audit_events()[0]
+    assert event.event_type == "MRI_OPENED_IN_ITKSNAP"
+    assert event.subject_id == record.subject_id
+    assert event.details["scan_input_id"] == record.id
+
+
 def test_removed_subject_is_hidden_but_inputs_and_outputs_can_be_restored(
     tmp_path: Path,
 ) -> None:
@@ -314,6 +425,57 @@ def test_conversion_failure_remains_visible_in_persistent_input_state(tmp_path: 
     assert snapshot.scan_inputs[0].state is ScanImportState.FAILED
     assert snapshot.scan_inputs[0].error_message == "synthetic converter failure"
     assert snapshot.scan_inputs[0].output_path is None
+
+
+def test_failed_replacement_keeps_the_previous_converted_input_active(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Mouse-01_t2w.nii.gz"
+    _write_nifti(source)
+
+    def selective_conversion(assignment, **kwargs):
+        if assignment.proposal_id == "replacement-fails":
+            raise RuntimeError("replacement conversion failed")
+        return convert_scan_assignment(assignment, **kwargs)
+
+    service = StudyService(scan_converter=selective_conversion)
+    service.create_study(
+        CreateStudyRequest(tmp_path / "study", "Study", "study", actor="Reviewer")
+    )
+    first = ScanImportAssignment(
+        proposal_id="initial-succeeds",
+        subject_code="Mouse-01",
+        role=ScanRole.T2,
+        source_path=source,
+        source_format=SourceFormat.NIFTI,
+        session_id="direct-nifti",
+        scan_id=None,
+        protocol="T2w",
+        method="NIfTI",
+        acquisition_orientation="from affine",
+        confidence=ImportConfidence.HIGH,
+        orientation_policy=OrientationPolicy.NATIVE,
+    )
+    imported = service.import_confirmed_scans((first,), actor="Reviewer")
+    original = imported.scan_inputs[0]
+    replacement = ScanImportAssignment(
+        **{
+            **first.__dict__,
+            "proposal_id": "replacement-fails",
+            "flip_axes": (0,),
+        }
+    )
+
+    failed = service.import_confirmed_scans((replacement,), actor="Reviewer")
+    failed_attempt, retained = failed.scan_inputs
+
+    assert failed_attempt.version == 2
+    assert failed_attempt.state is ScanImportState.FAILED
+    assert not failed_attempt.active
+    assert retained.id == original.id
+    assert retained.state is ScanImportState.CONVERTED
+    assert retained.active
+    assert retained.output_path is not None and retained.output_path.is_file()
 
 
 def test_opening_schema_v2_study_migrates_scan_input_state_and_manifest(tmp_path: Path) -> None:

@@ -225,7 +225,7 @@ def complete_scan_import(
                         source_sha256 = ?, output_shape_json = ?,
                         output_spacing_json = ?, output_axis_codes_json = ?,
                         error_message = NULL, updated_at = ?
-                    WHERE id = ? AND active = 1
+                    WHERE id = ?
                     """,
                     (
                         ScanImportState.CONVERTED.value,
@@ -238,6 +238,31 @@ def complete_scan_import(
                         now,
                         record_id,
                     ),
+                )
+                previous = connection.execute(
+                    """
+                    SELECT id FROM scan_inputs
+                    WHERE subject_id = ? AND role = ? AND active = 1 AND id != ?
+                    """,
+                    (row["subject_id"], row["role"], record_id),
+                ).fetchone()
+                if previous is not None:
+                    connection.execute(
+                        """
+                        UPDATE scan_inputs
+                        SET active = 0, state = ?, superseded_by = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            ScanImportState.SUPERSEDED.value,
+                            record_id,
+                            now,
+                            previous["id"],
+                        ),
+                    )
+                connection.execute(
+                    "UPDATE scan_inputs SET active = 1 WHERE id = ?",
+                    (record_id,),
                 )
                 _touch_study(connection, study["id"], now)
                 _insert_audit(
@@ -285,7 +310,7 @@ def fail_scan_import(
                 connection.execute(
                     """
                     UPDATE scan_inputs SET state = ?, error_message = ?, updated_at = ?
-                    WHERE id = ? AND active = 1
+                    WHERE id = ?
                     """,
                     (ScanImportState.FAILED.value, message, now, record_id),
                 )
@@ -397,15 +422,6 @@ def _insert_assignment(
             (subject["id"], assignment.role.value),
         ).fetchone()[0]
     )
-    if previous is not None:
-        connection.execute(
-            """
-            UPDATE scan_inputs
-            SET active = 0, state = ?, superseded_by = NULL, updated_at = ?
-            WHERE id = ?
-            """,
-            (ScanImportState.SUPERSEDED.value, timestamp, previous["id"]),
-        )
     connection.execute(
         """
         INSERT INTO scan_inputs(
@@ -414,7 +430,7 @@ def _insert_assignment(
             scan_id, protocol, method, acquisition_orientation,
             confidence, orientation_policy, flip_axes_json,
             created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             record_id,
@@ -423,6 +439,7 @@ def _insert_assignment(
             subject["id"],
             assignment.role.value,
             version,
+            int(previous is None),
             ScanImportState.QUEUED.value,
             str(assignment.source_path.expanduser().resolve()),
             assignment.source_format.value,
@@ -438,11 +455,6 @@ def _insert_assignment(
             timestamp,
         ),
     )
-    if previous is not None:
-        connection.execute(
-            "UPDATE scan_inputs SET superseded_by = ? WHERE id = ?",
-            (record_id, previous["id"]),
-        )
     _insert_audit(
         connection,
         study_id=study_id,
@@ -459,7 +471,7 @@ def _insert_assignment(
             "confidence": assignment.confidence.value,
             "orientation_policy": assignment.orientation_policy.value,
             "flip_axes": sorted(set(assignment.flip_axes)),
-            "superseded_input_id": previous["id"] if previous is not None else None,
+            "predecessor_input_id": previous["id"] if previous is not None else None,
         },
         created_at=timestamp,
     )
@@ -477,13 +489,18 @@ def _update_scan_import_state(
                 cursor = connection.execute(
                     """
                     UPDATE scan_inputs SET state = ?, updated_at = ?
-                    WHERE id = ? AND active = 1
+                    WHERE id = ? AND state = ?
                     """,
-                    (state.value, _utc_now(), record_id),
+                    (
+                        state.value,
+                        _utc_now(),
+                        record_id,
+                        ScanImportState.QUEUED.value,
+                    ),
                 )
                 if cursor.rowcount != 1:
                     raise StudyStateError(
-                        f"Unknown active scan import record: {record_id}"
+                        f"Unknown queued scan import record: {record_id}"
                     )
     except StudyStateError:
         raise

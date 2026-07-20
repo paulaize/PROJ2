@@ -400,6 +400,72 @@ class StudyRepository:
             raise StudyStateError(f"Could not add the subject: {exc}") from exc
         return self.snapshot()
 
+    def rename_subject(
+        self,
+        subject_id: str,
+        subject_code: str,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        """Change the visible subject code while preserving its stable database ID."""
+
+        normalized_subject_id = _normalize_required(subject_id, "Subject ID")
+        normalized_code = _normalize_required(subject_code, "Subject name")
+        normalized_actor = _normalize_required(actor, "Actor")
+        now = _utc_now()
+        try:
+            with closing(_connect(self.database_path)) as connection:
+                with connection:
+                    study = _single_study(connection)
+                    subject = connection.execute(
+                        """
+                        SELECT id, subject_code FROM subjects
+                        WHERE id = ? AND study_id = ? AND archived_at IS NULL
+                        """,
+                        (normalized_subject_id, study["id"]),
+                    ).fetchone()
+                    if subject is None:
+                        raise StudyStateError("The selected subject is not active.")
+                    duplicate = connection.execute(
+                        """
+                        SELECT id FROM subjects
+                        WHERE study_id = ? AND subject_code = ? COLLATE NOCASE AND id != ?
+                        """,
+                        (study["id"], normalized_code, normalized_subject_id),
+                    ).fetchone()
+                    if duplicate is not None:
+                        raise DuplicateSubjectError(
+                            f"Subject name already exists in this study: {normalized_code}"
+                        )
+                    if subject["subject_code"] == normalized_code:
+                        return self.snapshot()
+                    connection.execute(
+                        """
+                        UPDATE subjects SET subject_code = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (normalized_code, now, normalized_subject_id),
+                    )
+                    _touch_study(connection, study["id"], now)
+                    _insert_audit(
+                        connection,
+                        study_id=study["id"],
+                        subject_id=normalized_subject_id,
+                        event_type="SUBJECT_RENAMED",
+                        actor=normalized_actor,
+                        details={
+                            "previous_subject_code": subject["subject_code"],
+                            "subject_code": normalized_code,
+                            "managed_files_moved": False,
+                        },
+                        created_at=now,
+                    )
+        except StudyStateError:
+            raise
+        except sqlite3.Error as exc:
+            raise StudyStateError(f"Could not rename the subject: {exc}") from exc
+        return self.snapshot()
+
     def archive_subject(self, subject_id: str, *, actor: str) -> StudySnapshot:
         """Hide a subject while preserving its inputs, outputs, and audit history."""
 
@@ -681,6 +747,7 @@ class StudyRepository:
         *,
         actor: str,
         details: dict[str, Any] | None = None,
+        subject_id: str | None = None,
     ) -> None:
         normalized_type = _normalize_required(event_type, "Audit event type")
         normalized_actor = _normalize_required(actor, "Actor")
@@ -694,6 +761,7 @@ class StudyRepository:
                         event_type=normalized_type,
                         actor=normalized_actor,
                         details=details or {},
+                        subject_id=subject_id,
                     )
         except sqlite3.Error as exc:
             raise StudyStateError(f"Could not record the audit event: {exc}") from exc

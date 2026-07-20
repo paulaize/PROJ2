@@ -16,6 +16,9 @@ from lys_bbb_app.domain.scan_import import (
     ScanConversionResult,
     ScanDiscoveryReport,
     ScanImportAssignment,
+    ScanImportState,
+    ScanInputRecord,
+    ScanRole,
 )
 from lys_bbb_app.domain.study import (
     AuditEventRecord,
@@ -24,18 +27,30 @@ from lys_bbb_app.domain.study import (
     StudySnapshot,
 )
 from lys_bbb_app.infrastructure.study_database import StudyRepository, StudyStateError
+from lys_bbb_app.infrastructure.external_viewer import (
+    ExternalViewerError,
+    ViewerLaunch,
+    launch_itksnap,
+)
 
 
 ScanConverter = Callable[..., ScanConversionResult]
+ViewerLauncher = Callable[[Path, Path | str | None], ViewerLaunch]
 ProgressCallback = Callable[[int, int, str], None]
 
 
 class StudyService:
     """Own the currently opened canonical study repository."""
 
-    def __init__(self, *, scan_converter: ScanConverter = convert_scan_assignment) -> None:
+    def __init__(
+        self,
+        *,
+        scan_converter: ScanConverter = convert_scan_assignment,
+        viewer_launcher: ViewerLauncher = launch_itksnap,
+    ) -> None:
         self._repository: StudyRepository | None = None
         self._scan_converter = scan_converter
+        self._viewer_launcher = viewer_launcher
 
     @property
     def current_study(self) -> StudySnapshot | None:
@@ -135,6 +150,139 @@ class StudyService:
 
     def restore_subject(self, subject_id: str, *, actor: str) -> StudySnapshot:
         return self._require_repository().restore_subject(subject_id, actor=actor)
+
+    def rename_subject(
+        self,
+        subject_id: str,
+        subject_code: str,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        return self._require_repository().rename_subject(
+            subject_id,
+            subject_code,
+            actor=actor,
+        )
+
+    def converted_mri_inputs(self, subject_id: str) -> tuple[ScanInputRecord, ...]:
+        snapshot = self._require_repository().snapshot()
+        if snapshot.subject(subject_id) is None:
+            raise StudyStateError("The selected subject is not active in this study.")
+        return tuple(
+            record
+            for record in snapshot.inputs_for_subject(subject_id)
+            if record.active
+            and record.state is ScanImportState.CONVERTED
+            and record.output_path is not None
+        )
+
+    def open_mri_in_itksnap(
+        self,
+        subject_id: str,
+        scan_input_id: str,
+        *,
+        actor: str,
+        viewer_path: Path | str | None = None,
+    ) -> ViewerLaunch:
+        repository = self._require_repository()
+        record = next(
+            (
+                item
+                for item in self.converted_mri_inputs(subject_id)
+                if item.id == scan_input_id
+            ),
+            None,
+        )
+        if record is None or record.output_path is None:
+            raise StudyStateError(
+                "Select an active converted MRI input before opening ITK-SNAP."
+            )
+        try:
+            launch = self._viewer_launcher(record.output_path, viewer_path)
+        except ExternalViewerError as exc:
+            raise StudyStateError(str(exc)) from exc
+        repository.record_audit_event(
+            "MRI_OPENED_IN_ITKSNAP",
+            actor=actor,
+            subject_id=subject_id,
+            details={
+                "subject_id": subject_id,
+                "scan_input_id": record.id,
+                "role": record.role.value,
+                "version": record.version,
+                "image_path": str(record.output_path),
+            },
+        )
+        return launch
+
+    def plan_bulk_flip(
+        self,
+        subject_ids: tuple[str, ...],
+        flip_axes: tuple[int, ...],
+        roles: tuple[ScanRole, ...],
+    ) -> tuple[ScanImportAssignment, ...]:
+        """Build immutable replacement assignments without performing conversion."""
+
+        selected_subject_ids = tuple(dict.fromkeys(subject_ids))
+        axes = set(flip_axes)
+        if not selected_subject_ids:
+            raise StudyStateError("Select at least one subject to flip.")
+        if not axes or not axes <= {0, 1, 2}:
+            raise StudyStateError("Select one or more valid storage axes to flip.")
+        selected_roles = set(roles)
+        if not selected_roles or not selected_roles <= {
+            ScanRole.T1_PRE,
+            ScanRole.T1_POST,
+            ScanRole.T2,
+        }:
+            raise StudyStateError("Select a valid MRI input scope for the batch flip.")
+
+        snapshot = self._require_repository().snapshot()
+        subjects = {subject.id: subject for subject in snapshot.subjects}
+        unknown = [subject_id for subject_id in selected_subject_ids if subject_id not in subjects]
+        if unknown:
+            raise StudyStateError("One or more selected subjects are no longer active.")
+
+        assignments: list[ScanImportAssignment] = []
+        missing_subjects: list[str] = []
+        for subject_id in selected_subject_ids:
+            records = tuple(
+                record
+                for record in snapshot.inputs_for_subject(subject_id)
+                if record.active
+                and record.state is ScanImportState.CONVERTED
+                and record.role in selected_roles
+            )
+            if not records:
+                missing_subjects.append(subjects[subject_id].subject_code)
+                continue
+            for record in records:
+                assignments.append(
+                    ScanImportAssignment(
+                        proposal_id=f"bulk-flip-{uuid4()}",
+                        subject_code=record.subject_code,
+                        role=record.role,
+                        source_path=record.source_path,
+                        source_format=record.source_format,
+                        session_id=record.session_id,
+                        scan_id=record.scan_id,
+                        protocol=record.protocol,
+                        method=record.method,
+                        acquisition_orientation=record.acquisition_orientation,
+                        confidence=record.confidence,
+                        orientation_policy=record.orientation_policy,
+                        flip_axes=tuple(
+                            sorted(set(record.flip_axes).symmetric_difference(axes))
+                        ),
+                    )
+                )
+        if missing_subjects:
+            raise StudyStateError(
+                "These subjects have no converted MRI input in the selected scope: "
+                + ", ".join(missing_subjects)
+                + ". Import or convert their scans before running the batch flip."
+            )
+        return tuple(assignments)
 
     def unblind(self, *, reviewer: str) -> StudySnapshot:
         return self._require_repository().unblind(actor=reviewer)

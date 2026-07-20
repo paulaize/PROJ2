@@ -138,6 +138,11 @@ the GUI thread into versioned NIfTI/provenance directories inside the study. Sou
 remain read-only on their original drive. Mask generation, registration, review,
 quantification, robust process cancellation, and crash recovery are not connected yet.
 
+The Subjects worklist now supports multi-selection and versioned batch axis flips. A
+single selected subject or its workspace can open any active converted T1/T2 input in
+ITK-SNAP. Subject names can be changed from the workspace without changing stable IDs or
+moving historical files; launch, rename, removal, and restoration actions are audited.
+
 This milestone contains no scientific processing inside Qt widgets and does not invoke
 or reproduce the external T2 lesion model. Production pipeline execution, persisted
 review queues, metadata editing, results, and exports remain future desktop milestones.

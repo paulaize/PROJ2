@@ -181,7 +181,7 @@ def _present_subject(
     history = ["Subject created in persistent study state"]
     history.extend(
         f"{record.role.value} v{record.version}: {record.state.value.replace('_', ' ').title()}"
-        for record in active
+        for record in scan_inputs
     )
     return SubjectViewModel(
         subject_id=subject.id,
@@ -202,6 +202,9 @@ def _present_subject(
         updated=_format_timestamp(subject.updated_at),
         metadata=tuple(metadata),
         history=tuple(history),
+        mri_input_count=sum(
+            record.state is ScanImportState.CONVERTED for record in active
+        ),
     )
 
 

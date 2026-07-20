@@ -44,8 +44,9 @@ As of 2026-07-20:
 - The PySide6 application now creates and reopens schema-v4 study directories, scans
   external-drive Bruker/NIfTI folders read-only, lets the user correct discovered
   subjects, T1-pre/T1-post/T2 roles and storage-axis operations, converts confirmed
-  inputs to versioned NIfTI/provenance artifacts, and persists blinding/group/audit
-  state. The synthetic design preview remains available for downstream workflow pages;
+  inputs to versioned NIfTI/provenance artifacts, supports versioned multi-subject axis
+  flips and ITK-SNAP viewing, and persists subject rename/blinding/group/audit state. The
+  synthetic design preview remains available for downstream workflow pages;
   general artifact/job/review/result persistence and T2 model execution are not yet
   implemented.
 - The test suite passes, but biological validation is not complete.

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
     QSplitter,
@@ -251,6 +252,7 @@ class OverviewPage(QScrollArea):
         super().__init__()
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.content = QWidget()
         self.layout = QVBoxLayout(self.content)
         self.layout.setContentsMargins(28, 24, 28, 28)
@@ -343,6 +345,8 @@ class OverviewPage(QScrollArea):
 
 class SubjectsPage(QWidget):
     subject_open_requested = Signal(str)
+    subject_mri_open_requested = Signal(str)
+    subjects_flip_requested = Signal(object)
     subject_remove_requested = Signal(str)
     subject_restore_requested = Signal()
     preview_action = Signal(str)
@@ -410,7 +414,7 @@ class SubjectsPage(QWidget):
         self.table.setModel(self.proxy)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableView.SelectRows)
-        self.table.setSelectionMode(QTableView.SingleSelection)
+        self.table.setSelectionMode(QTableView.ExtendedSelection)
         self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(42)
@@ -427,23 +431,27 @@ class SubjectsPage(QWidget):
         footer = QHBoxLayout()
         self.count_label = QLabel("0 subjects")
         self.count_label.setObjectName("muted")
-        validate = secondary_button("Validate selected")
-        validate.setEnabled(False)
-        validate.setToolTip("Backend actions arrive after artifact/workflow state.")
-        run = secondary_button("Run ready jobs")
-        run.setEnabled(False)
+        self.count_label.setToolTip(
+            "Use Shift or Command/Ctrl to select multiple subject rows."
+        )
         self.restore_subjects = secondary_button("Removed subjects…")
         self.restore_subjects.setEnabled(False)
         self.restore_subjects.clicked.connect(self.subject_restore_requested)
         self.remove_subject = secondary_button("Remove selected…")
         self.remove_subject.setEnabled(False)
         self.remove_subject.clicked.connect(self._remove_selected)
+        self.open_mri = secondary_button("Open MRI in ITK-SNAP")
+        self.open_mri.setEnabled(False)
+        self.open_mri.clicked.connect(self._open_selected_mri)
+        self.flip_subjects = secondary_button("Create flipped versions…")
+        self.flip_subjects.setEnabled(False)
+        self.flip_subjects.clicked.connect(self._flip_selected)
         footer.addWidget(self.count_label)
         footer.addStretch()
         footer.addWidget(self.restore_subjects)
+        footer.addWidget(self.open_mri)
+        footer.addWidget(self.flip_subjects)
         footer.addWidget(self.remove_subject)
-        footer.addWidget(validate)
-        footer.addWidget(run)
         layout.addLayout(footer)
 
         self.search.textChanged.connect(self._apply_filters)
@@ -453,7 +461,7 @@ class SubjectsPage(QWidget):
     def set_study(self, study: StudyViewModel) -> None:
         self.model.set_subjects(study.subjects)
         self.table.clearSelection()
-        self.remove_subject.setEnabled(False)
+        self._selection_changed()
         self.restore_subjects.setEnabled(bool(study.archived_subjects))
         self.restore_subjects.setText(
             f"Removed subjects… ({len(study.archived_subjects)})"
@@ -490,7 +498,7 @@ class SubjectsPage(QWidget):
             group=self.group_filter.currentText(),
             state=self.state_filter.currentText(),
         )
-        self.count_label.setText(f"{self.proxy.rowCount()} subjects shown")
+        self._update_count_label()
 
     def _open_index(self, proxy_index: QModelIndex) -> None:
         source_index = self.proxy.mapToSource(proxy_index)
@@ -499,23 +507,56 @@ class SubjectsPage(QWidget):
             self.subject_open_requested.emit(subject.subject_id)
 
     def _selection_changed(self, *_args) -> None:
-        self.remove_subject.setEnabled(self._selected_subject() is not None)
+        subjects = self._selected_subjects()
+        one_subject = subjects[0] if len(subjects) == 1 else None
+        self.remove_subject.setEnabled(one_subject is not None)
+        self.open_mri.setEnabled(
+            one_subject is not None and one_subject.mri_input_count > 0
+        )
+        self.flip_subjects.setEnabled(
+            bool(subjects) and all(subject.mri_input_count > 0 for subject in subjects)
+        )
+        self._update_count_label()
+
+    def _selected_subjects(self) -> tuple[SubjectViewModel, ...]:
+        rows = self.table.selectionModel().selectedRows()
+        subjects = (
+            self.model.subject_at(self.proxy.mapToSource(index).row())
+            for index in rows
+        )
+        return tuple(subject for subject in subjects if subject is not None)
 
     def _selected_subject(self) -> SubjectViewModel | None:
-        rows = self.table.selectionModel().selectedRows()
-        if not rows:
-            return None
-        source_index = self.proxy.mapToSource(rows[0])
-        return self.model.subject_at(source_index.row())
+        subjects = self._selected_subjects()
+        return subjects[0] if len(subjects) == 1 else None
+
+    def _update_count_label(self) -> None:
+        selected = len(self._selected_subjects())
+        suffix = f" · {selected} selected" if selected else ""
+        self.count_label.setText(f"{self.proxy.rowCount()} subjects shown{suffix}")
 
     def _remove_selected(self) -> None:
         subject = self._selected_subject()
         if subject is not None:
             self.subject_remove_requested.emit(subject.subject_id)
 
+    def _open_selected_mri(self) -> None:
+        subject = self._selected_subject()
+        if subject is not None:
+            self.subject_mri_open_requested.emit(subject.subject_id)
+
+    def _flip_selected(self) -> None:
+        subject_ids = tuple(
+            subject.subject_id for subject in self._selected_subjects()
+        )
+        if subject_ids:
+            self.subjects_flip_requested.emit(subject_ids)
+
 
 class SubjectWorkspacePage(QScrollArea):
     back_requested = Signal()
+    open_mri_requested = Signal(str)
+    rename_requested = Signal(str)
     review_requested = Signal(str)
     preview_action = Signal(str)
 
@@ -523,6 +564,7 @@ class SubjectWorkspacePage(QScrollArea):
         super().__init__()
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.content = QWidget()
         self.layout = QVBoxLayout(self.content)
         self.layout.setContentsMargins(28, 22, 28, 28)
@@ -536,11 +578,12 @@ class SubjectWorkspacePage(QScrollArea):
         back.clicked.connect(self.back_requested)
         top.addWidget(back)
         top.addStretch()
-        history = secondary_button("Export subject report")
-        history.clicked.connect(
-            lambda: self.preview_action.emit("Subject report preview only; no file was created.")
-        )
-        top.addWidget(history)
+        self.open_mri = secondary_button("Open MRI in ITK-SNAP")
+        self.open_mri.clicked.connect(self._open_mri)
+        top.addWidget(self.open_mri)
+        self.rename_subject = secondary_button("Rename subject…")
+        self.rename_subject.clicked.connect(self._rename_subject)
+        top.addWidget(self.rename_subject)
         self.layout.addLayout(top)
 
         self.subject_title = QLabel("Subject")
@@ -586,6 +629,7 @@ class SubjectWorkspacePage(QScrollArea):
     def set_subject(self, subject: SubjectViewModel) -> None:
         self.current_subject = subject
         self.subject_title.setText(subject.label)
+        self.open_mri.setEnabled(subject.mri_input_count > 0)
         self._refresh_subject_subtitle()
 
         _clear_layout(self.metadata_layout)
@@ -595,9 +639,13 @@ class SubjectWorkspacePage(QScrollArea):
             key.setObjectName("metadata")
             val = QLabel(value)
             val.setStyleSheet("font-weight: 650;")
+            val.setWordWrap(True)
+            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            val.setMinimumWidth(0)
+            val.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
             block.addWidget(key)
             block.addWidget(val)
-            self.metadata_layout.addLayout(block)
+            self.metadata_layout.addLayout(block, 1)
         self.metadata_layout.addStretch()
         self.metadata_layout.addWidget(StatusBadge(subject.overall))
 
@@ -628,6 +676,14 @@ class SubjectWorkspacePage(QScrollArea):
         )
         self.history_list.clear()
         self.history_list.addItems(subject.history or ("No history recorded.",))
+
+    def _open_mri(self) -> None:
+        if self.current_subject is not None:
+            self.open_mri_requested.emit(self.current_subject.subject_id)
+
+    def _rename_subject(self) -> None:
+        if self.current_subject is not None:
+            self.rename_requested.emit(self.current_subject.subject_id)
 
     def set_blinded_review(self, blinded: bool) -> None:
         self.blinded_review = blinded
@@ -1250,12 +1306,15 @@ class SettingsPage(QScrollArea):
         standard = QGroupBox("Standard settings")
         form = QFormLayout(standard)
         self.reviewer = QLineEdit("Paul-Andréas")
-        editor = QLineEdit("/Applications/ITK-SNAP.app")
+        self.external_editor = QLineEdit("/Applications/ITK-SNAP.app")
+        self.external_editor.setPlaceholderText(
+            "Leave blank to find ITK-SNAP automatically"
+        )
         export_dir = QLineEdit("~/Documents/LYS exports")
         backups = QCheckBox("Create automatic project backups")
         backups.setChecked(True)
         form.addRow("Reviewer display name", self.reviewer)
-        form.addRow("External editor", editor)
+        form.addRow("External editor", self.external_editor)
         form.addRow("Default export directory", export_dir)
         form.addRow("Backups", backups)
         layout.addWidget(standard)

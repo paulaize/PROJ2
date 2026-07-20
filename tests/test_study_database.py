@@ -150,6 +150,47 @@ def test_subject_codes_are_unique_within_a_study(tmp_path: Path) -> None:
         repository.add_subject(request)
 
 
+def test_subject_rename_preserves_stable_identity_and_is_audited(
+    tmp_path: Path,
+) -> None:
+    repository = _create_study(tmp_path)
+    snapshot = repository.add_subject(
+        CreateSubjectRequest("Mouse-001", True, True, actor="Reviewer A")
+    )
+    subject_id = snapshot.subjects[0].id
+
+    renamed = repository.rename_subject(
+        subject_id,
+        "Mouse-treatment-001",
+        actor="Reviewer A",
+    )
+    reopened = StudyRepository.open(repository.root_path).snapshot()
+
+    assert renamed.subjects[0].id == subject_id
+    assert renamed.subjects[0].subject_code == "Mouse-treatment-001"
+    assert reopened.subjects[0].subject_code == "Mouse-treatment-001"
+    event = repository.list_audit_events()[0]
+    assert event.event_type == "SUBJECT_RENAMED"
+    assert event.details == {
+        "managed_files_moved": False,
+        "previous_subject_code": "Mouse-001",
+        "subject_code": "Mouse-treatment-001",
+    }
+
+
+def test_subject_rename_rejects_a_case_insensitive_duplicate(tmp_path: Path) -> None:
+    repository = _create_study(tmp_path)
+    first = repository.add_subject(
+        CreateSubjectRequest("Mouse-001", True, False, actor="Reviewer A")
+    ).subjects[0]
+    repository.add_subject(
+        CreateSubjectRequest("Mouse-002", True, False, actor="Reviewer A")
+    )
+
+    with pytest.raises(DuplicateSubjectError, match="already exists"):
+        repository.rename_subject(first.id, "mouse-002", actor="Reviewer A")
+
+
 def test_legacy_migration_preserves_source_and_folder_references(tmp_path: Path) -> None:
     legacy_path = tmp_path / "legacy.lysbbb"
     t1_path = tmp_path / "external-drive" / "t1"

@@ -304,6 +304,60 @@ class RestoreSubjectDialog(QDialog):
         return str(self.subject.currentData())
 
 
+class RenameSubjectDialog(QDialog):
+    """Collect a new display code for one stable persistent subject."""
+
+    def __init__(
+        self,
+        current_name: str,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Rename subject")
+        self.setModal(True)
+        self.setMinimumWidth(540)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+        title = QLabel("Rename subject")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+        detail = QLabel(
+            "The stable database identity and provenance are preserved. Existing managed "
+            "files are not renamed or moved."
+        )
+        detail.setObjectName("infoBanner")
+        detail.setWordWrap(True)
+        layout.addWidget(detail)
+        self.subject_name = QLineEdit(current_name)
+        self.subject_name.selectAll()
+        form = QFormLayout()
+        form.addRow("Subject name", self.subject_name)
+        layout.addLayout(form)
+        self.error = QLabel()
+        self.error.setObjectName("errorBanner")
+        self.error.hide()
+        layout.addWidget(self.error)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons.button(QDialogButtonBox.Save).setText("Rename subject")
+        buttons.button(QDialogButtonBox.Cancel).setProperty("kind", "secondary")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def new_name(self) -> str:
+        return self.subject_name.text().strip()
+
+    def accept(self) -> None:
+        if not self.new_name():
+            self.error.setText("Enter a non-empty subject name.")
+            self.error.show()
+            return
+        super().accept()
+
+
+
+
 class UnblindingDialog(QDialog):
     """Require an explicit acknowledgement before revealing study groups."""
 

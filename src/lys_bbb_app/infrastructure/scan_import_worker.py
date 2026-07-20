@@ -14,7 +14,7 @@ from lys_bbb_app.services.study_service import StudyService
 
 class ScanImportThread(QThread):
     progress_changed = Signal(int, int, str)
-    import_completed = Signal(object)
+    import_completed = Signal(object, int)
     import_failed = Signal(str)
 
     def __init__(
@@ -39,4 +39,9 @@ class ScanImportThread(QThread):
         except Exception as exc:
             self.import_failed.emit(str(exc))
             return
-        self.import_completed.emit(snapshot)
+        proposal_ids = {assignment.proposal_id for assignment in self._assignments}
+        failure_count = sum(
+            record.proposal_id in proposal_ids and record.state.value == "FAILED"
+            for record in snapshot.scan_inputs
+        )
+        self.import_completed.emit(snapshot, failure_count)

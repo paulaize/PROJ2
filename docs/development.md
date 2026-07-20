@@ -164,7 +164,8 @@ Keep the MRI import feature split across these boundaries:
 | Application service | `lys_bbb_app.services.study_service` | Validate and coordinate the import use case |
 | Persistence | `lys_bbb_app.infrastructure.scan_input_repository` | Store versioned scan inputs and provenance behind a small database-context protocol |
 | Background bridge | `lys_bbb_app.infrastructure.scan_import_worker` | Carry service work and structured outcomes across the Qt thread boundary |
-| User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
+| External tool adapter | `lys_bbb_app.infrastructure.external_viewer` | Resolve and launch ITK-SNAP for a validated managed NIfTI path; no Qt dependency |
+| User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.mri_action_dialogs`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
 
 Shared SQLite mechanics belong in `infrastructure.database_support`; schema creation and
 migrations belong in `infrastructure.study_schema`. Repositories must not import each

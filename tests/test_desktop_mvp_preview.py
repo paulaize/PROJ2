@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import os
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtCore import QItemSelectionModel, QPoint, Qt  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
@@ -37,7 +38,11 @@ from lys_bbb_app.ui.dialogs import (  # noqa: E402
     UnblindingDialog,
 )
 from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
-from lys_bbb_app.ui.pages import ReviewsPage  # noqa: E402
+from lys_bbb_app.ui.pages import (  # noqa: E402
+    ReviewsPage,
+    SubjectsPage,
+    SubjectWorkspacePage,
+)
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog  # noqa: E402
 from lys_bbb_app.services.study_service import StudyService  # noqa: E402
 
@@ -88,6 +93,65 @@ def test_preview_connects_shell_subject_workspace_and_review_queue(
     assert window.reviews_page.current_item is not None
     assert window.reviews_page.current_item.subject_id == "Mouse-001"
     window.close()
+
+
+def test_subject_worklist_supports_multi_selection_and_contextual_actions(
+    qt_app: QApplication,
+) -> None:
+    study = demo_study()
+    study = replace(
+        study,
+        subjects=tuple(
+            replace(subject, mri_input_count=1)
+            for subject in study.subjects[:2]
+        ),
+    )
+    page = SubjectsPage()
+    page.set_study(study)
+    selected_batches: list[tuple[str, ...]] = []
+    page.subjects_flip_requested.connect(selected_batches.append)
+    selection = page.table.selectionModel()
+    flags = QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+    selection.select(page.proxy.index(0, 0), flags)
+    selection.select(page.proxy.index(1, 0), flags)
+    qt_app.processEvents()
+
+    assert page.flip_subjects.isEnabled()
+    assert not page.open_mri.isEnabled()
+    assert not page.remove_subject.isEnabled()
+    assert "2 selected" in page.count_label.text()
+    page.flip_subjects.click()
+    assert set(selected_batches[0]) == {
+        subject.subject_id for subject in study.subjects
+    }
+
+    selection.clearSelection()
+    selection.select(page.proxy.index(0, 0), flags)
+    qt_app.processEvents()
+    assert page.open_mri.isEnabled()
+    assert page.remove_subject.isEnabled()
+    page.close()
+
+
+def test_subject_workspace_exposes_open_mri_and_rename_actions(
+    qt_app: QApplication,
+) -> None:
+    subject = replace(demo_study().subjects[0], mri_input_count=1)
+    page = SubjectWorkspacePage()
+    opened: list[str] = []
+    renamed: list[str] = []
+    page.open_mri_requested.connect(opened.append)
+    page.rename_requested.connect(renamed.append)
+    page.set_subject(subject)
+
+    assert page.open_mri.isEnabled()
+    page.open_mri.click()
+    page.rename_subject.click()
+    qt_app.processEvents()
+
+    assert opened == [subject.subject_id]
+    assert renamed == [subject.subject_id]
+    page.close()
 
 
 def test_subject_filters_and_approved_result_filter(qt_app: QApplication) -> None:

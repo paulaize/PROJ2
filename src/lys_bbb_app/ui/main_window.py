@@ -36,8 +36,13 @@ from lys_bbb_app.ui.dialogs import (
     AuditHistoryDialog,
     CreateStudyDialog,
     GroupAssignmentDialog,
+    RenameSubjectDialog,
     RestoreSubjectDialog,
     UnblindingDialog,
+)
+from lys_bbb_app.ui.mri_action_dialogs import (
+    BulkFlipDialog,
+    MRIInputSelectionDialog,
 )
 from lys_bbb_app.ui.pages import (
     OverviewPage,
@@ -73,6 +78,7 @@ class MainWindow(QMainWindow):
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_indices: dict[str, int] = {}
         self._scan_import_thread: ScanImportThread | None = None
+        self._scan_operation_name = "MRI import"
 
         self.setWindowTitle("LYS BBB Scientific Workflows")
         self.resize(1440, 900)
@@ -172,6 +178,10 @@ class MainWindow(QMainWindow):
 
         self.overview_page.navigate_requested.connect(self.show_page)
         self.subjects_page.subject_open_requested.connect(self.open_subject)
+        self.subjects_page.subject_mri_open_requested.connect(
+            self.open_subject_mri_in_itksnap
+        )
+        self.subjects_page.subjects_flip_requested.connect(self.bulk_flip_subjects)
         self.subjects_page.subject_remove_requested.connect(self.remove_subject)
         self.subjects_page.subject_restore_requested.connect(self.restore_subject)
         self.subjects_page.preview_action.connect(self._show_preview_message)
@@ -180,6 +190,10 @@ class MainWindow(QMainWindow):
         self.subjects_page.group_assignment_requested.connect(self.manage_groups)
         self.subjects_page.audit_history_requested.connect(self.show_audit_history)
         self.workspace_page.back_requested.connect(lambda: self.show_page("subjects"))
+        self.workspace_page.open_mri_requested.connect(
+            self.open_subject_mri_in_itksnap
+        )
+        self.workspace_page.rename_requested.connect(self.rename_subject)
         self.workspace_page.review_requested.connect(self.open_reviews_for_subject)
         self.workspace_page.preview_action.connect(self._show_preview_message)
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
@@ -545,6 +559,102 @@ class MainWindow(QMainWindow):
             8000,
         )
 
+    def rename_subject(self, subject_id: str) -> None:
+        if self.current_study is None:
+            return
+        subject = self.current_study.subject(subject_id)
+        if subject is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Synthetic subject names cannot be changed. Open a persistent study to "
+                "rename a subject."
+            )
+            return
+        dialog = RenameSubjectDialog(subject.label, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            snapshot = self.study_service.rename_subject(
+                subject_id,
+                dialog.new_name(),
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The subject could not be renamed.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.statusBar().showMessage(
+            f"Subject renamed to {dialog.new_name()}. Existing files were not moved.",
+            9000,
+        )
+
+    def open_subject_mri_in_itksnap(self, subject_id: str) -> None:
+        if self.current_study is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "The design preview has no real NIfTI files to open in ITK-SNAP."
+            )
+            return
+        try:
+            inputs = self.study_service.converted_mri_inputs(subject_id)
+        except StudyStateError as exc:
+            self._show_error("The subject MRI could not be selected.", exc)
+            return
+        if not inputs:
+            self._show_error(
+                "No MRI can be opened for this subject.",
+                StudyStateError(
+                    "Import and successfully convert a T1 or T2 MRI input first."
+                ),
+            )
+            return
+        scan_input_id = inputs[0].id
+        if len(inputs) > 1:
+            dialog = MRIInputSelectionDialog(inputs, self)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            scan_input_id = dialog.scan_input_id()
+        configured_viewer = self.settings_page.external_editor.text().strip() or None
+        try:
+            launch = self.study_service.open_mri_in_itksnap(
+                subject_id,
+                scan_input_id,
+                actor=self._reviewer_identity(),
+                viewer_path=configured_viewer,
+            )
+        except StudyStateError as exc:
+            self._show_error("The MRI could not be opened in ITK-SNAP.", exc)
+            return
+        self.statusBar().showMessage(
+            f"Opened {launch.image_path.name} in ITK-SNAP.",
+            7000,
+        )
+
+    def bulk_flip_subjects(self, subject_ids: tuple[str, ...]) -> None:
+        if self.current_study is None or not subject_ids:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Synthetic preview images cannot create persistent flipped versions."
+            )
+            return
+        dialog = BulkFlipDialog(len(subject_ids), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            assignments = self.study_service.plan_bulk_flip(
+                subject_ids,
+                dialog.flip_axes(),
+                dialog.roles(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The batch flip could not be prepared.", exc)
+            return
+        self._start_scan_import(assignments, operation_name="MRI batch flip")
+
     def manage_groups(self) -> None:
         if self.current_study is None:
             return
@@ -707,6 +817,8 @@ class MainWindow(QMainWindow):
     def _start_scan_import(
         self,
         assignments: tuple[ScanImportAssignment, ...],
+        *,
+        operation_name: str = "MRI import",
     ) -> None:
         if self._scan_import_thread is not None and self._scan_import_thread.isRunning():
             self._show_preview_message("An MRI conversion import is already running.")
@@ -722,9 +834,10 @@ class MainWindow(QMainWindow):
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_scan_import_thread)
         self._scan_import_thread = thread
-        self.jobs_label.setText("1 MRI import running")
+        self._scan_operation_name = operation_name
+        self.jobs_label.setText(f"1 {operation_name.lower()} running")
         self.statusBar().showMessage(
-            f"Converting {len(assignments)} confirmed MRI input(s) to NIfTI…"
+            f"{operation_name}: creating {len(assignments)} versioned NIfTI input(s)…"
         )
         thread.start()
 
@@ -732,18 +845,25 @@ class MainWindow(QMainWindow):
         self.jobs_label.setText(f"MRI import {current}/{total}")
         self.statusBar().showMessage(message)
 
-    def _scan_import_completed(self, snapshot: StudySnapshot) -> None:
-        failed = sum(
-            record.active and record.state.value == "FAILED"
-            for record in snapshot.scan_inputs
-        )
+    def _scan_import_completed(
+        self,
+        snapshot: StudySnapshot,
+        failed: int,
+    ) -> None:
         self._set_study(present_study(snapshot), page_key="subjects")
         self.jobs_label.setText("0 jobs running")
         if failed:
             self.statusBar().showMessage(
-                f"MRI import finished with {failed} conversion failure(s). Open a subject "
+                f"{self._scan_operation_name} finished with {failed} conversion "
+                "failure(s). Open a subject "
                 "to inspect the recorded error.",
                 12000,
+            )
+        elif self._scan_operation_name == "MRI batch flip":
+            self.statusBar().showMessage(
+                "MRI batch flip finished. New versioned inputs and provenance were saved; "
+                "previous versions were retained.",
+                10000,
             )
         else:
             self.statusBar().showMessage(
@@ -758,6 +878,7 @@ class MainWindow(QMainWindow):
 
     def _clear_scan_import_thread(self) -> None:
         self._scan_import_thread = None
+        self._scan_operation_name = "MRI import"
 
     def _handle_blinding_toggle(self, blinded: bool) -> None:
         if self.current_study is None or self.current_study.is_demo:

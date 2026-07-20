@@ -55,6 +55,7 @@ class SubjectViewModel:
     metadata: tuple[tuple[str, str], ...] = ()
     history: tuple[str, ...] = ()
     display_id: str | None = None
+    mri_input_count: int = 0
 
     @property
     def label(self) -> str:

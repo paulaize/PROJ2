@@ -396,12 +396,24 @@ encoded group labels. An explicit `Unblind and assign groups` action starts the 
 audited unblinding flow. Subjects without an assignment display `Unassigned` after
 unblinding.
 
-MVP bulk actions are validate selected subjects, run ready jobs, export selected
-results, assign group, and mark a workflow not applicable. Bulk approval is prohibited.
+The implemented input foundation supports row multi-selection and an explicit batch
+storage-axis flip. A batch flip operates on the chosen active T1/T2 scope, composes the
+selected X/Y/Z reversal with the recorded import orientation, and creates new versioned
+NIfTI/provenance outputs. It never edits raw data or an existing version in place.
+The prior good version remains active until its replacement converts successfully; a
+failed replacement is retained for audit without displacing the usable input.
+Opening MRI in ITK-SNAP is available for one selected subject and asks which active
+converted input to use when that subject has multiple modalities.
+
+Later MVP bulk actions add validation, ready-job execution, selected-result export,
+group assignment, and marking a workflow not applicable. Bulk approval is prohibited.
 
 ### Subject workspace
 
 The header shows subject code, group, metadata, overall state, and safe subject actions.
+It can open an active converted MRI in ITK-SNAP and rename the visible subject code.
+Renaming preserves the stable subject database ID, historical provenance, and existing
+managed file paths; it records an audit event rather than moving scientific artifacts.
 Tabs are Summary, Inputs, T1 Enhancement, T2 Lesion, Results, and History.
 Each workflow card shows purpose, progression, current state, thumbnail, next action,
 blocked reason, last update, and details action.
