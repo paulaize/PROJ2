@@ -387,7 +387,10 @@ but provisional result does not make a subject complete.
 ### Subjects
 
 The central worklist uses a table model with columns for subject ID, group, T1 data,
-brain mask, registration, T1 result, T2 lesion, overall state, and updated time.
+brain mask, registration, T1 result, T2 data, T2 lesion, overall state, and updated time.
+`T2 data` reports import, validation, and NIfTI conversion readiness. `T2 lesion` is
+reserved for lesion-mask generation/import, review, and quantification state; it must
+not present scan conversion as lesion-segmentation progress.
 Filters include subject search, group, workflow, state, needs review, blocked, complete,
 and missing data.
 
@@ -414,6 +417,10 @@ The header shows subject code, group, metadata, overall state, and safe subject 
 It can open an active converted MRI in ITK-SNAP and rename the visible subject code.
 Renaming preserves the stable subject database ID, historical provenance, and existing
 managed file paths; it records an audit event rather than moving scientific artifacts.
+Subject metadata is presented as responsive key/value rows. Long filesystem paths are
+middle-elided only when the available width is insufficient, with the complete value
+retained in the tooltip. The workspace uses the available window height and falls back
+to vertical scrolling rather than allowing content to be clipped outside the viewport.
 Tabs are Summary, Inputs, T1 Enhancement, T2 Lesion, Results, and History.
 Each workflow card shows purpose, progression, current state, thumbnail, next action,
 blocked reason, last update, and details action.

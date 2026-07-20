@@ -51,6 +51,45 @@ def secondary_button(text: str) -> QPushButton:
     return button
 
 
+class ElidedLabel(QLabel):
+    """A label that preserves its value while eliding it to the available width."""
+
+    def __init__(
+        self,
+        text: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._full_text = ""
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.setText(text)
+
+    @property
+    def full_text(self) -> str:
+        return self._full_text
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        self._full_text = text
+        self.setAccessibleDescription(text)
+        self._refresh_display_text()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._refresh_display_text()
+
+    def _refresh_display_text(self) -> None:
+        available_width = max(self.contentsRect().width(), 0)
+        display_text = self.fontMetrics().elidedText(
+            self._full_text,
+            Qt.ElideMiddle,
+            available_width,
+        )
+        super().setText(display_text)
+        self.setToolTip(self._full_text if display_text != self._full_text else "")
+
+
 class StatusBadge(QLabel):
     def __init__(self, status: StatusValue, parent: QWidget | None = None) -> None:
         super().__init__(status.label, parent)

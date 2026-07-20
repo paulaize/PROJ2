@@ -142,6 +142,13 @@ The Subjects worklist now supports multi-selection and versioned batch axis flip
 single selected subject or its workspace can open any active converted T1/T2 input in
 ITK-SNAP. Subject names can be changed from the workspace without changing stable IDs or
 moving historical files; launch, rename, removal, and restoration actions are audited.
+The subject workspace now responds to the available viewport, lays out metadata in
+stacked key/value rows, and middle-elides long paths while preserving their full value
+in a tooltip. Its workflow cards and tabs contract with smaller windows, with vertical
+scrolling used when the complete page cannot fit safely.
+The Subjects table now reports T2 import/conversion in a dedicated `T2 data` column.
+The separate `T2 lesion` column is reserved for the future released segmentation
+workflow and remains `Not started` in persistent studies until that backend is connected.
 
 This milestone contains no scientific processing inside Qt widgets and does not invoke
 or reproduce the external T2 lesion model. Production pipeline execution, persisted

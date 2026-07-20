@@ -49,6 +49,7 @@ class SubjectViewModel:
     brain_mask: StatusValue
     registration: StatusValue
     t1_result: StatusValue
+    t2_data: StatusValue
     t2_lesion: StatusValue
     overall: StatusValue
     updated: str

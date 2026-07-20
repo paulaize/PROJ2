@@ -44,6 +44,7 @@ from lys_bbb_app.ui.pages import (  # noqa: E402
     SubjectWorkspacePage,
 )
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog  # noqa: E402
+from lys_bbb_app.ui.widgets import ElidedLabel  # noqa: E402
 from lys_bbb_app.services.study_service import StudyService  # noqa: E402
 
 
@@ -77,7 +78,9 @@ def test_preview_connects_shell_subject_workspace_and_review_queue(
         "combined",
     ]
     assert window.subjects_page.proxy.rowCount() == 8
-    assert window.subjects_page.model.columnCount() == 9
+    assert window.subjects_page.model.columnCount() == 10
+    assert window.subjects_page.model.headerData(6, Qt.Horizontal) == "T2 data"
+    assert window.subjects_page.model.headerData(7, Qt.Horizontal) == "T2 lesion"
     assert window.reviews_page.queue_list.count() == 4
     assert window.results_page.proxy.rowCount() == 4
     assert window.results_page.model.columnCount() == 5
@@ -151,6 +154,58 @@ def test_subject_workspace_exposes_open_mri_and_rename_actions(
 
     assert opened == [subject.subject_id]
     assert renamed == [subject.subject_id]
+    page.close()
+
+
+def test_elided_label_preserves_and_reveals_the_complete_value(
+    qt_app: QApplication,
+) -> None:
+    full_value = "/external-drive/" + "/nested-folder" * 20 + "/scan.nii.gz"
+    label = ElidedLabel(full_value)
+    label.resize(180, 28)
+    label.show()
+    qt_app.processEvents()
+
+    assert label.full_text == full_value
+    assert label.text() != full_value
+    assert "…" in label.text()
+    assert label.toolTip() == full_value
+
+    label.resize(2400, 28)
+    qt_app.processEvents()
+    assert label.text() == full_value
+    assert label.toolTip() == ""
+    label.close()
+
+
+def test_subject_workspace_stacks_metadata_and_avoids_horizontal_overflow(
+    qt_app: QApplication,
+) -> None:
+    source = demo_study().subjects[0]
+    subject = replace(
+        source,
+        metadata=(
+            ("Expected workflows", "T1 · T2"),
+            ("Persistent subject ID", source.subject_id),
+            (
+                "T2 v1",
+                "/Volumes/mri-study/" + "/nested-session" * 20 + "/scan.nii.gz",
+            ),
+        ),
+    )
+    page = SubjectWorkspacePage()
+    page.resize(760, 650)
+    page.set_subject(subject)
+    page.show()
+    qt_app.processEvents()
+
+    assert len(page.metadata_value_labels) == len(subject.metadata)
+    row_positions = [label.mapTo(page.metadata_card, QPoint(0, 0)).y() for label in page.metadata_value_labels]
+    assert row_positions == sorted(row_positions)
+    assert len(set(row_positions)) == len(row_positions)
+    assert page.horizontalScrollBar().maximum() == 0
+    assert page.metadata_value_labels[-1].text() != subject.metadata[-1][1]
+    assert page.metadata_value_labels[-1].toolTip() == subject.metadata[-1][1]
     page.close()
 
 
@@ -438,6 +493,23 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     assert snapshot.scan_inputs[0].output_path is not None
     assert snapshot.scan_inputs[0].output_path.is_file()
     assert window.subjects_page.proxy.rowCount() == 1
+    assert window.current_study is not None
+    assert window.current_study.subjects[0].t2_data.label == "T2 converted"
+    assert window.current_study.subjects[0].t2_lesion.label == "Not started"
+    assert (
+        window.subjects_page.model.data(
+            window.subjects_page.model.index(0, 6),
+            Qt.DisplayRole,
+        )
+        == "T2 converted"
+    )
+    assert (
+        window.subjects_page.model.data(
+            window.subjects_page.model.index(0, 7),
+            Qt.DisplayRole,
+        )
+        == "Not started"
+    )
     window.close()
 
 

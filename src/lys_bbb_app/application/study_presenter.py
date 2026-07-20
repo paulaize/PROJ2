@@ -191,7 +191,8 @@ def _present_subject(
         brain_mask=NOT_STARTED if subject.expected_t1 else NOT_APPLICABLE,
         registration=NOT_STARTED if subject.expected_t1 else NOT_APPLICABLE,
         t1_result=NOT_STARTED if subject.expected_t1 else NOT_APPLICABLE,
-        t2_lesion=t2_data,
+        t2_data=t2_data,
+        t2_lesion=NOT_STARTED if subject.expected_t2 else NOT_APPLICABLE,
         overall=(
             StatusValue("Blocked", "failed")
             if failed

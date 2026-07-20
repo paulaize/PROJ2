@@ -26,6 +26,7 @@ OUTDATED = StatusValue("Result outdated", "outdated")
 NOT_APPLICABLE = StatusValue("Not applicable", "neutral")
 NOT_STARTED = StatusValue("Not started", "neutral")
 WAITING_FOR_MASK = StatusValue("Waiting for mask", "unavailable")
+T2_CONVERTED = StatusValue("T2 converted", "ready")
 
 
 def demo_study() -> StudyViewModel:
@@ -39,6 +40,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=REVIEW,
             registration=WAITING_FOR_MASK,
             t1_result=BLOCKED,
+            t2_data=T2_CONVERTED,
             t2_lesion=REVIEW,
             overall=REVIEW,
             updated="Today, 14:42",
@@ -59,6 +61,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=APPROVED,
             registration=REVIEW,
             t1_result=BLOCKED,
+            t2_data=T2_CONVERTED,
             t2_lesion=APPROVED,
             overall=REVIEW,
             updated="Today, 13:17",
@@ -75,6 +78,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=APPROVED,
             registration=APPROVED,
             t1_result=PROVISIONAL,
+            t2_data=T2_CONVERTED,
             t2_lesion=APPROVED,
             overall=PROVISIONAL,
             updated="Yesterday",
@@ -88,6 +92,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=PROCESSING,
             registration=NOT_STARTED,
             t1_result=BLOCKED,
+            t2_data=NOT_APPLICABLE,
             t2_lesion=NOT_APPLICABLE,
             overall=PROCESSING,
             updated="Today, 14:54",
@@ -101,6 +106,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=StatusValue("Rejected", "failed"),
             registration=WAITING_FOR_MASK,
             t1_result=BLOCKED,
+            t2_data=T2_CONVERTED,
             t2_lesion=READY,
             overall=BLOCKED,
             updated="Monday",
@@ -114,6 +120,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=APPROVED,
             registration=APPROVED,
             t1_result=OUTDATED,
+            t2_data=T2_CONVERTED,
             t2_lesion=APPROVED,
             overall=OUTDATED,
             updated="Friday",
@@ -129,7 +136,8 @@ def demo_study() -> StudyViewModel:
             brain_mask=NOT_STARTED,
             registration=NOT_STARTED,
             t1_result=BLOCKED,
-            t2_lesion=MISSING,
+            t2_data=NOT_APPLICABLE,
+            t2_lesion=NOT_APPLICABLE,
             overall=BLOCKED,
             updated="Thursday",
             metadata=(("Timepoint", "D1"), ("Expected workflows", "T1 only")),
@@ -144,6 +152,7 @@ def demo_study() -> StudyViewModel:
             brain_mask=NOT_APPLICABLE,
             registration=NOT_APPLICABLE,
             t1_result=NOT_APPLICABLE,
+            t2_data=T2_CONVERTED,
             t2_lesion=APPROVED,
             overall=APPROVED,
             updated="Wednesday",

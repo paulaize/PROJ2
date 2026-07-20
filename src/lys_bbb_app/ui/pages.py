@@ -49,6 +49,7 @@ from lys_bbb_app.ui.models import (
 )
 from lys_bbb_app.ui.widgets import (
     CohortPlot,
+    ElidedLabel,
     EmptyState,
     ReadinessSummary,
     StatusBadge,
@@ -422,7 +423,7 @@ class SubjectsPage(QWidget):
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
         self.table.sortByColumn(0, Qt.AscendingOrder)
         self.table.doubleClicked.connect(self._open_index)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
@@ -565,10 +566,11 @@ class SubjectWorkspacePage(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.content = QWidget()
         self.layout = QVBoxLayout(self.content)
-        self.layout.setContentsMargins(28, 22, 28, 28)
-        self.layout.setSpacing(16)
+        self.layout.setContentsMargins(28, 18, 28, 20)
+        self.layout.setSpacing(12)
         self.setWidget(self.content)
         self.current_subject: SubjectViewModel | None = None
         self.blinded_review = False
@@ -590,13 +592,18 @@ class SubjectWorkspacePage(QScrollArea):
         self.subject_title.setObjectName("pageTitle")
         self.subject_subtitle = QLabel()
         self.subject_subtitle.setObjectName("muted")
+        self.subject_subtitle.setWordWrap(True)
+        self.subject_subtitle.setMinimumWidth(0)
+        self.subject_subtitle.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.layout.addWidget(self.subject_title)
         self.layout.addWidget(self.subject_subtitle)
 
         self.metadata_card = QFrame()
         self.metadata_card.setObjectName("card")
-        self.metadata_layout = QHBoxLayout(self.metadata_card)
+        self.metadata_layout = QVBoxLayout(self.metadata_card)
         self.metadata_layout.setContentsMargins(18, 14, 18, 14)
+        self.metadata_layout.setSpacing(7)
+        self.metadata_value_labels: list[ElidedLabel] = []
         self.layout.addWidget(self.metadata_card)
 
         title = QLabel("Workflow progress")
@@ -622,9 +629,9 @@ class SubjectWorkspacePage(QScrollArea):
         self.tabs.addTab(self.summary_tab, "Summary")
         self.tabs.addTab(self.inputs_tab, "Inputs")
         self.tabs.addTab(self.history_list, "History")
-        self.tabs.setMinimumHeight(180)
-        self.layout.addWidget(self.tabs)
-        self.layout.addStretch()
+        self.tabs.setMinimumHeight(130)
+        self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.layout.addWidget(self.tabs, 1)
 
     def set_subject(self, subject: SubjectViewModel) -> None:
         self.current_subject = subject
@@ -633,21 +640,27 @@ class SubjectWorkspacePage(QScrollArea):
         self._refresh_subject_subtitle()
 
         _clear_layout(self.metadata_layout)
+        self.metadata_value_labels.clear()
+        metadata_header = QHBoxLayout()
+        metadata_title = QLabel("Subject details")
+        metadata_title.setObjectName("cardTitle")
+        metadata_header.addWidget(metadata_title)
+        metadata_header.addStretch()
+        metadata_header.addWidget(StatusBadge(subject.overall))
+        self.metadata_layout.addLayout(metadata_header)
         for label, value in subject.metadata:
-            block = QVBoxLayout()
+            row = QHBoxLayout()
+            row.setSpacing(16)
             key = QLabel(label)
             key.setObjectName("metadata")
-            val = QLabel(value)
+            key.setMinimumWidth(145)
+            key.setMaximumWidth(180)
+            val = ElidedLabel(value)
             val.setStyleSheet("font-weight: 650;")
-            val.setWordWrap(True)
-            val.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            val.setMinimumWidth(0)
-            val.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-            block.addWidget(key)
-            block.addWidget(val)
-            self.metadata_layout.addLayout(block, 1)
-        self.metadata_layout.addStretch()
-        self.metadata_layout.addWidget(StatusBadge(subject.overall))
+            self.metadata_value_labels.append(val)
+            row.addWidget(key)
+            row.addWidget(val, 1)
+            self.metadata_layout.addLayout(row)
 
         _clear_layout(self.workflow_layout)
         cards = (
@@ -711,24 +724,27 @@ class SubjectWorkspacePage(QScrollArea):
     ) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
-        card.setMinimumHeight(105)
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(18, 15, 18, 15)
-        text = QVBoxLayout()
+        card.setMinimumHeight(88)
+        layout = QGridLayout(card)
+        layout.setContentsMargins(18, 12, 18, 12)
+        layout.setHorizontalSpacing(16)
+        layout.setVerticalSpacing(5)
+        layout.setColumnStretch(0, 1)
         title = QLabel(title_text)
         title.setObjectName("cardTitle")
         progress = QLabel(progression)
         progress.setObjectName("muted")
         progress.setWordWrap(True)
-        text.addWidget(title)
-        text.addWidget(progress)
-        layout.addLayout(text, 1)
-        layout.addWidget(StatusBadge(status))
+        progress.setMinimumWidth(0)
+        progress.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        layout.addWidget(title, 0, 0)
+        layout.addWidget(StatusBadge(status), 0, 1, Qt.AlignRight)
+        layout.addWidget(progress, 1, 0)
         button = secondary_button(action_text)
         button.clicked.connect(
             lambda _checked=False, subject_id=(self.current_subject.subject_id if self.current_subject else ""): self.review_requested.emit(subject_id)
         )
-        layout.addWidget(button)
+        layout.addWidget(button, 1, 1, Qt.AlignRight)
         return card
 
 

@@ -16,6 +16,7 @@ SUBJECT_COLUMNS = (
     "Brain mask",
     "Registration",
     "T1 result",
+    "T2 data",
     "T2 lesion",
     "Overall",
     "Updated",
@@ -49,6 +50,7 @@ class SubjectTableModel(QAbstractTableModel):
             subject.brain_mask,
             subject.registration,
             subject.t1_result,
+            subject.t2_data,
             subject.t2_lesion,
             subject.overall,
             subject.updated,
@@ -123,6 +125,7 @@ class SubjectFilterProxyModel(QSortFilterProxyModel):
                 subject.brain_mask.label.lower(),
                 subject.registration.label.lower(),
                 subject.t1_result.label.lower(),
+                subject.t2_data.label.lower(),
                 subject.t2_lesion.label.lower(),
             }
             if state not in labels:
