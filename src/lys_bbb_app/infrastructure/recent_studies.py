@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
-from lys_bbb_app.domain.study import StudySnapshot
-
-
-@dataclass(frozen=True)
-class RecentStudy:
-    name: str
-    path: str
-    last_opened: str
+from lys_bbb_app.domain.study import RecentStudy, StudySnapshot
 
 
 class RecentStudiesStore:

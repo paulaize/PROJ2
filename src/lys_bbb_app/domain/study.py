@@ -10,6 +10,9 @@ from typing import Any
 from lys_bbb_app.domain.scan_import import ScanInputRecord
 
 
+LEGACY_PROJECT_FILE_SUFFIX = ".lysbbb"
+
+
 class BlindingState(str, Enum):
     """One-way review blinding state for a study."""
 
@@ -37,6 +40,25 @@ class AuditEventRecord:
     created_at: str
     subject_id: str | None
     details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class LegacyProjectRecord:
+    """Read-only summary of a schema-v1 project awaiting migration."""
+
+    project_id: str
+    name: str
+    database_path: Path
+    schema_version: int
+
+
+@dataclass(frozen=True)
+class RecentStudy:
+    """Small launcher-facing record stored outside the scientific study database."""
+
+    name: str
+    path: str
+    last_opened: str
 
 
 @dataclass(frozen=True)

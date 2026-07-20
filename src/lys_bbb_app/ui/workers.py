@@ -1,14 +1,14 @@
-"""Qt worker wrapper for MRI import services.
+"""Qt worker adapters used by the desktop shell.
 
-The worker owns no scientific logic; it keeps conversion calls out of widgets and off
-the GUI thread while the application-level service updates durable state.
+Workers coordinate application services off the GUI thread. They contain no scientific
+processing or persistence logic themselves.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import QThread, Signal
 
-from lys_bbb_app.domain.scan_import import ScanImportAssignment
+from lys_bbb_app.domain.scan_import import ScanImportAssignment, ScanImportState
 from lys_bbb_app.services.study_service import StudyService
 
 
@@ -41,7 +41,8 @@ class ScanImportThread(QThread):
             return
         proposal_ids = {assignment.proposal_id for assignment in self._assignments}
         failure_count = sum(
-            record.proposal_id in proposal_ids and record.state.value == "FAILED"
+            record.proposal_id in proposal_ids
+            and record.state is ScanImportState.FAILED
             for record in snapshot.scan_inputs
         )
         self.import_completed.emit(snapshot, failure_count)

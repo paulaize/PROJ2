@@ -81,9 +81,11 @@ def test_backend_does_not_depend_on_desktop_application() -> None:
     assert {path: imports for path, imports in offenders.items() if imports} == {}
 
 
-def test_domain_and_services_do_not_depend_on_qt() -> None:
-    checked_files = _python_files(APP_ROOT / "domain") + _python_files(
-        APP_ROOT / "services"
+def test_only_ui_layer_depends_on_qt() -> None:
+    checked_files = tuple(
+        path
+        for layer in ("domain", "application", "services", "infrastructure")
+        for path in _python_files(APP_ROOT / layer)
     )
     offenders = {
         str(path.relative_to(PROJECT_ROOT)): sorted(
@@ -92,3 +94,63 @@ def test_domain_and_services_do_not_depend_on_qt() -> None:
         for path in checked_files
     }
     assert {path: imports for path, imports in offenders.items() if imports} == {}
+
+
+def test_ui_does_not_import_scientific_backend_directly() -> None:
+    offenders = {
+        str(path.relative_to(PROJECT_ROOT)): sorted(
+            imported
+            for imported in _imports(path)
+            if imported == "lys_bbb" or imported.startswith("lys_bbb.")
+        )
+        for path in _python_files(APP_ROOT / "ui")
+    }
+    assert {path: imports for path, imports in offenders.items() if imports} == {}
+
+
+def test_ui_uses_services_instead_of_infrastructure_implementations() -> None:
+    offenders = {
+        str(path.relative_to(PROJECT_ROOT)): sorted(
+            imported
+            for imported in _imports(path)
+            if imported.startswith("lys_bbb_app.infrastructure")
+        )
+        for path in _python_files(APP_ROOT / "ui")
+    }
+    assert {path: imports for path, imports in offenders.items() if imports} == {}
+
+
+def test_lower_layers_do_not_depend_on_outer_layers() -> None:
+    forbidden_by_layer = {
+        "domain": (
+            "lys_bbb_app.application",
+            "lys_bbb_app.infrastructure",
+            "lys_bbb_app.services",
+            "lys_bbb_app.ui",
+        ),
+        "application": (
+            "lys_bbb_app.infrastructure",
+            "lys_bbb_app.services",
+            "lys_bbb_app.ui",
+        ),
+        "infrastructure": (
+            "lys_bbb_app.application",
+            "lys_bbb_app.services",
+            "lys_bbb_app.ui",
+        ),
+        "services": (
+            "lys_bbb_app.application",
+            "lys_bbb_app.ui",
+        ),
+    }
+    offenders: dict[str, list[str]] = {}
+    for layer, forbidden_prefixes in forbidden_by_layer.items():
+        for path in _python_files(APP_ROOT / layer):
+            invalid = sorted(
+                imported
+                for imported in _imports(path)
+                if imported.startswith(forbidden_prefixes)
+            )
+            if invalid:
+                offenders[str(path.relative_to(PROJECT_ROOT))] = invalid
+    assert offenders == {}

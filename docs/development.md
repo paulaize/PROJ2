@@ -162,15 +162,21 @@ Keep the MRI import feature split across these boundaries:
 | Scientific backend | `lys_bbb.scan_discovery`, `lys_bbb.scan_conversion`, `lys_bbb.image_orientation` | Read-only discovery, conversion, and image geometry; no Qt or study database access |
 | Domain contracts | `lys_bbb_app.domain.scan_import` | Immutable requests, states, records, and reports; no Qt or I/O |
 | Application service | `lys_bbb_app.services.study_service` | Validate and coordinate the import use case |
+| Launcher preference service | `lys_bbb_app.services.recent_studies_service` | Expose recent studies without coupling widgets to JSON storage |
 | Persistence | `lys_bbb_app.infrastructure.scan_input_repository` | Store versioned scan inputs and provenance behind a small database-context protocol |
-| Background bridge | `lys_bbb_app.infrastructure.scan_import_worker` | Carry service work and structured outcomes across the Qt thread boundary |
+| Background bridge | `lys_bbb_app.ui.workers` | Carry service work and structured outcomes across the Qt thread boundary; no processing logic |
 | External tool adapter | `lys_bbb_app.infrastructure.external_viewer` | Resolve and launch ITK-SNAP for a validated managed NIfTI path; no Qt dependency |
-| User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.mri_action_dialogs`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
+| User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.mri_action_dialogs`, `lys_bbb_app.ui.subject_workspace`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
 
 Shared SQLite mechanics belong in `infrastructure.database_support`; schema creation and
 migrations belong in `infrastructure.study_schema`. Repositories must not import each
-other bidirectionally. New workflows should follow the same dependency direction:
-UI → service → backend/repository, with domain contracts shared between layers.
+other bidirectionally. Shared application errors and immutable records belong to the
+domain rather than a database module. Qt workers belong to the UI adapter layer, while
+external programs and SQLite remain infrastructure adapters. New workflows should
+follow the same dependency direction: UI → service → backend/repository, with domain
+contracts shared between layers. Architecture tests reject Qt imports below the UI,
+direct scientific-backend imports from UI modules, cycles, and inward-to-outward layer
+dependencies.
 
 New MVP studies use a study root:
 

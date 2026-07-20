@@ -19,8 +19,8 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
     SourceFormat,
 )
+from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.infrastructure.database_support import (
-    StudyStateError,
     connect as _connect,
     insert_audit as _insert_audit,
     normalize_required as _normalize_required,

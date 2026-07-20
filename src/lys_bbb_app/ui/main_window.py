@@ -20,16 +20,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lys_bbb.project_service import ProjectService
-from lys_bbb.project_state import PROJECT_FILE_SUFFIX, ProjectStateError
-from lys_bbb_app.application.study_presenter import present_study
-from lys_bbb_app.demo_data import demo_study, empty_study
+from lys_bbb_app.application.study_presenter import (
+    present_legacy_project,
+    present_study,
+)
+from lys_bbb_app.demo_data import demo_study
+from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import ScanImportAssignment
-from lys_bbb_app.domain.study import StudySnapshot
+from lys_bbb_app.domain.study import LEGACY_PROJECT_FILE_SUFFIX, StudySnapshot
 from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
-from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore
-from lys_bbb_app.infrastructure.scan_import_worker import ScanImportThread
-from lys_bbb_app.infrastructure.study_database import StudyStateError
+from lys_bbb_app.services.recent_studies_service import RecentStudiesService
 from lys_bbb_app.services.study_service import StudyService
 from lys_bbb_app.ui.dialogs import (
     AddSubjectDialog,
@@ -51,13 +51,16 @@ from lys_bbb_app.ui.pages import (
     SettingsPage,
     StudyLauncherPage,
     SubjectsPage,
-    SubjectWorkspacePage,
 )
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog
+from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage
 from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
+from lys_bbb_app.ui.workers import ScanImportThread
 
 
-LEGACY_PROJECT_FILTER = f"LYS BBB legacy projects (*{PROJECT_FILE_SUFFIX})"
+LEGACY_PROJECT_FILTER = (
+    f"LYS BBB legacy projects (*{LEGACY_PROJECT_FILE_SUFFIX})"
+)
 
 
 class MainWindow(QMainWindow):
@@ -65,14 +68,12 @@ class MainWindow(QMainWindow):
 
     def __init__(
         self,
-        project_service: ProjectService | None = None,
         study_service: StudyService | None = None,
-        recent_store: RecentStudiesStore | None = None,
+        recent_studies: RecentStudiesService | None = None,
     ) -> None:
         super().__init__()
-        self.project_service = project_service or ProjectService()
         self.study_service = study_service or StudyService()
-        self.recent_store = recent_store or RecentStudiesStore()
+        self.recent_studies = recent_studies or RecentStudiesService()
         self.current_study: StudyViewModel | None = None
         self.blinded_review = False
         self.nav_buttons: dict[str, QPushButton] = {}
@@ -127,7 +128,7 @@ class MainWindow(QMainWindow):
         self.launcher_page.open_requested.connect(self.open_project)
         self.launcher_page.migrate_requested.connect(self.migrate_legacy_project)
         self.launcher_page.recent_open_requested.connect(self.open_project_path)
-        self.launcher_page.set_recent_studies(self.recent_store.list())
+        self.launcher_page.set_recent_studies(self.recent_studies.list())
         self.root_stack.addWidget(self.launcher_page)
         self.root_stack.addWidget(self._build_shell())
         self.setCentralWidget(self.root_stack)
@@ -195,7 +196,6 @@ class MainWindow(QMainWindow):
         )
         self.workspace_page.rename_requested.connect(self.rename_subject)
         self.workspace_page.review_requested.connect(self.open_reviews_for_subject)
-        self.workspace_page.preview_action.connect(self._show_preview_message)
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
         self.results_page.preview_action.connect(self._show_preview_message)
         self.settings_page.preview_action.connect(self._show_preview_message)
@@ -278,7 +278,6 @@ class MainWindow(QMainWindow):
         return sidebar
 
     def open_design_preview(self) -> None:
-        self.project_service.close_project()
         self.study_service.close_study()
         self._set_study(demo_study())
         self.statusBar().showMessage(
@@ -299,7 +298,6 @@ class MainWindow(QMainWindow):
             self._show_error("The study could not be created.", exc)
             return
         self._record_recent(study)
-        self.project_service.close_project()
         self._set_study(present_study(study))
         if mri_source is not None:
             self._discover_and_review_mri(mri_source)
@@ -320,7 +318,7 @@ class MainWindow(QMainWindow):
 
     def open_project_path(self, project_path: Path | str) -> bool:
         path = Path(project_path).expanduser()
-        if path.suffix.lower() == PROJECT_FILE_SUFFIX:
+        if path.suffix.lower() == LEGACY_PROJECT_FILE_SUFFIX:
             return self._open_legacy_project_path(path)
         try:
             study = self.study_service.open_study(path)
@@ -328,7 +326,6 @@ class MainWindow(QMainWindow):
             self._show_error("The study could not be opened.", exc)
             return False
         self._record_recent(study)
-        self.project_service.close_project()
         self._set_study(present_study(study))
         self.statusBar().showMessage(
             f"Study reopened with {len(study.subjects)} persisted subjects.",
@@ -359,11 +356,10 @@ class MainWindow(QMainWindow):
                 target_root,
                 actor=self._reviewer_identity(),
             )
-        except (ProjectStateError, StudyStateError, OSError) as exc:
+        except (StudyStateError, OSError) as exc:
             self._show_error("The legacy project could not be migrated.", exc)
             return
         self._record_recent(study)
-        self.project_service.close_project()
         self._set_study(present_study(study))
         self.statusBar().showMessage(
             "Legacy project migrated without modifying the original .lysbbb file.",
@@ -372,12 +368,11 @@ class MainWindow(QMainWindow):
 
     def _open_legacy_project_path(self, database_path: Path) -> bool:
         try:
-            project = self.project_service.open_project(database_path)
-        except (ProjectStateError, OSError) as exc:
+            project = self.study_service.inspect_legacy_project(database_path)
+        except (StudyStateError, OSError) as exc:
             self._show_error("The legacy project could not be opened.", exc)
             return False
-        self.study_service.close_study()
-        self._set_study(empty_study(project))
+        self._set_study(present_legacy_project(project))
         self.statusBar().showMessage(
             "Legacy project opened read-only for inspection. Use Migrate legacy project "
             "to add persistent subjects.",
@@ -928,7 +923,7 @@ class MainWindow(QMainWindow):
                 "Wait for the current MRI conversion import before changing studies."
             )
             return
-        self.launcher_page.set_recent_studies(self.recent_store.list())
+        self.launcher_page.set_recent_studies(self.recent_studies.list())
         self.root_stack.setCurrentIndex(0)
         self.statusBar().showMessage("Choose another study or open the design preview.")
 
@@ -938,7 +933,6 @@ class MainWindow(QMainWindow):
                 "Wait for the current MRI conversion import before closing the study."
             )
             return
-        self.project_service.close_project()
         self.study_service.close_study()
         self.current_study = None
         self.study_name_label.setText("No study open")
@@ -963,8 +957,8 @@ class MainWindow(QMainWindow):
 
     def _record_recent(self, study: StudySnapshot) -> None:
         try:
-            self.recent_store.record(study)
-            self.launcher_page.set_recent_studies(self.recent_store.list())
+            self.recent_studies.record(study)
+            self.launcher_page.set_recent_studies(self.recent_studies.list())
         except OSError:
             # Recent history is a convenience and must never block study access.
             pass

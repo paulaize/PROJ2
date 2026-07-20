@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from lys_bbb.project_state import ProjectSnapshot
 from lys_bbb_app.domain.view_models import (
     MetricViewModel,
     PriorityActionViewModel,
@@ -331,30 +330,4 @@ def demo_study() -> StudyViewModel:
         subjects=subjects,
         reviews=reviews,
         results=results,
-    )
-
-
-def empty_study(project: ProjectSnapshot) -> StudyViewModel:
-    """Represent a real legacy project without inventing subject records."""
-
-    return StudyViewModel(
-        study_id=project.project_id,
-        name=project.name,
-        root_path=project.database_path,
-        description="Legacy schema-v1 project. Subject import will arrive in desktop Phase 1.",
-        schema_version=project.schema_version,
-        last_opened="Just now",
-        is_demo=False,
-        metrics=(
-            MetricViewModel("Subjects", "0", "No subjects imported", "neutral"),
-            MetricViewModel("Ready", "0", "No available actions", "ready"),
-            MetricViewModel("Need review", "0", "No review items", "review"),
-            MetricViewModel("Blocked", "0", "No subjects", "failed"),
-            MetricViewModel("Complete", "0", "No subjects", "approved"),
-        ),
-        workflows=(),
-        priority_actions=(),
-        subjects=(),
-        reviews=(),
-        results=(),
     )

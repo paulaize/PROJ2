@@ -149,6 +149,12 @@ scrolling used when the complete page cannot fit safely.
 The Subjects table now reports T2 import/conversion in a dedicated `T2 data` column.
 The separate `T2 lesion` column is reserved for the future released segmentation
 workflow and remains `Not started` in persistent studies until that backend is connected.
+The desktop package has an enforced dependency direction: shared records and errors are
+domain-owned, presenters live in `application`, persistence and external-tool adapters
+remain non-Qt infrastructure, services coordinate use cases, and Qt workers/pages stay
+under `ui`. The subject workspace is isolated from the general page module, and the Qt
+shell no longer imports the scientific backend or legacy database implementation
+directly.
 
 This milestone contains no scientific processing inside Qt widgets and does not invoke
 or reproduce the external T2 lesion model. Production pipeline execution, persisted

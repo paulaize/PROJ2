@@ -29,8 +29,10 @@ from lys_bbb_app.domain.study import (  # noqa: E402
     CreateStudyRequest,
     CreateSubjectRequest,
 )
-from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore  # noqa: E402
 from lys_bbb_app.main import parse_args  # noqa: E402
+from lys_bbb_app.services.recent_studies_service import (  # noqa: E402
+    RecentStudiesService,
+)
 from lys_bbb_app.ui.dialogs import (  # noqa: E402
     AddSubjectDialog,
     GroupAssignmentDialog,
@@ -41,9 +43,9 @@ from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
 from lys_bbb_app.ui.pages import (  # noqa: E402
     ReviewsPage,
     SubjectsPage,
-    SubjectWorkspacePage,
 )
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog  # noqa: E402
+from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage  # noqa: E402
 from lys_bbb_app.ui.widgets import ElidedLabel  # noqa: E402
 from lys_bbb_app.services.study_service import StudyService  # noqa: E402
 
@@ -365,8 +367,8 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
         )
     )
     service.close_study()
-    recent_store = RecentStudiesStore(tmp_path / "preferences" / "recent.json")
-    window = MainWindow(study_service=service, recent_store=recent_store)
+    recent_studies = RecentStudiesService(tmp_path / "preferences" / "recent.json")
+    window = MainWindow(study_service=service, recent_studies=recent_studies)
 
     assert window.open_project_path(study.root_path) is True
     assert window.current_study is not None
@@ -463,7 +465,9 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     )
     window = MainWindow(
         study_service=service,
-        recent_store=RecentStudiesStore(tmp_path / "preferences" / "recent.json"),
+        recent_studies=RecentStudiesService(
+            tmp_path / "preferences" / "recent.json"
+        ),
     )
     assert window.open_project_path(study.root_path)
     monkeypatch.setattr(
@@ -564,7 +568,9 @@ def test_subjects_page_removes_and_restores_subject_without_deleting_data(
     service.add_subject(CreateSubjectRequest("Mouse-01", True, True, actor="Reviewer A"))
     window = MainWindow(
         study_service=service,
-        recent_store=RecentStudiesStore(tmp_path / "preferences" / "recent.json"),
+        recent_studies=RecentStudiesService(
+            tmp_path / "preferences" / "recent.json"
+        ),
     )
     assert window.open_project_path(study.root_path)
     monkeypatch.setattr(

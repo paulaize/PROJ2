@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from lys_bbb_app.domain.scan_import import ScanImportState, ScanInputRecord, ScanRole
-from lys_bbb_app.domain.study import StudySnapshot, SubjectRecord
+from lys_bbb_app.domain.study import LegacyProjectRecord, StudySnapshot, SubjectRecord
 from lys_bbb_app.domain.view_models import (
     MetricViewModel,
     PriorityActionViewModel,
@@ -19,6 +19,32 @@ from lys_bbb_app.domain.view_models import (
 NOT_STARTED = StatusValue("Not started", "neutral")
 NOT_APPLICABLE = StatusValue("Not applicable", "neutral")
 WAITING_FOR_INPUT = StatusValue("Waiting for input", "unavailable")
+
+
+def present_legacy_project(project: LegacyProjectRecord) -> StudyViewModel:
+    """Represent a real legacy project without inventing subject records."""
+
+    return StudyViewModel(
+        study_id=project.project_id,
+        name=project.name,
+        root_path=project.database_path,
+        description="Legacy schema-v1 project. Migrate it before adding subjects.",
+        schema_version=project.schema_version,
+        last_opened="Just now",
+        is_demo=False,
+        metrics=(
+            MetricViewModel("Subjects", "0", "No subjects imported", "neutral"),
+            MetricViewModel("Ready", "0", "No available actions", "ready"),
+            MetricViewModel("Need review", "0", "No review items", "review"),
+            MetricViewModel("Blocked", "0", "No subjects", "failed"),
+            MetricViewModel("Complete", "0", "No subjects", "approved"),
+        ),
+        workflows=(),
+        priority_actions=(),
+        subjects=(),
+        reviews=(),
+        results=(),
+    )
 
 
 def present_study(study: StudySnapshot) -> StudyViewModel:

@@ -9,9 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-
-class StudyStateError(RuntimeError):
-    """Base error for persistent study state."""
+from lys_bbb_app.domain.errors import StudyStateError
 
 
 def utc_now() -> str:

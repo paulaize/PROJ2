@@ -318,10 +318,17 @@ src/
 ├── lys_bbb/          reusable scientific backend; no Qt imports
 └── lys_bbb_app/
     ├── domain/       states, entities, transition and approval policies
+    ├── application/  presentation and application-facing transformations
     ├── services/     typed use cases and backend adapters
     ├── infrastructure/ SQLite, files, jobs, settings, external tools
     └── ui/           shell, pages, models, dialogs, widgets, resources
 ```
+
+Dependency direction is enforced in tests. Domain records do not import outer layers;
+application presenters depend only on domain contracts; infrastructure does not import
+services or UI; and Qt modules call the scientific backend only through services. Qt
+thread bridges are UI adapters, not persistence or scientific modules. Shared state
+errors belong to the domain so widgets do not import database implementations.
 
 Workflow-specific behavior is registered behind stable service and policy interfaces.
 Core artifacts, dependencies, reviews, jobs, methods, and results are keyed records
@@ -335,7 +342,7 @@ user interface.
 stable user-facing launcher while the internal application architecture evolves.
 
 The main window uses Qt Widgets and Qt Model/View. It is resizable, with a target size
-of 1440 × 900 and a minimum of 1280 × 800.
+of 1440 × 900 and a minimum of 1180 × 760.
 
 ```text
 ┌───────────────────────────────────────────────────────────────┐

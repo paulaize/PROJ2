@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source
-from lys_bbb.project_state import ProjectDatabase
+from lys_bbb.project_state import ProjectDatabase, ProjectStateError
+from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import (
     ScanConversionResult,
     ScanDiscoveryReport,
@@ -24,9 +25,10 @@ from lys_bbb_app.domain.study import (
     AuditEventRecord,
     CreateStudyRequest,
     CreateSubjectRequest,
+    LegacyProjectRecord,
     StudySnapshot,
 )
-from lys_bbb_app.infrastructure.study_database import StudyRepository, StudyStateError
+from lys_bbb_app.infrastructure.study_database import StudyRepository
 from lys_bbb_app.infrastructure.external_viewer import (
     ExternalViewerError,
     ViewerLaunch,
@@ -94,7 +96,10 @@ class StudyService:
         *,
         actor: str,
     ) -> StudySnapshot:
-        legacy = ProjectDatabase.open(legacy_path).snapshot()
+        try:
+            legacy = ProjectDatabase.open(legacy_path).snapshot()
+        except ProjectStateError as exc:
+            raise StudyStateError(str(exc)) from exc
         target = target_root.expanduser().resolve()
         if target.exists():
             raise StudyStateError(
@@ -141,6 +146,21 @@ class StudyService:
                 shutil.rmtree(staging)
             raise
         return self._repository.snapshot()
+
+    def inspect_legacy_project(self, path: Path | str) -> LegacyProjectRecord:
+        """Read a legacy project without retaining it as mutable application state."""
+
+        try:
+            project = ProjectDatabase.open(path).snapshot()
+        except ProjectStateError as exc:
+            raise StudyStateError(str(exc)) from exc
+        self.close_study()
+        return LegacyProjectRecord(
+            project_id=project.project_id,
+            name=project.name,
+            database_path=project.database_path,
+            schema_version=project.schema_version,
+        )
 
     def add_subject(self, request: CreateSubjectRequest) -> StudySnapshot:
         return self._require_repository().add_subject(request)
