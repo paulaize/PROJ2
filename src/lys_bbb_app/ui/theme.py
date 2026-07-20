@@ -60,6 +60,20 @@ QLabel#errorBanner {
     border-radius: 6px;
     padding: 8px 12px;
 }
+QLabel[issueSeverity="warning"] {
+    background: #fff6e4;
+    color: #86570a;
+    border: 1px solid #efd49d;
+    border-radius: 6px;
+    padding: 7px 9px;
+}
+QLabel[issueSeverity="error"] {
+    background: #fdecec;
+    color: #9f2f2f;
+    border: 1px solid #efc0c0;
+    border-radius: 6px;
+    padding: 7px 9px;
+}
 QPushButton {
     background: #073f78;
     color: white;

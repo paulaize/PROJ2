@@ -13,6 +13,7 @@ from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source, infer_subject_code
 from lys_bbb_app.domain.scan_import import (
     ImportConfidence,
+    InputValidationState,
     OrientationPolicy,
     ScanImportAssignment,
     ScanImportState,
@@ -22,6 +23,7 @@ from lys_bbb_app.domain.scan_import import (
 from lys_bbb_app.domain.study import CreateStudyRequest
 from lys_bbb_app.infrastructure.study_database import (
     STUDY_MANIFEST_NAME,
+    STUDY_SCHEMA_VERSION,
     StudyRepository,
 )
 from lys_bbb_app.infrastructure.external_viewer import ViewerLaunch
@@ -218,6 +220,13 @@ def test_confirmed_import_creates_subject_and_versioned_active_input(tmp_path: P
     assert record.version == 1
     assert record.output_path is not None and record.output_path.is_file()
     assert record.output_path.is_relative_to(imported.root_path)
+    assert record.validation_state is InputValidationState.NOT_RUN
+
+    validated = service.validate_subject_inputs(
+        imported.subjects[0].id,
+        actor="Reviewer A",
+    )
+    assert validated.scan_inputs[0].validation_state is InputValidationState.VALID
 
     replacement = ScanImportAssignment(
         **{**assignment.__dict__, "proposal_id": "second-proposal", "flip_axes": (1,)}
@@ -227,6 +236,8 @@ def test_confirmed_import_creates_subject_and_versioned_active_input(tmp_path: P
     assert current.version == 2 and current.active
     assert previous.version == 1 and not previous.active
     assert previous.state is ScanImportState.SUPERSEDED
+    assert previous.validation_state is InputValidationState.VALID
+    assert current.validation_state is InputValidationState.NOT_RUN
     assert current.output_path != previous.output_path
 
 
@@ -287,6 +298,46 @@ def test_bulk_flip_plan_creates_new_versions_for_multiple_subjects(
         )
         original = original_outputs[record.subject_id]
         assert original is not None and original.is_file()
+
+
+def test_input_validation_failure_is_persisted_for_reopening(tmp_path: Path) -> None:
+    service = StudyService()
+    study = service.create_study(
+        CreateStudyRequest(tmp_path / "study", "Study", "study", actor="Reviewer")
+    )
+    source = tmp_path / "raw" / "Mouse-01_t2w.nii.gz"
+    _write_nifti(source)
+    imported = service.import_confirmed_scans(
+        (
+            ScanImportAssignment(
+                proposal_id="validation-failure",
+                subject_code="Mouse-01",
+                role=ScanRole.T2,
+                source_path=source,
+                source_format=SourceFormat.NIFTI,
+                session_id="direct-nifti",
+                scan_id=None,
+                protocol="T2w",
+                method="NIfTI",
+                acquisition_orientation="from affine",
+                confidence=ImportConfidence.HIGH,
+                orientation_policy=OrientationPolicy.NATIVE,
+            ),
+        ),
+        actor="Reviewer",
+    )
+    record = imported.scan_inputs[0]
+    assert record.output_path is not None
+    record.output_path.write_bytes(b"not a NIfTI file")
+
+    service.validate_subject_inputs(record.subject_id, actor="Reviewer")
+    service.close_study()
+    reopened = service.open_study(study.root_path)
+    reopened_record = reopened.scan_inputs[0]
+
+    assert reopened_record.validation_state is InputValidationState.INVALID
+    assert reopened_record.validation_issues[0].code == "INPUT_NIFTI_UNREADABLE"
+    assert reopened_record.validated_by == "Reviewer"
 
 
 def test_itksnap_handoff_opens_only_a_managed_converted_input(
@@ -511,10 +562,25 @@ def test_opening_schema_v2_study_migrates_scan_input_state_and_manifest(tmp_path
 
     reopened = StudyRepository.open(repository.root_path).snapshot()
 
-    assert reopened.schema_version == 4
-    assert json.loads(manifest_path.read_text())["schema_version"] == 4
+    assert reopened.schema_version == STUDY_SCHEMA_VERSION
+    assert (
+        json.loads(manifest_path.read_text())["schema_version"]
+        == STUDY_SCHEMA_VERSION
+    )
     with sqlite3.connect(repository.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == STUDY_SCHEMA_VERSION
+        )
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_inputs'"
         ).fetchone() == ("scan_inputs",)
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(scan_inputs)")
+        }
+        assert {
+            "validation_state",
+            "validation_issues_json",
+            "validated_at",
+            "validated_by",
+        } <= columns

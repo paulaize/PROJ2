@@ -55,7 +55,7 @@ from lys_bbb_app.ui.pages import (
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog
 from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage
 from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
-from lys_bbb_app.ui.workers import ScanImportThread
+from lys_bbb_app.ui.workers import InputValidationThread, ScanImportThread
 
 
 LEGACY_PROJECT_FILTER = (
@@ -79,6 +79,8 @@ class MainWindow(QMainWindow):
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_indices: dict[str, int] = {}
         self._scan_import_thread: ScanImportThread | None = None
+        self._input_validation_thread: InputValidationThread | None = None
+        self._validation_subject_id: str | None = None
         self._scan_operation_name = "MRI import"
 
         self.setWindowTitle("LYS BBB Scientific Workflows")
@@ -194,8 +196,19 @@ class MainWindow(QMainWindow):
         self.workspace_page.open_mri_requested.connect(
             self.open_subject_mri_in_itksnap
         )
+        self.workspace_page.input_mri_open_requested.connect(
+            self.open_scan_input_in_itksnap
+        )
+        self.workspace_page.input_validation_requested.connect(
+            self.validate_subject_inputs
+        )
+        self.workspace_page.input_flip_requested.connect(
+            lambda subject_id: self.bulk_flip_subjects((subject_id,))
+        )
+        self.workspace_page.input_import_requested.connect(
+            self.select_mri_source_folder
+        )
         self.workspace_page.rename_requested.connect(self.rename_subject)
-        self.workspace_page.review_requested.connect(self.open_reviews_for_subject)
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
         self.results_page.preview_action.connect(self._show_preview_message)
         self.settings_page.preview_action.connect(self._show_preview_message)
@@ -612,6 +625,18 @@ class MainWindow(QMainWindow):
             if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
             scan_input_id = dialog.scan_input_id()
+        self.open_scan_input_in_itksnap(subject_id, scan_input_id)
+
+    def open_scan_input_in_itksnap(
+        self,
+        subject_id: str,
+        scan_input_id: str,
+    ) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "The design preview has no real NIfTI files to open in ITK-SNAP."
+            )
+            return
         configured_viewer = self.settings_page.external_editor.text().strip() or None
         try:
             launch = self.study_service.open_mri_in_itksnap(
@@ -627,6 +652,70 @@ class MainWindow(QMainWindow):
             f"Opened {launch.image_path.name} in ITK-SNAP.",
             7000,
         )
+
+    def validate_subject_inputs(self, subject_id: str) -> None:
+        if self.current_study is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Synthetic preview inputs cannot receive persistent validation."
+            )
+            return
+        if self._background_job_running():
+            self._show_preview_message("Another MRI background job is already running.")
+            return
+        thread = InputValidationThread(
+            self.study_service,
+            subject_id,
+            actor=self._reviewer_identity(),
+        )
+        thread.validation_completed.connect(self._input_validation_completed)
+        thread.validation_failed.connect(self._input_validation_failed)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_input_validation_thread)
+        self._input_validation_thread = thread
+        self._validation_subject_id = subject_id
+        self.jobs_label.setText("1 input validation running")
+        self.statusBar().showMessage(
+            "Validating managed NIfTI geometry and provenance…"
+        )
+        thread.start()
+
+    def _input_validation_completed(self, snapshot: StudySnapshot) -> None:
+        subject_id = self._validation_subject_id
+        if subject_id is None:
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(
+            self.workspace_page.inputs_panel
+        )
+        subject = self.current_study.subject(subject_id) if self.current_study else None
+        if subject is not None and (
+            subject.t1_data.kind == "failed" or subject.t2_data.kind == "failed"
+        ):
+            self.statusBar().showMessage(
+                "Input validation found a problem. Review the affected scan card.",
+                10000,
+            )
+        else:
+            self.statusBar().showMessage(
+                "Input validation saved. Ready workflows can now advance to their "
+                "artifact step.",
+                9000,
+            )
+
+    def _input_validation_failed(self, error: str) -> None:
+        self.jobs_label.setText("0 jobs running")
+        self._show_error(
+            "The MRI inputs could not be validated.",
+            StudyStateError(error),
+        )
+
+    def _clear_input_validation_thread(self) -> None:
+        self._input_validation_thread = None
+        self._validation_subject_id = None
+        self.jobs_label.setText("0 jobs running")
 
     def bulk_flip_subjects(self, subject_ids: tuple[str, ...]) -> None:
         if self.current_study is None or not subject_ids:
@@ -815,8 +904,8 @@ class MainWindow(QMainWindow):
         *,
         operation_name: str = "MRI import",
     ) -> None:
-        if self._scan_import_thread is not None and self._scan_import_thread.isRunning():
-            self._show_preview_message("An MRI conversion import is already running.")
+        if self._background_job_running():
+            self._show_preview_message("Another MRI background job is already running.")
             return
         thread = ScanImportThread(
             self.study_service,
@@ -918,9 +1007,9 @@ class MainWindow(QMainWindow):
         self.reviews_page.focus_subject(subject_id)
 
     def show_launcher(self) -> None:
-        if self._scan_import_thread is not None and self._scan_import_thread.isRunning():
+        if self._background_job_running():
             self._show_preview_message(
-                "Wait for the current MRI conversion import before changing studies."
+                "Wait for the current MRI background job before changing studies."
             )
             return
         self.launcher_page.set_recent_studies(self.recent_studies.list())
@@ -928,9 +1017,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Choose another study or open the design preview.")
 
     def close_study(self) -> None:
-        if self._scan_import_thread is not None and self._scan_import_thread.isRunning():
+        if self._background_job_running():
             self._show_preview_message(
-                "Wait for the current MRI conversion import before closing the study."
+                "Wait for the current MRI background job before closing the study."
             )
             return
         self.study_service.close_study()
@@ -940,9 +1029,9 @@ class MainWindow(QMainWindow):
         self.show_launcher()
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if self._scan_import_thread is not None and self._scan_import_thread.isRunning():
+        if self._background_job_running():
             self._show_preview_message(
-                "Wait for the current MRI conversion import before quitting."
+                "Wait for the current MRI background job before quitting."
             )
             event.ignore()
             return
@@ -954,6 +1043,18 @@ class MainWindow(QMainWindow):
     def _reviewer_identity(self) -> str:
         reviewer = self.settings_page.reviewer.text().strip()
         return reviewer or "Local researcher"
+
+    def _background_job_running(self) -> bool:
+        return bool(
+            (
+                self._scan_import_thread is not None
+                and self._scan_import_thread.isRunning()
+            )
+            or (
+                self._input_validation_thread is not None
+                and self._input_validation_thread.isRunning()
+            )
+        )
 
     def _record_recent(self, study: StudySnapshot) -> None:
         try:

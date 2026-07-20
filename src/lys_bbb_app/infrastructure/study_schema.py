@@ -11,7 +11,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 4:
+    if schema_version != 5:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -87,6 +87,12 @@ def create_schema(
             output_spacing_json TEXT NOT NULL DEFAULT '[]',
             output_axis_codes_json TEXT NOT NULL DEFAULT '[]',
             error_message TEXT,
+            validation_state TEXT NOT NULL DEFAULT 'NOT_RUN' CHECK (
+                validation_state IN ('NOT_RUN', 'VALID', 'INVALID')
+            ),
+            validation_issues_json TEXT NOT NULL DEFAULT '[]',
+            validated_at TEXT,
+            validated_by TEXT,
             superseded_by TEXT REFERENCES scan_inputs(id),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -198,6 +204,25 @@ def migrate_schema(
             """
         )
         version = 4
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 4:
+        connection.executescript(
+            """
+            ALTER TABLE scan_inputs ADD COLUMN validation_state TEXT NOT NULL
+                DEFAULT 'NOT_RUN' CHECK (
+                    validation_state IN ('NOT_RUN', 'VALID', 'INVALID')
+                );
+            ALTER TABLE scan_inputs ADD COLUMN validation_issues_json TEXT NOT NULL
+                DEFAULT '[]';
+            ALTER TABLE scan_inputs ADD COLUMN validated_at TEXT;
+            ALTER TABLE scan_inputs ADD COLUMN validated_by TEXT;
+            """
+        )
+        version = 5
         connection.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

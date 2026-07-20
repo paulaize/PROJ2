@@ -18,14 +18,18 @@ from PySide6.QtWidgets import (
 
 from lys_bbb_app.domain.view_models import StatusValue, SubjectViewModel
 from lys_bbb_app.ui.layout_helpers import clear_layout
+from lys_bbb_app.ui.subject_inputs import SubjectInputsPanel
 from lys_bbb_app.ui.widgets import ElidedLabel, StatusBadge, secondary_button
 
 
 class SubjectWorkspacePage(QScrollArea):
     back_requested = Signal()
     open_mri_requested = Signal(str)
+    input_mri_open_requested = Signal(str, str)
+    input_validation_requested = Signal(str)
+    input_flip_requested = Signal(str)
+    input_import_requested = Signal()
     rename_requested = Signal(str)
-    review_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,9 +79,9 @@ class SubjectWorkspacePage(QScrollArea):
         self.metadata_value_labels: list[ElidedLabel] = []
         self.layout.addWidget(self.metadata_card)
 
-        title = QLabel("Workflow progress")
-        title.setObjectName("sectionTitle")
-        self.layout.addWidget(title)
+        self.workflow_title = QLabel("Workflow progress")
+        self.workflow_title.setObjectName("sectionTitle")
+        self.layout.addWidget(self.workflow_title)
         self.workflow_container = QWidget()
         self.workflow_layout = QVBoxLayout(self.workflow_container)
         self.workflow_layout.setContentsMargins(0, 0, 0, 0)
@@ -89,17 +93,22 @@ class SubjectWorkspacePage(QScrollArea):
         self.summary_tab.setWordWrap(True)
         self.summary_tab.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.summary_tab.setMargin(18)
-        self.inputs_tab = QLabel(
-            "Input assignments, geometry, hashes, and validation issues will appear here."
+        self.inputs_panel = SubjectInputsPanel()
+        self.inputs_panel.open_input_requested.connect(
+            self.input_mri_open_requested.emit
         )
-        self.inputs_tab.setWordWrap(True)
-        self.inputs_tab.setMargin(18)
+        self.inputs_panel.validation_requested.connect(
+            self.input_validation_requested.emit
+        )
+        self.inputs_panel.flip_requested.connect(self.input_flip_requested.emit)
+        self.inputs_panel.import_requested.connect(self.input_import_requested.emit)
         self.history_list = QListWidget()
         self.tabs.addTab(self.summary_tab, "Summary")
-        self.tabs.addTab(self.inputs_tab, "Inputs")
+        self.tabs.addTab(self.inputs_panel, "Inputs")
         self.tabs.addTab(self.history_list, "History")
         self.tabs.setMinimumHeight(130)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.tabs.currentChanged.connect(self._tab_changed)
         self.layout.addWidget(self.tabs, 1)
 
     def set_subject(self, subject: SubjectViewModel) -> None:
@@ -107,6 +116,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.subject_title.setText(subject.label)
         self.open_mri.setEnabled(subject.mri_input_count > 0)
         self._refresh_subject_subtitle()
+        self.inputs_panel.set_subject(subject)
 
         clear_layout(self.metadata_layout)
         self.metadata_value_labels.clear()
@@ -132,25 +142,33 @@ class SubjectWorkspacePage(QScrollArea):
             self.metadata_layout.addLayout(row)
 
         clear_layout(self.workflow_layout)
+        t1_inputs_ready = subject.t1_data.kind == "ready"
+        t2_inputs_ready = subject.t2_data.kind == "ready"
         cards = (
             (
                 "T1 Enhancement",
                 "Imported → Mask review → Registration review → Quantification → Complete",
-                subject.t1_result
-                if subject.t1_result.kind not in {"failed", "unavailable"}
-                else subject.brain_mask,
-                "Review T1 artifacts",
+                subject.brain_mask if t1_inputs_ready else subject.t1_data,
+                "Brain-mask step" if t1_inputs_ready else "Review inputs",
+                not t1_inputs_ready and subject.t1_data.label != "Not applicable",
             ),
             (
                 "T2 Lesion",
                 "Imported → Mask generated/imported → Review → Quantification → Complete",
-                subject.t2_lesion,
-                "Review T2 artifacts",
+                subject.t2_lesion if t2_inputs_ready else subject.t2_data,
+                "Lesion-mask step" if t2_inputs_ready else "Review inputs",
+                not t2_inputs_ready and subject.t2_data.label != "Not applicable",
             ),
         )
-        for title, progression, status, action in cards:
+        for title, progression, status, action, action_enabled in cards:
             self.workflow_layout.addWidget(
-                self._workflow_row(title, progression, status, action)
+                self._workflow_row(
+                    title,
+                    progression,
+                    status,
+                    action,
+                    action_enabled=action_enabled,
+                )
             )
 
         self.summary_tab.setText(
@@ -194,6 +212,8 @@ class SubjectWorkspacePage(QScrollArea):
         progression: str,
         status: StatusValue,
         action_text: str,
+        *,
+        action_enabled: bool,
     ) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
@@ -214,11 +234,21 @@ class SubjectWorkspacePage(QScrollArea):
         layout.addWidget(StatusBadge(status), 0, 1, Qt.AlignRight)
         layout.addWidget(progress, 1, 0)
         button = secondary_button(action_text)
-        subject_id = self.current_subject.subject_id if self.current_subject else ""
-        button.clicked.connect(
-            lambda _checked=False, selected_subject_id=subject_id: (
-                self.review_requested.emit(selected_subject_id)
-            )
+        button.setEnabled(action_enabled)
+        button.setToolTip(
+            ""
+            if action_enabled
+            else "This input is ready. The versioned artifact/review step is the next milestone."
         )
+        button.clicked.connect(self._show_inputs)
         layout.addWidget(button, 1, 1, Qt.AlignRight)
         return card
+
+    def _show_inputs(self) -> None:
+        self.tabs.setCurrentWidget(self.inputs_panel)
+
+    def _tab_changed(self, _index: int) -> None:
+        inputs_focused = self.tabs.currentWidget() is self.inputs_panel
+        self.metadata_card.setVisible(not inputs_focused)
+        self.workflow_title.setVisible(not inputs_focused)
+        self.workflow_container.setVisible(not inputs_focused)

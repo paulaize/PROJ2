@@ -69,7 +69,7 @@ Exact counts and dataset exceptions live in `docs/current_state.md`.
 
 1. Preserve progress on T1 brain-mask selection, reviewed references, registration QC,
    and enhancement signal-preservation validation.
-2. Preserve the implemented desktop input foundation: schema-v4 studies, read-only MRI
+2. Preserve the implemented desktop input foundation: schema-v5 studies, read-only MRI
    discovery, human-correctable subject/role/orientation proposals, versioned NIfTI
    conversion, subjects, navigation, and audit history.
 3. Implement canonical artifacts, jobs, reviews, methods, results, dependencies, and outdated
@@ -113,7 +113,7 @@ but do not delete user-created artifacts merely to tidy the worktree.
 
 Current supported code includes inventory, conversion, mask workflow/QC, rigid pre/post
 registration, analysis-manifest gating, provisional pair/cohort quantification, a
-schema-v4 PySide6 study-root foundation with persistent and reversibly archived subjects, expected workflows,
+schema-v5 PySide6 study-root foundation with persistent and reversibly archived subjects, expected workflows,
 read-only Bruker/NIfTI discovery, reviewed subject/role/orientation assignments,
 versioned scan-input conversion/provenance, blinding/groups, audit history and recent studies, plus a
 connected synthetic design preview for the planned scientific workflow pages.

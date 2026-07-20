@@ -8,9 +8,10 @@ Operational facts about what is implemented today live in `docs/current_state.md
 
 The current code includes two deliberately separate experiences:
 
-- a real schema-v4 foundation that creates/reopens study roots, remembers recent
-  studies and MRI source roots, persists subjects, versioned scan inputs, and expected workflows, enforces
-  one-way blinded review, saves group assignments, and records audit history; and
+- a real schema-v5 foundation that creates/reopens study roots, remembers recent
+  studies and MRI source roots, persists subjects, versioned scan inputs, validation
+  outcomes, and expected workflows, enforces one-way blinded review, saves group
+  assignments, and records audit history; and
 - a connected design preview (`lys-bbb-desktop --demo`) that renders the planned shell
   and workflow pages from explicitly synthetic, non-persistent view models.
 
@@ -18,7 +19,8 @@ The preview currently covers the study launcher, Overview, Subjects, Subject Wor
 Review/QC, Results/Export, and Settings. It supports navigation, filtering, subject-to-
 review routing, local approve/reject interaction, viewer slice/overlay controls, and
 preview export actions. Study, subject, blinding, group, source-folder, scan-input,
-conversion-provenance, and audit state are production-connected outside demo mode.
+conversion-provenance, input-validation, and audit state are production-connected
+outside demo mode.
 Mask, registration, review, result, and export behavior remains a visual and interaction
 prototype until the later phases below.
 
@@ -228,7 +230,7 @@ machines or an unreliable network share is outside the MVP.
 ### Schema-v1 compatibility
 
 The `.lysbbb` single-file project is a legacy prototype and remains supported.
-Implemented schema version 4 provides the study/subject/input foundation and a tested
+Implemented schema version 5 provides the study/subject/input foundation and a tested
 upgrade/import path that:
 
 1. opens schema-v1 files readably;

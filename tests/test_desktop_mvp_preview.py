@@ -141,21 +141,34 @@ def test_subject_worklist_supports_multi_selection_and_contextual_actions(
 def test_subject_workspace_exposes_open_mri_and_rename_actions(
     qt_app: QApplication,
 ) -> None:
-    subject = replace(demo_study().subjects[0], mri_input_count=1)
+    subject = replace(
+        demo_study().subjects[0],
+        mri_input_count=1,
+        can_validate_inputs=True,
+    )
     page = SubjectWorkspacePage()
     opened: list[str] = []
     renamed: list[str] = []
+    validated: list[str] = []
     page.open_mri_requested.connect(opened.append)
     page.rename_requested.connect(renamed.append)
+    page.input_validation_requested.connect(validated.append)
     page.set_subject(subject)
 
     assert page.open_mri.isEnabled()
     page.open_mri.click()
     page.rename_subject.click()
+    page.tabs.setCurrentWidget(page.inputs_panel)
+    page.inputs_panel.validate_inputs.click()
     qt_app.processEvents()
 
     assert opened == [subject.subject_id]
     assert renamed == [subject.subject_id]
+    assert validated == [subject.subject_id]
+    assert len(page.inputs_panel.scan_cards) == 3
+    assert page.metadata_card.isHidden()
+    assert page.workflow_container.isHidden()
+    assert page.horizontalScrollBar().maximum() == 0
     page.close()
 
 
@@ -498,14 +511,15 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     assert snapshot.scan_inputs[0].output_path.is_file()
     assert window.subjects_page.proxy.rowCount() == 1
     assert window.current_study is not None
-    assert window.current_study.subjects[0].t2_data.label == "T2 converted"
+    subject_id = window.current_study.subjects[0].subject_id
+    assert window.current_study.subjects[0].t2_data.label == "Input review required"
     assert window.current_study.subjects[0].t2_lesion.label == "Not started"
     assert (
         window.subjects_page.model.data(
             window.subjects_page.model.index(0, 6),
             Qt.DisplayRole,
         )
-        == "T2 converted"
+        == "Input review required"
     )
     assert (
         window.subjects_page.model.data(
@@ -513,6 +527,30 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
             Qt.DisplayRole,
         )
         == "Not started"
+    )
+
+    window.open_subject(subject_id)
+    input_panel = window.workspace_page.inputs_panel
+    window.workspace_page.tabs.setCurrentWidget(input_panel)
+    assert len(input_panel.scan_cards) == 1
+    assert input_panel.validate_inputs.isEnabled()
+    assert "require validation" in input_panel.readiness_label.text()
+    input_panel.validate_inputs.click()
+    validation_thread = window._input_validation_thread
+    assert validation_thread is not None
+    assert validation_thread.wait(5000)
+    for _ in range(10):
+        qt_app.processEvents()
+
+    assert window.current_study is not None
+    assert window.current_study.subjects[0].t2_data.label == "T2 validated"
+    assert window.current_study.subjects[0].overall.label == "Ready for analysis"
+    assert "passed validation" in input_panel.readiness_label.text()
+    reopened = service.open_study(study.root_path)
+    assert reopened.scan_inputs[0].validation_state.value == "VALID"
+    assert any(
+        event.event_type == "MRI_INPUTS_VALIDATED"
+        for event in service.list_audit_events()
     )
     window.close()
 

@@ -115,7 +115,7 @@ enhancement. They remain provisional until the validation experiments in
 ## Desktop foundation
 
 The PySide6 input-foundation milestone is implemented on
-`feat/pyside-project-foundation`. The launcher creates or opens a schema-v4 study root,
+`feat/pyside-project-foundation`. The launcher creates or opens a schema-v5 study root,
 records recent studies, persists subjects and their expected T1/T2 workflows, stores T1
 and T2 source-root references, and restores the same state after reopening. Source image
 folders may live on mounted hard drives and are referenced in place; project setup does
@@ -155,6 +155,15 @@ remain non-Qt infrastructure, services coordinate use cases, and Qt workers/page
 under `ui`. The subject workspace is isolated from the general page module, and the Qt
 shell no longer imports the scientific backend or legacy database implementation
 directly.
+
+The persistent subject Inputs tab now provides the first post-conversion workflow step.
+It lists active T1-pre, T1-post, and T2 versions with managed/source paths, dimensions,
+spacing, axis codes, import transforms, checksums, validation state, and plain-language
+issues. Validation runs off the GUI thread, checks each managed NIfTI against its
+conversion provenance, records reviewer/time and an audit event, and survives reopening.
+A new flipped or replacement version starts at `Input review required`; successfully
+validated T1/T2 inputs become `Ready for analysis`. The UI shows the next brain-mask and
+lesion-mask artifact steps honestly as not yet connected.
 
 This milestone contains no scientific processing inside Qt widgets and does not invoke
 or reproduce the external T2 lesion model. Production pipeline execution, persisted

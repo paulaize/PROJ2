@@ -134,7 +134,7 @@ conda run -n lys-bbb python -m pip install --no-deps -e .
 ```
 
 Launch the study launcher, open the explicitly synthetic design preview, pass a
-schema-v4 study root directly, or inspect a legacy schema-v1 project:
+schema-v5 study root directly, or inspect a legacy schema-v1 project:
 
 ```bash
 conda run -n lys-bbb lys-bbb-desktop
@@ -147,11 +147,12 @@ The preview is implemented in `src/lys_bbb_app/` and remains the place to evalua
 the persistent shell, page layout, navigation, status semantics, review interaction,
 and results presentation. Its typed demo records are not persisted.
 
-Outside demo mode, the application now creates/reopens a schema-v4 study root, scans a
+Outside demo mode, the application now creates/reopens a schema-v5 study root, scans a
 selected MRI root read-only, proposes Bruker/NIfTI subject and role assignments, converts
 confirmed inputs to versioned NIfTI artifacts, and persists geometry, hashes,
-orientation operations, subjects, expected workflows, recent studies, audit events, and
-blinding. Schema-v2 roots migrate automatically; the schema-v1 `.lysbbb` file remains a
+orientation operations, managed-input validation outcomes, subjects, expected
+workflows, recent studies, audit events, and blinding. Schema-v2 roots migrate
+automatically; the schema-v1 `.lysbbb` file remains a
 non-destructive explicit migration input. Persistence, discovery, and conversion live in
 non-Qt repositories and services.
 
@@ -159,11 +160,12 @@ Keep the MRI import feature split across these boundaries:
 
 | Layer | Module | Responsibility |
 |---|---|---|
-| Scientific backend | `lys_bbb.scan_discovery`, `lys_bbb.scan_conversion`, `lys_bbb.image_orientation` | Read-only discovery, conversion, and image geometry; no Qt or study database access |
+| Scientific backend | `lys_bbb.scan_discovery`, `lys_bbb.scan_conversion`, `lys_bbb.input_validation`, `lys_bbb.image_orientation` | Read-only discovery, conversion, input validation, and image geometry; no Qt or study database access |
 | Domain contracts | `lys_bbb_app.domain.scan_import` | Immutable requests, states, records, and reports; no Qt or I/O |
 | Application service | `lys_bbb_app.services.study_service` | Validate and coordinate the import use case |
 | Launcher preference service | `lys_bbb_app.services.recent_studies_service` | Expose recent studies without coupling widgets to JSON storage |
 | Persistence | `lys_bbb_app.infrastructure.scan_input_repository` | Store versioned scan inputs and provenance behind a small database-context protocol |
+| Validation persistence | `lys_bbb_app.infrastructure.input_validation_repository` | Store per-version validation outcomes and audit summaries |
 | Background bridge | `lys_bbb_app.ui.workers` | Carry service work and structured outcomes across the Qt thread boundary; no processing logic |
 | External tool adapter | `lys_bbb_app.infrastructure.external_viewer` | Resolve and launch ITK-SNAP for a validated managed NIfTI path; no Qt dependency |
 | User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.mri_action_dialogs`, `lys_bbb_app.ui.subject_workspace`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |

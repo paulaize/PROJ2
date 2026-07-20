@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from lys_bbb_app.domain.scan_import import (
+    InputValidationOutcome,
     ScanConversionResult,
     ScanImportAssignment,
     ScanInputRecord,
@@ -32,6 +33,9 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study as _touch_study,
     utc_now as _utc_now,
 )
+from lys_bbb_app.infrastructure.input_validation_repository import (
+    record_input_validations as _record_input_validations,
+)
 from lys_bbb_app.infrastructure.scan_input_repository import (
     complete_scan_import as _complete_scan_import,
     fail_scan_import as _fail_scan_import,
@@ -45,7 +49,7 @@ from lys_bbb_app.infrastructure.study_schema import (
 )
 
 
-STUDY_SCHEMA_VERSION = 4
+STUDY_SCHEMA_VERSION = 5
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -740,6 +744,15 @@ class StudyRepository:
 
     def fail_scan_import(self, record_id: str, error: str, *, actor: str) -> None:
         _fail_scan_import(self, record_id, error, actor=actor)
+
+    def record_input_validations(
+        self,
+        subject_id: str,
+        outcomes: tuple[InputValidationOutcome, ...],
+        *,
+        actor: str,
+    ) -> None:
+        _record_input_validations(self, subject_id, outcomes, actor=actor)
 
     def record_audit_event(
         self,

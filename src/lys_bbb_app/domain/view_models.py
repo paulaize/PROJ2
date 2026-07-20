@@ -42,6 +42,33 @@ class PriorityActionViewModel:
 
 
 @dataclass(frozen=True)
+class InputIssueViewModel:
+    code: str
+    severity: str
+    message: str
+    technical_detail: str | None = None
+
+
+@dataclass(frozen=True)
+class InputScanViewModel:
+    scan_input_id: str
+    role: str
+    role_label: str
+    version: int
+    conversion: StatusValue
+    validation: StatusValue
+    managed_path: Path | None
+    source_path: Path
+    shape_text: str
+    spacing_text: str
+    orientation_text: str
+    transformation_text: str
+    checksum_text: str
+    issues: tuple[InputIssueViewModel, ...]
+    can_open: bool
+
+
+@dataclass(frozen=True)
 class SubjectViewModel:
     subject_id: str
     group: str | None
@@ -57,6 +84,8 @@ class SubjectViewModel:
     history: tuple[str, ...] = ()
     display_id: str | None = None
     mri_input_count: int = 0
+    inputs: tuple[InputScanViewModel, ...] = ()
+    can_validate_inputs: bool = False
 
     @property
     def label(self) -> str:

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from lys_bbb_app.domain.view_models import (
+    InputIssueViewModel,
+    InputScanViewModel,
     MetricViewModel,
     PriorityActionViewModel,
     ResultViewModel,
@@ -25,7 +29,63 @@ OUTDATED = StatusValue("Result outdated", "outdated")
 NOT_APPLICABLE = StatusValue("Not applicable", "neutral")
 NOT_STARTED = StatusValue("Not started", "neutral")
 WAITING_FOR_MASK = StatusValue("Waiting for mask", "unavailable")
-T2_CONVERTED = StatusValue("T2 converted", "ready")
+INPUT_REVIEW = StatusValue("Input review required", "review")
+INPUTS_VALIDATED = StatusValue("Inputs validated", "ready")
+T2_VALIDATED = StatusValue("T2 validated", "ready")
+
+
+def _demo_inputs(
+    subject_code: str,
+    *,
+    include_t1: bool = True,
+    include_t2: bool = True,
+    t1_validation: StatusValue = StatusValue("Validated", "ready"),
+    t2_validation: StatusValue = StatusValue("Validated", "ready"),
+) -> tuple[InputScanViewModel, ...]:
+    roles: list[tuple[str, str, StatusValue]] = []
+    if include_t1:
+        roles.extend(
+            (
+                ("T1_PRE", "Pre-Gd T1", t1_validation),
+                ("T1_POST", "Post-Gd T1", t1_validation),
+            )
+        )
+    if include_t2:
+        roles.append(("T2", "T2-weighted", t2_validation))
+    return tuple(
+        InputScanViewModel(
+            scan_input_id=f"synthetic-{subject_code}-{role}",
+            role=role,
+            role_label=role_label,
+            version=1,
+            conversion=StatusValue("Converted", "ready"),
+            validation=validation,
+            managed_path=Path(
+                f"/synthetic-preview/{subject_code}/inputs/{role.lower()}/v001/image.nii.gz"
+            ),
+            source_path=Path(f"/synthetic-source/{subject_code}/{role.lower()}"),
+            shape_text="128 × 128 × 176",
+            spacing_text="0.156 × 0.156 × 0.156 mm",
+            orientation_text="R A S",
+            transformation_text=(
+                "T1 Coronal · flipped X" if role.startswith("T1") else "Native"
+            ),
+            checksum_text="71c83d0eaa42…",
+            issues=(
+                (
+                    InputIssueViewModel(
+                        "SYNTHETIC_VALIDATION_EXAMPLE",
+                        "error",
+                        "Example geometry problem for design review.",
+                    ),
+                )
+                if validation.kind == "failed"
+                else ()
+            ),
+            can_open=False,
+        )
+        for role, role_label, validation in roles
+    )
 
 
 def demo_study() -> StudyViewModel:
@@ -35,11 +95,11 @@ def demo_study() -> StudyViewModel:
         SubjectViewModel(
             subject_id="Mouse-001",
             group="Treatment A",
-            t1_data=APPROVED,
+            t1_data=INPUT_REVIEW,
             brain_mask=REVIEW,
             registration=WAITING_FOR_MASK,
             t1_result=BLOCKED,
-            t2_data=T2_CONVERTED,
+            t2_data=INPUT_REVIEW,
             t2_lesion=REVIEW,
             overall=REVIEW,
             updated="Today, 14:42",
@@ -52,15 +112,21 @@ def demo_study() -> StudyViewModel:
                 "Draft T2 lesion mask imported · 14:42",
                 "T1 pair validated · 13:08",
             ),
+            inputs=_demo_inputs(
+                "Mouse-001",
+                t1_validation=StatusValue("Review required", "review"),
+                t2_validation=StatusValue("Review required", "review"),
+            ),
+            can_validate_inputs=True,
         ),
         SubjectViewModel(
             subject_id="Mouse-002",
             group="Treatment A",
-            t1_data=APPROVED,
+            t1_data=INPUTS_VALIDATED,
             brain_mask=APPROVED,
             registration=REVIEW,
             t1_result=BLOCKED,
-            t2_data=T2_CONVERTED,
+            t2_data=T2_VALIDATED,
             t2_lesion=APPROVED,
             overall=REVIEW,
             updated="Today, 13:17",
@@ -69,25 +135,27 @@ def demo_study() -> StudyViewModel:
                 "Registration completed · 13:17",
                 "Brain mask approved · Yesterday",
             ),
+            inputs=_demo_inputs("Mouse-002"),
         ),
         SubjectViewModel(
             subject_id="Mouse-003",
             group="Treatment B",
-            t1_data=APPROVED,
+            t1_data=INPUTS_VALIDATED,
             brain_mask=APPROVED,
             registration=APPROVED,
             t1_result=PROVISIONAL,
-            t2_data=T2_CONVERTED,
+            t2_data=T2_VALIDATED,
             t2_lesion=APPROVED,
             overall=PROVISIONAL,
             updated="Yesterday",
             metadata=(("Timepoint", "D7"), ("Expected workflows", "T1 · T2")),
             history=("T1 measurement generated with development method v0.3",),
+            inputs=_demo_inputs("Mouse-003"),
         ),
         SubjectViewModel(
             subject_id="Mouse-004",
             group="Treatment B",
-            t1_data=APPROVED,
+            t1_data=INPUTS_VALIDATED,
             brain_mask=PROCESSING,
             registration=NOT_STARTED,
             t1_result=BLOCKED,
@@ -97,29 +165,31 @@ def demo_study() -> StudyViewModel:
             updated="Today, 14:54",
             metadata=(("Timepoint", "D1"), ("Expected workflows", "T1 only")),
             history=("Draft brain mask job started · 14:54",),
+            inputs=_demo_inputs("Mouse-004", include_t2=False),
         ),
         SubjectViewModel(
             subject_id="Mouse-005",
             group="Vehicle",
-            t1_data=APPROVED,
+            t1_data=INPUTS_VALIDATED,
             brain_mask=StatusValue("Rejected", "failed"),
             registration=WAITING_FOR_MASK,
             t1_result=BLOCKED,
-            t2_data=T2_CONVERTED,
+            t2_data=T2_VALIDATED,
             t2_lesion=READY,
             overall=BLOCKED,
             updated="Monday",
             metadata=(("Timepoint", "D1"), ("Expected workflows", "T1 · T2")),
             history=("Brain mask rejected: superior false positive · Monday",),
+            inputs=_demo_inputs("Mouse-005"),
         ),
         SubjectViewModel(
             subject_id="Mouse-006",
             group="Vehicle",
-            t1_data=APPROVED,
+            t1_data=INPUTS_VALIDATED,
             brain_mask=APPROVED,
             registration=APPROVED,
             t1_result=OUTDATED,
-            t2_data=T2_CONVERTED,
+            t2_data=T2_VALIDATED,
             t2_lesion=APPROVED,
             overall=OUTDATED,
             updated="Friday",
@@ -127,6 +197,7 @@ def demo_study() -> StudyViewModel:
             history=(
                 "Approved brain mask replaced; T1 result marked outdated · Friday",
             ),
+            inputs=_demo_inputs("Mouse-006"),
         ),
         SubjectViewModel(
             subject_id="Mouse-007",
@@ -143,6 +214,11 @@ def demo_study() -> StudyViewModel:
             history=(
                 "Post-Gd image dimensions do not match expected acquisition · Thursday",
             ),
+            inputs=_demo_inputs(
+                "Mouse-007",
+                include_t2=False,
+                t1_validation=StatusValue("Validation failed", "failed"),
+            ),
         ),
         SubjectViewModel(
             subject_id="Mouse-008",
@@ -151,12 +227,13 @@ def demo_study() -> StudyViewModel:
             brain_mask=NOT_APPLICABLE,
             registration=NOT_APPLICABLE,
             t1_result=NOT_APPLICABLE,
-            t2_data=T2_CONVERTED,
+            t2_data=T2_VALIDATED,
             t2_lesion=APPROVED,
             overall=APPROVED,
             updated="Wednesday",
             metadata=(("Timepoint", "24H"), ("Expected workflows", "T2 only")),
             history=("Native T2 lesion volume approved · Wednesday",),
+            inputs=_demo_inputs("Mouse-008", include_t1=False),
         ),
     )
 

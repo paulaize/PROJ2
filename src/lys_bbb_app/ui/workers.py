@@ -46,3 +46,31 @@ class ScanImportThread(QThread):
             for record in snapshot.scan_inputs
         )
         self.import_completed.emit(snapshot, failure_count)
+
+
+class InputValidationThread(QThread):
+    validation_completed = Signal(object)
+    validation_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: StudyService,
+        subject_id: str,
+        *,
+        actor: str,
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._subject_id = subject_id
+        self._actor = actor
+
+    def run(self) -> None:
+        try:
+            snapshot = self._service.validate_subject_inputs(
+                self._subject_id,
+                actor=self._actor,
+            )
+        except Exception as exc:
+            self.validation_failed.emit(str(exc))
+            return
+        self.validation_completed.emit(snapshot)

@@ -28,6 +28,9 @@ __all__ = [
     "ScanDiscoveryReport",
     "ScanImportAssignment",
     "ScanImportState",
+    "InputValidationIssue",
+    "InputValidationOutcome",
+    "InputValidationState",
     "ScanInputRecord",
     "ScanRole",
     "SourceFormat",
@@ -40,6 +43,27 @@ class ScanImportState(str, Enum):
     CONVERTED = "CONVERTED"
     FAILED = "FAILED"
     SUPERSEDED = "SUPERSEDED"
+
+
+class InputValidationState(str, Enum):
+    NOT_RUN = "NOT_RUN"
+    VALID = "VALID"
+    INVALID = "INVALID"
+
+
+@dataclass(frozen=True)
+class InputValidationIssue:
+    code: str
+    severity: str
+    user_message: str
+    technical_detail: str | None = None
+
+
+@dataclass(frozen=True)
+class InputValidationOutcome:
+    scan_input_id: str
+    state: InputValidationState
+    issues: tuple[InputValidationIssue, ...]
 
 
 @dataclass(frozen=True)
@@ -69,5 +93,9 @@ class ScanInputRecord:
     output_spacing_mm: tuple[float, ...]
     output_axis_codes: tuple[str, ...]
     error_message: str | None
+    validation_state: InputValidationState
+    validation_issues: tuple[InputValidationIssue, ...]
+    validated_at: str | None
+    validated_by: str | None
     created_at: str
     updated_at: str

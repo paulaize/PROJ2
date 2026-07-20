@@ -11,6 +11,8 @@ from uuid import uuid4
 
 from lys_bbb_app.domain.scan_import import (
     ImportConfidence,
+    InputValidationIssue,
+    InputValidationState,
     OrientationPolicy,
     ScanConversionResult,
     ScanImportAssignment,
@@ -368,6 +370,22 @@ def scan_input_from_row(row: sqlite3.Row, root_path: Path) -> ScanInputRecord:
             str(value) for value in json.loads(row["output_axis_codes_json"])
         ),
         error_message=row["error_message"],
+        validation_state=InputValidationState(row["validation_state"]),
+        validation_issues=tuple(
+            InputValidationIssue(
+                code=str(issue["code"]),
+                severity=str(issue["severity"]),
+                user_message=str(issue["user_message"]),
+                technical_detail=(
+                    str(issue["technical_detail"])
+                    if issue.get("technical_detail") is not None
+                    else None
+                ),
+            )
+            for issue in json.loads(row["validation_issues_json"])
+        ),
+        validated_at=row["validated_at"],
+        validated_by=row["validated_by"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

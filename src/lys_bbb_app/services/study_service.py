@@ -9,11 +9,15 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
+from lys_bbb.input_validation import NiftiInputValidation, validate_managed_nifti
 from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source
 from lys_bbb.project_state import ProjectDatabase, ProjectStateError
 from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import (
+    InputValidationIssue,
+    InputValidationOutcome,
+    InputValidationState,
     ScanConversionResult,
     ScanDiscoveryReport,
     ScanImportAssignment,
@@ -37,6 +41,7 @@ from lys_bbb_app.infrastructure.external_viewer import (
 
 
 ScanConverter = Callable[..., ScanConversionResult]
+InputValidator = Callable[..., NiftiInputValidation]
 ViewerLauncher = Callable[[Path, Path | str | None], ViewerLaunch]
 ProgressCallback = Callable[[int, int, str], None]
 
@@ -48,10 +53,12 @@ class StudyService:
         self,
         *,
         scan_converter: ScanConverter = convert_scan_assignment,
+        input_validator: InputValidator = validate_managed_nifti,
         viewer_launcher: ViewerLauncher = launch_itksnap,
     ) -> None:
         self._repository: StudyRepository | None = None
         self._scan_converter = scan_converter
+        self._input_validator = input_validator
         self._viewer_launcher = viewer_launcher
 
     @property
@@ -195,6 +202,83 @@ class StudyService:
             and record.state is ScanImportState.CONVERTED
             and record.output_path is not None
         )
+
+    def validate_subject_inputs(
+        self,
+        subject_id: str,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        """Validate active managed NIfTI inputs and persist explicit outcomes."""
+
+        repository = self._require_repository()
+        snapshot = repository.snapshot()
+        if snapshot.subject(subject_id) is None:
+            raise StudyStateError("The selected subject is not active in this study.")
+        records = tuple(
+            record
+            for record in snapshot.inputs_for_subject(subject_id)
+            if record.active and record.state is ScanImportState.CONVERTED
+        )
+        if not records:
+            raise StudyStateError(
+                "Import and convert at least one MRI input before validation."
+            )
+
+        outcomes: dict[str, InputValidationOutcome] = {}
+        for record in records:
+            if record.output_path is None:
+                issues = (
+                    InputValidationIssue(
+                        "INPUT_FILE_MISSING",
+                        "error",
+                        "The converted NIfTI path is missing from study state.",
+                    ),
+                )
+            else:
+                try:
+                    validation = self._input_validator(
+                        record.output_path,
+                        expected_sha256=record.output_sha256,
+                        expected_shape=record.output_shape,
+                        expected_spacing_mm=record.output_spacing_mm,
+                        expected_axis_codes=record.output_axis_codes,
+                    )
+                    issues = tuple(
+                        InputValidationIssue(
+                            issue.code,
+                            issue.severity,
+                            issue.message,
+                            issue.technical_detail,
+                        )
+                        for issue in validation.issues
+                    )
+                except Exception as exc:
+                    issues = (
+                        InputValidationIssue(
+                            "INPUT_VALIDATION_FAILED",
+                            "error",
+                            "The managed NIfTI validation could not be completed.",
+                            str(exc),
+                        ),
+                    )
+            outcomes[record.id] = InputValidationOutcome(
+                scan_input_id=record.id,
+                state=(
+                    InputValidationState.INVALID
+                    if any(issue.severity == "error" for issue in issues)
+                    else InputValidationState.VALID
+                ),
+                issues=issues,
+            )
+
+        _add_t1_pair_warnings(records, outcomes)
+        repository.record_input_validations(
+            subject_id,
+            tuple(outcomes.values()),
+            actor=actor,
+        )
+        return repository.snapshot()
 
     def open_mri_in_itksnap(
         self,
@@ -412,3 +496,52 @@ def _safe_path_component(value: str) -> str:
     if not safe:
         raise StudyStateError("Subject ID cannot be represented as a safe output folder.")
     return safe
+
+
+def _add_t1_pair_warnings(
+    records: tuple[ScanInputRecord, ...],
+    outcomes: dict[str, InputValidationOutcome],
+) -> None:
+    by_role = {record.role: record for record in records}
+    pre = by_role.get(ScanRole.T1_PRE)
+    post = by_role.get(ScanRole.T1_POST)
+    if pre is None or post is None or post.id not in outcomes:
+        return
+
+    warnings: list[InputValidationIssue] = []
+    if pre.output_shape != post.output_shape:
+        warnings.append(
+            InputValidationIssue(
+                "T1_PAIR_SHAPE_DIFFERS",
+                "warning",
+                "Pre- and post-Gd dimensions differ; registration must resample the "
+                "post-Gd image into pre-Gd space.",
+                f"Pre {pre.output_shape}; post {post.output_shape}",
+            )
+        )
+    if pre.output_spacing_mm != post.output_spacing_mm:
+        warnings.append(
+            InputValidationIssue(
+                "T1_PAIR_SPACING_DIFFERS",
+                "warning",
+                "Pre- and post-Gd voxel spacing differs; inspect registration QC "
+                "carefully.",
+                f"Pre {pre.output_spacing_mm}; post {post.output_spacing_mm}",
+            )
+        )
+    if pre.output_axis_codes != post.output_axis_codes:
+        warnings.append(
+            InputValidationIssue(
+                "T1_PAIR_ORIENTATION_DIFFERS",
+                "warning",
+                "Pre- and post-Gd orientation labels differ; confirm the assignments "
+                "before registration.",
+                f"Pre {pre.output_axis_codes}; post {post.output_axis_codes}",
+            )
+        )
+    if warnings:
+        outcome = outcomes[post.id]
+        outcomes[post.id] = replace(
+            outcome,
+            issues=(*outcome.issues, *warnings),
+        )
