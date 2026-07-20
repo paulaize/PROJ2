@@ -11,7 +11,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog  # noqa: E402
 
 from lys_bbb.project_service import ProjectService  # noqa: E402
@@ -98,6 +98,31 @@ def test_subject_filters_and_approved_result_filter(qt_app: QApplication) -> Non
     window.results_page.approved_only.setChecked(True)
     qt_app.processEvents()
     assert window.results_page.proxy.rowCount() == 3
+    window.close()
+
+
+def test_results_page_scrolls_instead_of_overlapping_at_minimum_size(
+    qt_app: QApplication,
+) -> None:
+    window = MainWindow()
+    window.open_design_preview()
+    window.resize(1180, 760)
+    window.show_page("results")
+    window.show()
+    qt_app.processEvents()
+
+    page = window.results_page
+    content = page.widget()
+    results_bottom = page.results_card.mapTo(
+        content,
+        QPoint(0, page.results_card.height()),
+    ).y()
+    plot_top = page.plot_card.mapTo(content, QPoint(0, 0)).y()
+    export_top = page.export_card.mapTo(content, QPoint(0, 0)).y()
+
+    assert plot_top > results_bottom
+    assert export_top == plot_top
+    assert page.verticalScrollBar().maximum() > 0
     window.close()
 
 
@@ -219,6 +244,10 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.current_study.is_demo is False
     assert window.subjects_page.proxy.rowCount() == 0
     assert "persistent study" in window.preview_banner.text().lower()
+    window.show_page("results")
+    assert window.results_page.results_stack.currentWidget() is window.results_page.results_empty
+    assert window.results_page.plot_stack.currentWidget() is window.results_page.plot_empty
+    assert all(not button.isEnabled() for button in window.results_page.export_buttons)
 
     monkeypatch.setattr(AddSubjectDialog, "exec", lambda _dialog: QDialog.Accepted)
     monkeypatch.setattr(

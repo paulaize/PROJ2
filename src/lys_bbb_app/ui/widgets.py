@@ -281,10 +281,11 @@ class EmptyState(QFrame):
         title: str,
         detail: str,
         action: str | None = None,
+        embedded: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("card")
+        self.setObjectName("embeddedEmptyState" if embedded else "card")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 28, 28, 28)
         layout.setAlignment(Qt.AlignCenter)
@@ -421,7 +422,7 @@ class CohortPlot(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.fillRect(self.rect(), QColor("#ffffff"))
-        margin_left, margin_top, margin_bottom = 56, 24, 42
+        margin_left, margin_top, margin_bottom = 56, 24, 58
         plot_width = max(self.width() - margin_left - 24, 1)
         plot_height = max(self.height() - margin_top - margin_bottom, 1)
         axis = QPen(QColor("#a9b5bd"), 1)
@@ -461,5 +462,13 @@ class CohortPlot(QWidget):
             painter.setPen(QPen(colour, 3))
             painter.drawLine(x_center - 24, mean_y, x_center + 24, mean_y)
             painter.setPen(QColor("#475761"))
-            painter.drawText(x_center - 38, margin_top + plot_height + 25, 76, 18, Qt.AlignCenter, label)
+            label_width = min(max(120, plot_width // len(groups) - 12), plot_width)
+            painter.drawText(
+                x_center - label_width // 2,
+                margin_top + plot_height + 24,
+                label_width,
+                20,
+                Qt.AlignCenter,
+                label,
+            )
         painter.end()

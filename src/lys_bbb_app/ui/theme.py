@@ -26,6 +26,7 @@ QFrame#recentCard, QFrame#readinessCard {
 }
 QFrame#workflowCard { border-color: #d6e1e9; }
 QFrame#readinessCard { border-color: #d3e0e8; }
+QFrame#embeddedEmptyState { background: transparent; border: 0; }
 QFrame#softDivider { color: #dbe4ea; }
 QLabel#appWordmark { color: #ffffff; font-size: 18px; font-weight: 700; }
 QLabel#navCaption { color: #9bb2c5; font-size: 11px; font-weight: 700; }

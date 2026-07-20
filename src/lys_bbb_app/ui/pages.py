@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLayout,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTableView,
     QTabWidget,
     QTextEdit,
@@ -919,49 +921,74 @@ class ReviewsPage(QWidget):
         self.decision_recorded.emit(message + " Nothing was saved.")
 
 
-class ResultsPage(QWidget):
+class ResultsPage(QScrollArea):
     preview_action = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
         self.blinded_review = False
-        layout = QVBoxLayout(self)
+        self.is_demo = False
+        self.has_results = False
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
-        heading, heading_layout = _page_heading(
-            "Results and export",
+        layout.setSizeConstraint(QLayout.SetMinimumSize)
+        self.setWidget(content)
+
+        heading, _heading_layout = _page_heading(
+            "Results and exports",
             "Subject-level measurements with approval, method, and missingness preserved.",
         )
-        export = QPushButton("Export results…")
-        export.setObjectName("exportResultsButton")
-        export.clicked.connect(lambda: self._preview_export("Approved results CSV"))
-        heading_layout.addWidget(export)
         layout.addWidget(heading)
 
-        warning = QLabel(
+        self.provisional_warning = QLabel(
             "Provisional measurements are shown for design review. Approved-only export excludes them by default."
         )
-        warning.setObjectName("previewBanner")
-        warning.setWordWrap(True)
-        layout.addWidget(warning)
+        self.provisional_warning.setObjectName("previewBanner")
+        self.provisional_warning.setWordWrap(True)
+        layout.addWidget(self.provisional_warning)
 
         self.blinding_note = QLabel()
         self.blinding_note.setObjectName("infoBanner")
         self.blinding_note.setWordWrap(True)
         layout.addWidget(self.blinding_note)
 
-        controls = QHBoxLayout()
-        self.approved_only = QCheckBox("Show subjects with at least one approved result")
-        controls.addWidget(self.approved_only)
-        controls.addStretch()
-        provenance = secondary_button("View provenance")
-        provenance.clicked.connect(
+        self.results_card = QFrame()
+        self.results_card.setObjectName("card")
+        results_layout = QVBoxLayout(self.results_card)
+        results_layout.setContentsMargins(14, 14, 14, 14)
+        results_layout.setSpacing(12)
+        results_heading = QHBoxLayout()
+        result_titles = QVBoxLayout()
+        result_title = QLabel("Subject results")
+        result_title.setObjectName("cardTitle")
+        result_caption = QLabel(
+            "Approval state, method version, and missingness remain visible in every row."
+        )
+        result_caption.setObjectName("metadata")
+        result_caption.setWordWrap(True)
+        result_titles.addWidget(result_title)
+        result_titles.addWidget(result_caption)
+        results_heading.addLayout(result_titles, 1)
+        results_heading.addStretch()
+        self.provenance_button = secondary_button("View provenance")
+        self.provenance_button.clicked.connect(
             lambda: self.preview_action.emit(
                 "Provenance detail is a connected design-preview action; no record was changed."
             )
         )
-        controls.addWidget(provenance)
-        layout.addLayout(controls)
+        results_heading.addWidget(self.provenance_button)
+        results_layout.addLayout(results_heading)
+
+        controls = QHBoxLayout()
+        self.approved_only = QCheckBox("Show subjects with at least one approved result")
+        controls.addWidget(self.approved_only)
+        controls.addStretch()
+        results_layout.addLayout(controls)
 
         self.model = ResultsTableModel()
         self.proxy = ApprovedResultsProxyModel()
@@ -974,30 +1001,63 @@ class ResultsPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(42)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setMinimumHeight(220)
-        layout.addWidget(self.table)
+        self.results_stack = QStackedWidget()
+        self.results_stack.setMinimumHeight(214)
+        self.results_stack.setMaximumHeight(260)
+        self.results_empty = EmptyState(
+            "No subject results yet",
+            "Approved and provisional measurements will appear after scientific workflows run.",
+            embedded=True,
+        )
+        self.results_stack.addWidget(self.table)
+        self.results_stack.addWidget(self.results_empty)
+        results_layout.addWidget(self.results_stack)
         self.approved_only.toggled.connect(self.proxy.set_approved_only)
+        layout.addWidget(self.results_card)
 
         lower = QHBoxLayout()
-        plot_card = QFrame()
-        plot_card.setObjectName("card")
-        plot_layout = QVBoxLayout(plot_card)
+        lower.setSpacing(16)
+        self.plot_card = QFrame()
+        self.plot_card.setObjectName("card")
+        self.plot_card.setMinimumHeight(300)
+        plot_layout = QVBoxLayout(self.plot_card)
+        plot_layout.setContentsMargins(14, 14, 14, 14)
+        plot_layout.setSpacing(6)
         self.plot_title = QLabel("T2 lesion volume by group")
         self.plot_title.setObjectName("cardTitle")
-        plot_caption = QLabel("Descriptive preview only · dots are synthetic")
-        plot_caption.setObjectName("metadata")
+        self.plot_caption = QLabel("Descriptive preview only · dots are synthetic")
+        self.plot_caption.setObjectName("metadata")
         plot_layout.addWidget(self.plot_title)
-        plot_layout.addWidget(plot_caption)
+        plot_layout.addWidget(self.plot_caption)
+        self.plot_stack = QStackedWidget()
         self.cohort_plot = CohortPlot()
-        plot_layout.addWidget(self.cohort_plot, 1)
-        lower.addWidget(plot_card, 2)
+        self.plot_empty = EmptyState(
+            "No cohort results yet",
+            "Approved T1 or T2 measurements will appear here after scientific workflows are connected.",
+            embedded=True,
+        )
+        self.plot_stack.addWidget(self.cohort_plot)
+        self.plot_stack.addWidget(self.plot_empty)
+        plot_layout.addWidget(self.plot_stack, 1)
+        lower.addWidget(self.plot_card, 2)
 
-        export_card = QFrame()
-        export_card.setObjectName("card")
-        export_layout = QVBoxLayout(export_card)
+        self.export_card = QFrame()
+        self.export_card.setObjectName("card")
+        self.export_card.setMinimumHeight(300)
+        self.export_card.setMinimumWidth(280)
+        export_layout = QVBoxLayout(self.export_card)
+        export_layout.setContentsMargins(14, 14, 14, 14)
+        export_layout.setSpacing(10)
         export_title = QLabel("Export safeguards")
         export_title.setObjectName("cardTitle")
         export_layout.addWidget(export_title)
+        export_caption = QLabel(
+            "Exports keep approval state, method version, and missing values explicit."
+        )
+        export_caption.setObjectName("metadata")
+        export_caption.setWordWrap(True)
+        export_layout.addWidget(export_caption)
+        self.export_buttons: list[QPushButton] = []
         for text in (
             "Approved results CSV",
             "QC report · HTML/PDF",
@@ -1008,17 +1068,40 @@ class ResultsPage(QWidget):
                 lambda _checked=False, name=text: self._preview_export(name)
             )
             export_layout.addWidget(button)
+            self.export_buttons.append(button)
         export_layout.addStretch()
         safeguard = QLabel("Missing values are never converted to zero.")
         safeguard.setObjectName("infoBanner")
         safeguard.setWordWrap(True)
         export_layout.addWidget(safeguard)
-        lower.addWidget(export_card, 1)
-        layout.addLayout(lower, 1)
+        lower.addWidget(self.export_card, 1)
+        layout.addLayout(lower)
+        layout.addStretch()
         self.set_blinded_review(False)
 
     def set_study(self, study: StudyViewModel) -> None:
+        self.is_demo = study.is_demo
+        self.has_results = bool(study.results)
         self.model.set_results(study.results)
+        has_preview_results = study.is_demo and self.has_results
+        self.provisional_warning.setVisible(has_preview_results)
+        self.results_stack.setCurrentWidget(
+            self.table if self.has_results else self.results_empty
+        )
+        self.plot_stack.setCurrentWidget(
+            self.cohort_plot if has_preview_results else self.plot_empty
+        )
+        self.plot_caption.setVisible(has_preview_results)
+        self.approved_only.setEnabled(self.has_results)
+        self.provenance_button.setEnabled(has_preview_results)
+        for button in self.export_buttons:
+            button.setEnabled(has_preview_results)
+            button.setToolTip(
+                "Available only when the study contains exportable results."
+                if not has_preview_results
+                else ""
+            )
+        self._refresh_plot_title()
 
     def set_blinded_review(self, blinded: bool) -> None:
         self.blinded_review = blinded
@@ -1028,12 +1111,18 @@ class ResultsPage(QWidget):
             "BLINDED REVIEW — Experimental groups are hidden. Approved exports can omit "
             "groups; grouped summaries require an explicit audited unblinding step."
         )
-        self.plot_title.setText(
-            "T2 lesion volume · blinded cohort"
-            if blinded
-            else "T2 lesion volume by group"
-        )
+        self._refresh_plot_title()
         self.cohort_plot.set_blinded(blinded)
+
+    def _refresh_plot_title(self) -> None:
+        if not self.has_results:
+            self.plot_title.setText("Cohort summary")
+        else:
+            self.plot_title.setText(
+                "T2 lesion volume · blinded cohort"
+                if self.blinded_review
+                else "T2 lesion volume by group"
+            )
 
     def _preview_export(self, name: str) -> None:
         suffix = (
