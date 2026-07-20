@@ -56,6 +56,7 @@ class StudySnapshot:
     subjects: tuple[SubjectRecord, ...]
     scan_inputs: tuple[ScanInputRecord, ...]
     group_definitions: tuple[str, ...]
+    archived_subjects: tuple[SubjectRecord, ...] = ()
     mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
     t2_input_folder: Path | None = None

@@ -41,7 +41,7 @@ As of 2026-07-20:
 - The final analysis manifest includes 0 cases: 8 need mask review, 26 lack a brain
   mask, and 1 lacks conversion.
 - Study metadata and review decisions are not yet complete.
-- The PySide6 application now creates and reopens schema-v3 study directories, scans
+- The PySide6 application now creates and reopens schema-v4 study directories, scans
   external-drive Bruker/NIfTI folders read-only, lets the user correct discovered
   subjects, T1-pre/T1-post/T2 roles and storage-axis operations, converts confirmed
   inputs to versioned NIfTI/provenance artifacts, and persists blinding/group/audit

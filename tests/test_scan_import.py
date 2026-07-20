@@ -229,6 +229,60 @@ def test_confirmed_import_creates_subject_and_versioned_active_input(tmp_path: P
     assert current.output_path != previous.output_path
 
 
+def test_removed_subject_is_hidden_but_inputs_and_outputs_can_be_restored(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "raw" / "C1S1_D1_t2w.nii.gz"
+    _write_nifti(source)
+    service = StudyService()
+    service.create_study(
+        CreateStudyRequest(tmp_path / "study", "Study", "study", actor="Reviewer")
+    )
+    assignment = ScanImportAssignment(
+        proposal_id="archive-proposal",
+        subject_code="C1S1_D1",
+        role=ScanRole.T2,
+        source_path=source,
+        source_format=SourceFormat.NIFTI,
+        session_id="direct-nifti",
+        scan_id=None,
+        protocol="T2w",
+        method="NIfTI",
+        acquisition_orientation="from affine",
+        confidence=ImportConfidence.HIGH,
+        orientation_policy=OrientationPolicy.NATIVE,
+    )
+    imported = service.import_confirmed_scans((assignment,), actor="Reviewer")
+    subject_id = imported.subjects[0].id
+    output_path = imported.scan_inputs[0].output_path
+    assert output_path is not None
+
+    removed = service.remove_subject(subject_id, actor="Reviewer")
+
+    assert removed.subjects == ()
+    assert removed.scan_inputs == ()
+    assert removed.archived_subjects[0].id == subject_id
+    assert source.is_file()
+    assert output_path.is_file()
+    with sqlite3.connect(removed.database_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM subjects WHERE id = ?", (subject_id,)
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM scan_inputs WHERE subject_id = ?", (subject_id,)
+        ).fetchone()[0] == 1
+
+    restored = service.restore_subject(subject_id, actor="Reviewer")
+
+    assert restored.archived_subjects == ()
+    assert restored.subjects[0].id == subject_id
+    assert restored.scan_inputs[0].output_path == output_path
+    assert [event.event_type for event in service.list_audit_events()[:2]] == [
+        "SUBJECT_RESTORED",
+        "SUBJECT_REMOVED",
+    ]
+
+
 def test_conversion_failure_remains_visible_in_persistent_input_state(tmp_path: Path) -> None:
     source = tmp_path / "C1S1_D1_t2w.nii.gz"
     _write_nifti(source)
@@ -280,7 +334,10 @@ def test_opening_schema_v2_study_migrates_scan_input_state_and_manifest(tmp_path
             );
             INSERT INTO input_folders SELECT * FROM input_folders_v3;
             DROP TABLE input_folders_v3;
-            DELETE FROM schema_migrations WHERE version = 3;
+            DROP INDEX idx_subjects_study_archived;
+            ALTER TABLE subjects DROP COLUMN archived_at;
+            ALTER TABLE subjects DROP COLUMN archived_by;
+            DELETE FROM schema_migrations WHERE version > 2;
             INSERT INTO schema_migrations(version, applied_at) VALUES (2, 'test');
             PRAGMA user_version = 2;
             """
@@ -292,10 +349,10 @@ def test_opening_schema_v2_study_migrates_scan_input_state_and_manifest(tmp_path
 
     reopened = StudyRepository.open(repository.root_path).snapshot()
 
-    assert reopened.schema_version == 3
-    assert json.loads(manifest_path.read_text())["schema_version"] == 3
+    assert reopened.schema_version == 4
+    assert json.loads(manifest_path.read_text())["schema_version"] == 4
     with sqlite3.connect(repository.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='scan_inputs'"
         ).fetchone() == ("scan_inputs",)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -24,6 +25,7 @@ from lys_bbb_app.domain.scan_import import (
     ScanImportAssignment,
     ScanRole,
 )
+from lys_bbb_app.ui.widgets import secondary_button
 
 
 class ScanImportReviewDialog(QDialog):
@@ -54,6 +56,7 @@ class ScanImportReviewDialog(QDialog):
         self._role_selectors: dict[int, QComboBox] = {}
         self._orientation_selectors: dict[int, QComboBox] = {}
         self._flip_boxes: dict[int, tuple[QCheckBox, QCheckBox, QCheckBox]] = {}
+        self._excluded_rows: set[int] = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 22)
@@ -81,9 +84,24 @@ class ScanImportReviewDialog(QDialog):
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
 
-        self.show_other_scans = QCheckBox("Show localizers and alternative acquisitions")
+        review_controls = QHBoxLayout()
+        self.show_other_scans = QCheckBox(
+            "Show excluded subjects, localizers, and alternative acquisitions"
+        )
         self.show_other_scans.toggled.connect(self._apply_row_visibility)
-        layout.addWidget(self.show_other_scans)
+        review_controls.addWidget(self.show_other_scans)
+        review_controls.addStretch()
+        self.exclusion_status = QLabel("No subjects excluded")
+        self.exclusion_status.setObjectName("muted")
+        review_controls.addWidget(self.exclusion_status)
+        self.restore_excluded = secondary_button("Restore excluded")
+        self.restore_excluded.setEnabled(False)
+        self.restore_excluded.clicked.connect(self._restore_excluded_subjects)
+        review_controls.addWidget(self.restore_excluded)
+        exclude_subject = secondary_button("Exclude selected subject")
+        exclude_subject.clicked.connect(self._exclude_selected_subjects)
+        review_controls.addWidget(exclude_subject)
+        layout.addLayout(review_controls)
 
         self.table = QTableWidget(len(report.scans), 8)
         self.table.setHorizontalHeaderLabels(
@@ -102,6 +120,7 @@ class ScanImportReviewDialog(QDialog):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(50)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         for row, scan in enumerate(report.scans):
             subject = QLineEdit(scan.suggested_subject_code)
             subject.setToolTip(f"Inferred from {scan.session_id}")
@@ -187,6 +206,8 @@ class ScanImportReviewDialog(QDialog):
     def assignments(self) -> tuple[ScanImportAssignment, ...]:
         assignments: list[ScanImportAssignment] = []
         for row, scan in enumerate(self.report.scans):
+            if row in self._excluded_rows:
+                continue
             role = ScanRole(self._role_selectors[row].currentData())
             if role is ScanRole.IGNORE:
                 continue
@@ -251,18 +272,56 @@ class ScanImportReviewDialog(QDialog):
         )
         selector = self._orientation_selectors[row]
         selector.setCurrentIndex(selector.findData(desired.value))
-        self.table.setRowHidden(
-            row,
-            role is ScanRole.IGNORE and not self.show_other_scans.isChecked(),
+        self._apply_row_visibility()
+
+    def _exclude_selected_subjects(self) -> None:
+        selected_rows = {
+            index.row() for index in self.table.selectionModel().selectedRows()
+        }
+        if not selected_rows:
+            self._show_error(
+                "Select at least one scan row belonging to the subject you want to exclude."
+            )
+            return
+        selected_codes = {
+            self._subject_edits[row].text().strip().casefold()
+            for row in selected_rows
+        }
+        self._excluded_rows.update(
+            row
+            for row, edit in self._subject_edits.items()
+            if edit.text().strip().casefold() in selected_codes
         )
+        self.table.clearSelection()
+        self.error.hide()
+        self._refresh_exclusion_controls()
+        self._apply_row_visibility()
+
+    def _restore_excluded_subjects(self) -> None:
+        self._excluded_rows.clear()
+        self._refresh_exclusion_controls()
+        self._apply_row_visibility()
+
+    def _refresh_exclusion_controls(self) -> None:
+        excluded_codes = {
+            self._subject_edits[row].text().strip()
+            for row in self._excluded_rows
+        }
+        count = len(excluded_codes)
+        self.exclusion_status.setText(
+            f"{count} subject{'s' if count != 1 else ''} excluded"
+            if count
+            else "No subjects excluded"
+        )
+        self.restore_excluded.setEnabled(bool(self._excluded_rows))
 
     def _apply_row_visibility(self) -> None:
         show_ignored = self.show_other_scans.isChecked()
         for row in range(self.table.rowCount()):
             role = ScanRole(self._role_selectors[row].currentData())
-            self.table.setRowHidden(row, role is ScanRole.IGNORE and not show_ignored)
+            hidden_by_default = row in self._excluded_rows or role is ScanRole.IGNORE
+            self.table.setRowHidden(row, hidden_by_default and not show_ignored)
 
     def _show_error(self, message: str) -> None:
         self.error.setText(message)
         self.error.show()
-

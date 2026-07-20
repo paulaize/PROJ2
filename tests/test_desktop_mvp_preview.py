@@ -14,9 +14,15 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import QPoint, Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QMessageBox,
+)
 
 from lys_bbb.project_service import ProjectService  # noqa: E402
+from lys_bbb.scan_discovery import discover_mri_source  # noqa: E402
 from lys_bbb_app.demo_data import demo_study  # noqa: E402
 from lys_bbb_app.domain.study import (  # noqa: E402
     CreateStudyRequest,
@@ -27,6 +33,7 @@ from lys_bbb_app.main import parse_args  # noqa: E402
 from lys_bbb_app.ui.dialogs import (  # noqa: E402
     AddSubjectDialog,
     GroupAssignmentDialog,
+    RestoreSubjectDialog,
     UnblindingDialog,
 )
 from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
@@ -367,4 +374,90 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     assert snapshot.scan_inputs[0].output_path is not None
     assert snapshot.scan_inputs[0].output_path.is_file()
     assert window.subjects_page.proxy.rowCount() == 1
+    window.close()
+
+
+def test_scan_review_can_exclude_and_restore_an_entire_discovered_subject(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "mri"
+    source_root.mkdir()
+    for subject in ("C1S1_D1", "C2S2_D1"):
+        nib.save(
+            nib.Nifti1Image(np.ones((3, 4, 5), dtype=np.float32), np.eye(4)),
+            source_root / f"{subject}_t2w.nii.gz",
+        )
+    dialog = ScanImportReviewDialog(discover_mri_source(source_root))
+    excluded_row = next(
+        row
+        for row, edit in dialog._subject_edits.items()
+        if edit.text() == "C1S1_D1"
+    )
+
+    dialog.table.selectRow(excluded_row)
+    dialog._exclude_selected_subjects()
+    qt_app.processEvents()
+
+    assert {item.subject_code for item in dialog.assignments()} == {"C2S2_D1"}
+    assert dialog.table.isRowHidden(excluded_row)
+    assert dialog.exclusion_status.text() == "1 subject excluded"
+
+    dialog._restore_excluded_subjects()
+    assert {item.subject_code for item in dialog.assignments()} == {
+        "C1S1_D1",
+        "C2S2_D1",
+    }
+    dialog.close()
+
+
+def test_subjects_page_removes_and_restores_subject_without_deleting_data(
+    qt_app: QApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = StudyService()
+    study = service.create_study(
+        CreateStudyRequest(
+            tmp_path / "removal-study",
+            "Removal study",
+            "removal-study",
+            actor="Reviewer A",
+        )
+    )
+    service.add_subject(CreateSubjectRequest("Mouse-01", True, True, actor="Reviewer A"))
+    window = MainWindow(
+        study_service=service,
+        recent_store=RecentStudiesStore(tmp_path / "preferences" / "recent.json"),
+    )
+    assert window.open_project_path(study.root_path)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    window.subjects_page.table.selectRow(0)
+    qt_app.processEvents()
+    assert window.subjects_page.remove_subject.isEnabled()
+    window.subjects_page.remove_subject.click()
+    qt_app.processEvents()
+
+    assert window.current_study is not None
+    assert window.current_study.subjects == ()
+    assert len(window.current_study.archived_subjects) == 1
+    assert window.subjects_page.restore_subjects.isEnabled()
+
+    archived_id = window.current_study.archived_subjects[0].subject_id
+    monkeypatch.setattr(RestoreSubjectDialog, "exec", lambda _dialog: QDialog.Accepted)
+    monkeypatch.setattr(
+        RestoreSubjectDialog,
+        "subject_id",
+        lambda _dialog: archived_id,
+    )
+    window.subjects_page.restore_subjects.click()
+    qt_app.processEvents()
+
+    assert window.current_study.archived_subjects == ()
+    assert window.current_study.subjects[0].label == "Mouse-01"
     window.close()

@@ -130,6 +130,12 @@ class StudyService:
     def add_subject(self, request: CreateSubjectRequest) -> StudySnapshot:
         return self._require_repository().add_subject(request)
 
+    def remove_subject(self, subject_id: str, *, actor: str) -> StudySnapshot:
+        return self._require_repository().archive_subject(subject_id, actor=actor)
+
+    def restore_subject(self, subject_id: str, *, actor: str) -> StudySnapshot:
+        return self._require_repository().restore_subject(subject_id, actor=actor)
+
     def unblind(self, *, reviewer: str) -> StudySnapshot:
         return self._require_repository().unblind(actor=reviewer)
 

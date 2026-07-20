@@ -11,7 +11,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 3:
+    if schema_version != 4:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -40,6 +40,8 @@ def create_schema(
             expected_t2 INTEGER NOT NULL CHECK (expected_t2 IN (0, 1)),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
+            archived_at TEXT,
+            archived_by TEXT,
             UNIQUE(study_id, subject_code)
         );
         CREATE TABLE study_groups (
@@ -101,6 +103,7 @@ def create_schema(
         );
         CREATE INDEX idx_subjects_study_code ON subjects(study_id, subject_code);
         CREATE INDEX idx_subjects_study_group ON subjects(study_id, group_name);
+        CREATE INDEX idx_subjects_study_archived ON subjects(study_id, archived_at);
         CREATE INDEX idx_scan_inputs_subject_role ON scan_inputs(subject_id, role, version DESC);
         CREATE INDEX idx_scan_inputs_state ON scan_inputs(study_id, state);
         CREATE UNIQUE INDEX idx_scan_inputs_active_role
@@ -180,6 +183,21 @@ def migrate_schema(
             """
         )
         version = 3
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 3:
+        connection.executescript(
+            """
+            ALTER TABLE subjects ADD COLUMN archived_at TEXT;
+            ALTER TABLE subjects ADD COLUMN archived_by TEXT;
+            CREATE INDEX idx_subjects_study_archived
+                ON subjects(study_id, archived_at);
+            """
+        )
+        version = 4
         connection.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

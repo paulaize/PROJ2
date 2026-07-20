@@ -45,7 +45,7 @@ from lys_bbb_app.infrastructure.study_schema import (
 )
 
 
-STUDY_SCHEMA_VERSION = 3
+STUDY_SCHEMA_VERSION = 4
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -258,7 +258,20 @@ class StudyRepository:
                         SELECT id, subject_code, group_name, metadata_json,
                                expected_t1, expected_t2, created_at, updated_at
                         FROM subjects
-                        WHERE study_id = ?
+                        WHERE study_id = ? AND archived_at IS NULL
+                        ORDER BY subject_code COLLATE NOCASE
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                archived_subjects = tuple(
+                    _subject_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT id, subject_code, group_name, metadata_json,
+                               expected_t1, expected_t2, created_at, updated_at
+                        FROM subjects
+                        WHERE study_id = ? AND archived_at IS NOT NULL
                         ORDER BY subject_code COLLATE NOCASE
                         """,
                         (study["id"],),
@@ -289,7 +302,7 @@ class StudyRepository:
                         SELECT si.*, s.subject_code
                         FROM scan_inputs AS si
                         JOIN subjects AS s ON s.id = si.subject_id
-                        WHERE si.study_id = ?
+                        WHERE si.study_id = ? AND s.archived_at IS NULL
                         ORDER BY s.subject_code COLLATE NOCASE, si.role, si.version DESC
                         """,
                         (study["id"],),
@@ -316,6 +329,7 @@ class StudyRepository:
             subjects=subjects,
             scan_inputs=scan_inputs,
             group_definitions=groups,
+            archived_subjects=archived_subjects,
             mri_input_folder=folders.get("mri"),
             t1_input_folder=folders.get("t1"),
             t2_input_folder=folders.get("t2"),
@@ -384,6 +398,115 @@ class StudyRepository:
             raise StudyStateError(f"Could not add the subject: {exc}") from exc
         except sqlite3.Error as exc:
             raise StudyStateError(f"Could not add the subject: {exc}") from exc
+        return self.snapshot()
+
+    def archive_subject(self, subject_id: str, *, actor: str) -> StudySnapshot:
+        """Hide a subject while preserving its inputs, outputs, and audit history."""
+
+        normalized_subject_id = _normalize_required(subject_id, "Subject ID")
+        normalized_actor = _normalize_required(actor, "Actor")
+        now = _utc_now()
+        try:
+            with closing(_connect(self.database_path)) as connection:
+                with connection:
+                    study = _single_study(connection)
+                    subject = connection.execute(
+                        """
+                        SELECT id, subject_code, archived_at FROM subjects
+                        WHERE id = ? AND study_id = ?
+                        """,
+                        (normalized_subject_id, study["id"]),
+                    ).fetchone()
+                    if subject is None:
+                        raise StudyStateError("The selected subject does not exist.")
+                    if subject["archived_at"] is not None:
+                        raise StudyStateError("The selected subject is already removed.")
+                    running = connection.execute(
+                        """
+                        SELECT COUNT(*) FROM scan_inputs
+                        WHERE subject_id = ? AND state IN ('QUEUED', 'CONVERTING')
+                        """,
+                        (normalized_subject_id,),
+                    ).fetchone()[0]
+                    if running:
+                        raise StudyStateError(
+                            "Wait for the subject's MRI import to finish before removing it."
+                        )
+                    retained_inputs = connection.execute(
+                        "SELECT COUNT(*) FROM scan_inputs WHERE subject_id = ?",
+                        (normalized_subject_id,),
+                    ).fetchone()[0]
+                    connection.execute(
+                        """
+                        UPDATE subjects
+                        SET archived_at = ?, archived_by = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (now, normalized_actor, now, normalized_subject_id),
+                    )
+                    _touch_study(connection, study["id"], now)
+                    _insert_audit(
+                        connection,
+                        study_id=study["id"],
+                        subject_id=normalized_subject_id,
+                        event_type="SUBJECT_REMOVED",
+                        actor=normalized_actor,
+                        details={
+                            "subject_code": subject["subject_code"],
+                            "retained_scan_inputs": retained_inputs,
+                            "source_data_modified": False,
+                        },
+                        created_at=now,
+                    )
+        except StudyStateError:
+            raise
+        except sqlite3.Error as exc:
+            raise StudyStateError(f"Could not remove the subject: {exc}") from exc
+        return self.snapshot()
+
+    def restore_subject(self, subject_id: str, *, actor: str) -> StudySnapshot:
+        """Return an archived subject and its retained inputs to active worklists."""
+
+        normalized_subject_id = _normalize_required(subject_id, "Subject ID")
+        normalized_actor = _normalize_required(actor, "Actor")
+        now = _utc_now()
+        try:
+            with closing(_connect(self.database_path)) as connection:
+                with connection:
+                    study = _single_study(connection)
+                    subject = connection.execute(
+                        """
+                        SELECT id, subject_code, archived_at FROM subjects
+                        WHERE id = ? AND study_id = ?
+                        """,
+                        (normalized_subject_id, study["id"]),
+                    ).fetchone()
+                    if subject is None:
+                        raise StudyStateError("The selected subject does not exist.")
+                    if subject["archived_at"] is None:
+                        raise StudyStateError("The selected subject is already active.")
+                    connection.execute(
+                        """
+                        UPDATE subjects
+                        SET archived_at = NULL, archived_by = NULL, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (now, normalized_subject_id),
+                    )
+                    _touch_study(connection, study["id"], now)
+                    _insert_audit(
+                        connection,
+                        study_id=study["id"],
+                        subject_id=normalized_subject_id,
+                        event_type="SUBJECT_RESTORED",
+                        actor=normalized_actor,
+                        details={"subject_code": subject["subject_code"]},
+                        created_at=now,
+                    )
+        except StudyStateError:
+            raise
+        except sqlite3.Error as exc:
+            raise StudyStateError(f"Could not restore the subject: {exc}") from exc
         return self.snapshot()
 
     def unblind(self, *, actor: str) -> StudySnapshot:

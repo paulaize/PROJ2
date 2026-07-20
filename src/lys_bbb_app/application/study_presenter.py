@@ -28,6 +28,9 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         _present_subject(subject, study.inputs_for_subject(subject.id))
         for subject in study.subjects
     )
+    archived_subjects = tuple(
+        _present_subject(subject, ()) for subject in study.archived_subjects
+    )
     t1_expected = sum(subject.expected_t1 for subject in study.subjects)
     t2_expected = sum(subject.expected_t2 for subject in study.subjects)
     active_inputs = tuple(record for record in study.scan_inputs if record.active)
@@ -124,6 +127,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         is_demo=False,
         blinded_review=study.is_blinded,
         group_definitions=study.group_definitions,
+        archived_subjects=archived_subjects,
         metrics=(
             MetricViewModel("Subjects", str(len(subjects)), "Persisted in this study", "neutral"),
             MetricViewModel(

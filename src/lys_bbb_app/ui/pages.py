@@ -343,6 +343,8 @@ class OverviewPage(QScrollArea):
 
 class SubjectsPage(QWidget):
     subject_open_requested = Signal(str)
+    subject_remove_requested = Signal(str)
+    subject_restore_requested = Signal()
     preview_action = Signal(str)
     add_subject_requested = Signal()
     import_mri_requested = Signal()
@@ -419,6 +421,7 @@ class SubjectsPage(QWidget):
         header.setSectionResizeMode(8, QHeaderView.ResizeToContents)
         self.table.sortByColumn(0, Qt.AscendingOrder)
         self.table.doubleClicked.connect(self._open_index)
+        self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         layout.addWidget(self.table, 1)
 
         footer = QHBoxLayout()
@@ -429,8 +432,16 @@ class SubjectsPage(QWidget):
         validate.setToolTip("Backend actions arrive after artifact/workflow state.")
         run = secondary_button("Run ready jobs")
         run.setEnabled(False)
+        self.restore_subjects = secondary_button("Removed subjects…")
+        self.restore_subjects.setEnabled(False)
+        self.restore_subjects.clicked.connect(self.subject_restore_requested)
+        self.remove_subject = secondary_button("Remove selected…")
+        self.remove_subject.setEnabled(False)
+        self.remove_subject.clicked.connect(self._remove_selected)
         footer.addWidget(self.count_label)
         footer.addStretch()
+        footer.addWidget(self.restore_subjects)
+        footer.addWidget(self.remove_subject)
         footer.addWidget(validate)
         footer.addWidget(run)
         layout.addLayout(footer)
@@ -441,6 +452,14 @@ class SubjectsPage(QWidget):
 
     def set_study(self, study: StudyViewModel) -> None:
         self.model.set_subjects(study.subjects)
+        self.table.clearSelection()
+        self.remove_subject.setEnabled(False)
+        self.restore_subjects.setEnabled(bool(study.archived_subjects))
+        self.restore_subjects.setText(
+            f"Removed subjects… ({len(study.archived_subjects)})"
+            if study.archived_subjects
+            else "Removed subjects…"
+        )
         groups = sorted(
             {subject.group for subject in study.subjects if subject.group is not None}
         )
@@ -478,6 +497,21 @@ class SubjectsPage(QWidget):
         subject = self.model.subject_at(source_index.row())
         if subject is not None:
             self.subject_open_requested.emit(subject.subject_id)
+
+    def _selection_changed(self, *_args) -> None:
+        self.remove_subject.setEnabled(self._selected_subject() is not None)
+
+    def _selected_subject(self) -> SubjectViewModel | None:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        source_index = self.proxy.mapToSource(rows[0])
+        return self.model.subject_at(source_index.row())
+
+    def _remove_selected(self) -> None:
+        subject = self._selected_subject()
+        if subject is not None:
+            self.subject_remove_requested.emit(subject.subject_id)
 
 
 class SubjectWorkspacePage(QScrollArea):

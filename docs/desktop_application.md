@@ -8,7 +8,7 @@ Operational facts about what is implemented today live in `docs/current_state.md
 
 The current code includes two deliberately separate experiences:
 
-- a real schema-v3 foundation that creates/reopens study roots, remembers recent
+- a real schema-v4 foundation that creates/reopens study roots, remembers recent
   studies and MRI source roots, persists subjects, versioned scan inputs, and expected workflows, enforces
   one-way blinded review, saves group assignments, and records audit history; and
 - a connected design preview (`lys-bbb-desktop --demo`) that renders the planned shell
@@ -228,7 +228,7 @@ machines or an unreliable network share is outside the MVP.
 ### Schema-v1 compatibility
 
 The `.lysbbb` single-file project is a legacy prototype and remains supported.
-Implemented schema version 3 provides the study/subject/input foundation and a tested
+Implemented schema version 4 provides the study/subject/input foundation and a tested
 upgrade/import path that:
 
 1. opens schema-v1 files readably;
@@ -274,7 +274,9 @@ The implemented discovery rules are deliberately conservative:
   review status are never silently promoted from filenames.
 
 The confirmation table lets the user edit subject IDs and T1-pre/T1-post/T2 roles,
-ignore scans, choose native or coronal NIfTI storage, and reverse X/Y/Z storage axes.
+exclude every proposed scan for a discovered subject, ignore individual scans, choose
+native or coronal NIfTI storage, and reverse X/Y/Z storage axes. Excluding a discovered
+subject before confirmation creates no subject or scan-input record.
 T1 defaults to interpolation-free coronal `RSA` storage because axis 2 then indexes the
 coronal slices used by the established T1 backend. T2 defaults to its native converted
 grid because the `LYS_PROJ1` release contract is defined on native T2. Storage-axis
@@ -287,6 +289,12 @@ below `outputs/subjects/<subject>/inputs/<role>/vNNN/`. Each version contains th
 and `provenance.json` with source/output hashes, geometry, acquisition identity, and
 orientation operations. Reassignment creates a new version and supersedes, rather than
 deletes, the old input. A failed conversion remains visible as `FAILED` with its error.
+
+An active subject may later be removed from the Subjects page. Removal is a reversible,
+audited archive: the subject and its scan inputs disappear from active worklists, while
+source MRI remains untouched and managed NIfTI/provenance files remain in the study.
+The Removed subjects action restores the same persistent subject and retained inputs.
+Removal is blocked while one of that subject's imports is queued or converting.
 
 The T2 workflow subsequently accepts a released native-grid lesion mask/provenance or a
 compatible frozen release package. MRI import does not invoke or reproduce the external

@@ -259,6 +259,51 @@ class AddSubjectDialog(QDialog):
         self.error.show()
 
 
+class RestoreSubjectDialog(QDialog):
+    """Choose one safely archived subject to return to active worklists."""
+
+    def __init__(
+        self,
+        subjects: tuple[SubjectViewModel, ...],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Restore removed subject")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 22, 24, 22)
+        layout.setSpacing(14)
+        title = QLabel("Restore a removed subject")
+        title.setObjectName("sectionTitle")
+        layout.addWidget(title)
+        detail = QLabel(
+            "The subject and its retained converted inputs will return to active study "
+            "worklists. Original MRI data is not changed."
+        )
+        detail.setObjectName("infoBanner")
+        detail.setWordWrap(True)
+        layout.addWidget(detail)
+
+        self.subject = QComboBox()
+        for subject in subjects:
+            self.subject.addItem(subject.label, subject.subject_id)
+        form = QFormLayout()
+        form.addRow("Removed subject", self.subject)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
+        buttons.button(QDialogButtonBox.Save).setText("Restore subject")
+        buttons.button(QDialogButtonBox.Cancel).setProperty("kind", "secondary")
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def subject_id(self) -> str:
+        return str(self.subject.currentData())
+
+
 class UnblindingDialog(QDialog):
     """Require an explicit acknowledgement before revealing study groups."""
 

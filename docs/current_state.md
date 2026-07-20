@@ -115,7 +115,7 @@ enhancement. They remain provisional until the validation experiments in
 ## Desktop foundation
 
 The PySide6 input-foundation milestone is implemented on
-`feat/pyside-project-foundation`. The launcher creates or opens a schema-v3 study root,
+`feat/pyside-project-foundation`. The launcher creates or opens a schema-v4 study root,
 records recent studies, persists subjects and their expected T1/T2 workflows, stores T1
 and T2 source-root references, and restores the same state after reopening. Source image
 folders may live on mounted hard drives and are referenced in place; project setup does
@@ -124,9 +124,10 @@ not copy or modify their contents, and temporarily unavailable paths remain reco
 Study blinding is durable and one-way. A blinded study stores subjects without requiring
 groups and hides group information in the UI. Explicit unblinding records reviewer and
 time; group mappings may then be saved while individual subjects remain `Unassigned`.
-Study creation/opening, subject discovery/creation, input-folder selection, MRI import,
-conversion success/failure, supersession, unblinding, and group assignment create
-append-only audit events visible from the Subjects page.
+Study creation/opening, subject discovery/creation/removal/restoration, input-folder
+selection, MRI import, conversion success/failure, supersession, unblinding, and group
+assignment create append-only audit events visible from the Subjects page. Subject
+removal is a reversible archive: source and managed input artifacts are retained.
 
 Selecting an MRI root now scans nested Bruker sessions from their numeric `acqp`/`method`
 scan folders and recognisable direct NIfTI inputs. It proposes subject IDs and T1

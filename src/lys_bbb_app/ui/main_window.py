@@ -36,6 +36,7 @@ from lys_bbb_app.ui.dialogs import (
     AuditHistoryDialog,
     CreateStudyDialog,
     GroupAssignmentDialog,
+    RestoreSubjectDialog,
     UnblindingDialog,
 )
 from lys_bbb_app.ui.pages import (
@@ -171,6 +172,8 @@ class MainWindow(QMainWindow):
 
         self.overview_page.navigate_requested.connect(self.show_page)
         self.subjects_page.subject_open_requested.connect(self.open_subject)
+        self.subjects_page.subject_remove_requested.connect(self.remove_subject)
+        self.subjects_page.subject_restore_requested.connect(self.restore_subject)
         self.subjects_page.preview_action.connect(self._show_preview_message)
         self.subjects_page.add_subject_requested.connect(self.add_subject)
         self.subjects_page.import_mri_requested.connect(self.select_mri_source_folder)
@@ -473,6 +476,73 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Subject {dialog.subject_code.text().strip()} was saved.",
             7000,
+        )
+
+    def remove_subject(self, subject_id: str) -> None:
+        if self.current_study is None:
+            return
+        subject = self.current_study.subject(subject_id)
+        if subject is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Synthetic subjects cannot be removed. Create a persistent study to "
+                "test subject removal."
+            )
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Remove subject from study?",
+            f"Remove {subject.label} from active study worklists?\n\n"
+            "Original Bruker/NIfTI source data will not be changed. Converted NIfTI "
+            "inputs and provenance remain retained inside the study, and the subject "
+            "can be restored from Removed subjects.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            snapshot = self.study_service.remove_subject(
+                subject_id,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The subject could not be removed.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.statusBar().showMessage(
+            f"{subject.label} was removed from active worklists. Its data was retained.",
+            9000,
+        )
+
+    def restore_subject(self) -> None:
+        if self.current_study is None or not self.current_study.archived_subjects:
+            return
+        dialog = RestoreSubjectDialog(self.current_study.archived_subjects, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        subject_id = dialog.subject_id()
+        subject = next(
+            (
+                item
+                for item in self.current_study.archived_subjects
+                if item.subject_id == subject_id
+            ),
+            None,
+        )
+        try:
+            snapshot = self.study_service.restore_subject(
+                subject_id,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The subject could not be restored.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.statusBar().showMessage(
+            f"{subject.label if subject is not None else 'Subject'} was restored.",
+            8000,
         )
 
     def manage_groups(self) -> None:

@@ -55,7 +55,7 @@ def stage_scan_imports(
                     row["subject_code"].casefold(): row
                     for row in connection.execute(
                         """
-                        SELECT id, subject_code, expected_t1, expected_t2
+                        SELECT id, subject_code, expected_t1, expected_t2, archived_at
                         FROM subjects WHERE study_id = ?
                         """,
                         (study["id"],),
@@ -77,6 +77,11 @@ def stage_scan_imports(
                         item.role is ScanRole.T2 for item in subject_assignments
                     )
                     existing = subjects.get(folded_code)
+                    if existing is not None and existing["archived_at"] is not None:
+                        raise StudyStateError(
+                            f"Subject {existing['subject_code']} was removed from this study. "
+                            "Restore it before importing new scans with that subject ID."
+                        )
                     if existing is None:
                         subject_id = str(uuid4())
                         subject_code = subject_assignments[0].subject_code.strip()
@@ -102,6 +107,7 @@ def stage_scan_imports(
                             "subject_code": subject_code,
                             "expected_t1": int(expected_t1),
                             "expected_t2": int(expected_t2),
+                            "archived_at": None,
                         }
                         created_subjects += 1
                         _insert_audit(
