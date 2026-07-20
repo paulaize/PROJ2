@@ -6,7 +6,6 @@ import json
 import re
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -24,6 +23,26 @@ from lys_bbb_app.domain.study import (
     StudySnapshot,
     SubjectRecord,
 )
+from lys_bbb_app.infrastructure.database_support import (
+    StudyStateError,
+    connect as _connect,
+    insert_audit as _insert_audit,
+    normalize_required as _normalize_required,
+    single_study as _single_study,
+    touch_study as _touch_study,
+    utc_now as _utc_now,
+)
+from lys_bbb_app.infrastructure.scan_input_repository import (
+    complete_scan_import as _complete_scan_import,
+    fail_scan_import as _fail_scan_import,
+    mark_scan_import_converting as _mark_scan_import_converting,
+    scan_input_from_row as _scan_input_from_row,
+    stage_scan_imports as _stage_scan_imports,
+)
+from lys_bbb_app.infrastructure.study_schema import (
+    create_schema as _create_study_schema,
+    migrate_schema as _migrate_study_schema,
+)
 
 
 STUDY_SCHEMA_VERSION = 3
@@ -32,10 +51,6 @@ STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
 STUDY_MANIFEST_NAME = "project.json"
 STUDY_DIRECTORIES = ("imports", "work", "outputs", "reports", "exports", "logs")
-
-
-class StudyStateError(RuntimeError):
-    """Base error for persistent study state."""
 
 
 class StudyAlreadyExistsError(StudyStateError):
@@ -52,24 +67,6 @@ class UnsupportedStudyVersionError(StudyStateError):
 
 class DuplicateSubjectError(StudyStateError):
     """Raised when a subject code is already present in the study."""
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
-
-
-def _connect(database_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
-
-
-def _normalize_required(value: str, field_name: str) -> str:
-    normalized = value.strip()
-    if not normalized:
-        raise StudyStateError(f"{field_name} cannot be empty.")
-    return normalized
 
 
 def _normalize_optional(value: str | None) -> str | None:
@@ -538,18 +535,10 @@ class StudyRepository:
         *,
         actor: str,
     ) -> tuple[ScanInputRecord, ...]:
-        from lys_bbb_app.infrastructure.scan_input_repository import (
-            stage_scan_imports,
-        )
-
-        return stage_scan_imports(self, assignments, actor=actor)
+        return _stage_scan_imports(self, assignments, actor=actor)
 
     def mark_scan_import_converting(self, record_id: str) -> None:
-        from lys_bbb_app.infrastructure.scan_input_repository import (
-            mark_scan_import_converting,
-        )
-
-        mark_scan_import_converting(self, record_id)
+        _mark_scan_import_converting(self, record_id)
 
     def complete_scan_import(
         self,
@@ -558,16 +547,11 @@ class StudyRepository:
         *,
         actor: str,
     ) -> None:
-        from lys_bbb_app.infrastructure.scan_input_repository import (
-            complete_scan_import,
-        )
-
-        complete_scan_import(self, record_id, result, actor=actor)
+        _complete_scan_import(self, record_id, result, actor=actor)
 
     def fail_scan_import(self, record_id: str, error: str, *, actor: str) -> None:
-        from lys_bbb_app.infrastructure.scan_input_repository import fail_scan_import
+        _fail_scan_import(self, record_id, error, actor=actor)
 
-        fail_scan_import(self, record_id, error, actor=actor)
     def record_audit_event(
         self,
         event_type: str,
@@ -621,13 +605,13 @@ class StudyRepository:
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
-    from lys_bbb_app.infrastructure.study_schema import create_schema
-
-    create_schema(
+    _create_study_schema(
         connection,
         schema_version=STUDY_SCHEMA_VERSION,
         applied_at=_utc_now(),
     )
+
+
 def _resolve_study_root(path: Path) -> Path:
     resolved = path.expanduser().resolve()
     if resolved.is_dir():
@@ -674,15 +658,6 @@ def _read_manifest(root: Path) -> dict[str, Any]:
     return manifest
 
 
-def _single_study(connection: sqlite3.Connection) -> sqlite3.Row:
-    row = connection.execute(
-        "SELECT id, blinding_state FROM studies"
-    ).fetchone()
-    if row is None:
-        raise InvalidStudyError("The study database has no study record.")
-    return row
-
-
 def _subject_from_row(row: sqlite3.Row) -> SubjectRecord:
     return SubjectRecord(
         id=row["id"],
@@ -696,15 +671,9 @@ def _subject_from_row(row: sqlite3.Row) -> SubjectRecord:
     )
 
 
-def _scan_input_from_row(row: sqlite3.Row, root_path: Path) -> ScanInputRecord:
-    from lys_bbb_app.infrastructure.scan_input_repository import scan_input_from_row
-
-    return scan_input_from_row(row, root_path)
 def _migrate_schema(connection: sqlite3.Connection, from_version: int) -> None:
-    from lys_bbb_app.infrastructure.study_schema import migrate_schema
-
     try:
-        migrate_schema(
+        _migrate_study_schema(
             connection,
             from_version,
             target_version=STUDY_SCHEMA_VERSION,
@@ -712,39 +681,6 @@ def _migrate_schema(connection: sqlite3.Connection, from_version: int) -> None:
         )
     except ValueError as exc:
         raise UnsupportedStudyVersionError(str(exc)) from exc
-def _insert_audit(
-    connection: sqlite3.Connection,
-    *,
-    study_id: str,
-    event_type: str,
-    actor: str,
-    details: dict[str, Any],
-    subject_id: str | None = None,
-    created_at: str | None = None,
-) -> None:
-    connection.execute(
-        """
-        INSERT INTO audit_events(
-            id, study_id, subject_id, event_type, actor, created_at, details_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            str(uuid4()),
-            study_id,
-            subject_id,
-            event_type,
-            actor,
-            created_at or _utc_now(),
-            json.dumps(details, sort_keys=True),
-        ),
-    )
-
-
-def _touch_study(connection: sqlite3.Connection, study_id: str, timestamp: str) -> None:
-    connection.execute(
-        "UPDATE studies SET updated_at = ? WHERE id = ?",
-        (timestamp, study_id),
-    )
 
 
 def _ensure_group(connection: sqlite3.Connection, study_id: str, group_name: str) -> None:

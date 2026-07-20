@@ -155,6 +155,22 @@ blinding. Schema-v2 roots migrate automatically; the schema-v1 `.lysbbb` file re
 non-destructive explicit migration input. Persistence, discovery, and conversion live in
 non-Qt repositories and services.
 
+Keep the MRI import feature split across these boundaries:
+
+| Layer | Module | Responsibility |
+|---|---|---|
+| Scientific backend | `lys_bbb.scan_discovery`, `lys_bbb.scan_conversion`, `lys_bbb.image_orientation` | Read-only discovery, conversion, and image geometry; no Qt or study database access |
+| Domain contracts | `lys_bbb_app.domain.scan_import` | Immutable requests, states, records, and reports; no Qt or I/O |
+| Application service | `lys_bbb_app.services.study_service` | Validate and coordinate the import use case |
+| Persistence | `lys_bbb_app.infrastructure.scan_input_repository` | Store versioned scan inputs and provenance behind a small database-context protocol |
+| Background bridge | `lys_bbb_app.infrastructure.scan_import_worker` | Carry service work and structured outcomes across the Qt thread boundary |
+| User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
+
+Shared SQLite mechanics belong in `infrastructure.database_support`; schema creation and
+migrations belong in `infrastructure.study_schema`. Repositories must not import each
+other bidirectionally. New workflows should follow the same dependency direction:
+UI → service → backend/repository, with domain contracts shared between layers.
+
 New MVP studies use a study root:
 
 ```text

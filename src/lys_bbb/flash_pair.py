@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Single-session pre/post T1 FLASH gadolinium-enhancement processing."""
 
 from __future__ import annotations

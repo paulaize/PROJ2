@@ -27,11 +27,11 @@ from lys_bbb_app.main import parse_args  # noqa: E402
 from lys_bbb_app.ui.dialogs import (  # noqa: E402
     AddSubjectDialog,
     GroupAssignmentDialog,
-    ScanImportReviewDialog,
     UnblindingDialog,
 )
 from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
 from lys_bbb_app.ui.pages import ReviewsPage  # noqa: E402
+from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog  # noqa: E402
 from lys_bbb_app.services.study_service import StudyService  # noqa: E402
 
 

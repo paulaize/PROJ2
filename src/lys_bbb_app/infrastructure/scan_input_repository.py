@@ -6,6 +6,7 @@ import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Protocol
 from uuid import uuid4
 
 from lys_bbb_app.domain.scan_import import (
@@ -18,20 +19,24 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
     SourceFormat,
 )
-from lys_bbb_app.infrastructure.study_database import (
-    StudyRepository,
+from lys_bbb_app.infrastructure.database_support import (
     StudyStateError,
-    _connect,
-    _insert_audit,
-    _normalize_required,
-    _single_study,
-    _touch_study,
-    _utc_now,
+    connect as _connect,
+    insert_audit as _insert_audit,
+    normalize_required as _normalize_required,
+    single_study as _single_study,
+    touch_study as _touch_study,
+    utc_now as _utc_now,
 )
 
 
+class StudyDatabaseContext(Protocol):
+    root_path: Path
+    database_path: Path
+
+
 def stage_scan_imports(
-    repository: StudyRepository,
+    repository: StudyDatabaseContext,
     assignments: tuple[ScanImportAssignment, ...],
     *,
     actor: str,
@@ -173,12 +178,15 @@ def stage_scan_imports(
         raise StudyStateError(f"Could not save the MRI import plan: {exc}") from exc
 
 
-def mark_scan_import_converting(repository: StudyRepository, record_id: str) -> None:
+def mark_scan_import_converting(
+    repository: StudyDatabaseContext,
+    record_id: str,
+) -> None:
     _update_scan_import_state(repository, record_id, ScanImportState.CONVERTING)
 
 
 def complete_scan_import(
-    repository: StudyRepository,
+    repository: StudyDatabaseContext,
     record_id: str,
     result: ScanConversionResult,
     *,
@@ -249,7 +257,7 @@ def complete_scan_import(
 
 
 def fail_scan_import(
-    repository: StudyRepository,
+    repository: StudyDatabaseContext,
     record_id: str,
     error: str,
     *,
@@ -453,7 +461,7 @@ def _insert_assignment(
 
 
 def _update_scan_import_state(
-    repository: StudyRepository,
+    repository: StudyDatabaseContext,
     record_id: str,
     state: ScanImportState,
 ) -> None:

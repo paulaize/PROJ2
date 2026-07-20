@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Manual T1 brain-mask review and nnU-Net dataset preparation helpers."""
 
 from __future__ import annotations

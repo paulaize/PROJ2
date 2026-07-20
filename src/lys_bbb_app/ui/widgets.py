@@ -45,7 +45,6 @@ STATUS_COLOURS = {
     "neutral": ("#edf0f2", "#52616a", "#75828a"),
 }
 
-
 def secondary_button(text: str) -> QPushButton:
     button = QPushButton(text)
     button.setProperty("kind", "secondary")

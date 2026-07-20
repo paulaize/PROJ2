@@ -26,7 +26,7 @@ from lys_bbb_app.application.study_presenter import present_study
 from lys_bbb_app.demo_data import demo_study, empty_study
 from lys_bbb_app.domain.scan_import import ScanImportAssignment
 from lys_bbb_app.domain.study import StudySnapshot
-from lys_bbb_app.domain.view_models import StudyViewModel
+from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
 from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore
 from lys_bbb_app.infrastructure.scan_import_worker import ScanImportThread
 from lys_bbb_app.infrastructure.study_database import StudyStateError
@@ -36,7 +36,6 @@ from lys_bbb_app.ui.dialogs import (
     AuditHistoryDialog,
     CreateStudyDialog,
     GroupAssignmentDialog,
-    ScanImportReviewDialog,
     UnblindingDialog,
 )
 from lys_bbb_app.ui.pages import (
@@ -48,8 +47,8 @@ from lys_bbb_app.ui.pages import (
     SubjectsPage,
     SubjectWorkspacePage,
 )
+from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog
 from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
-from lys_bbb_app.domain.view_models import StatusValue
 
 
 LEGACY_PROJECT_FILTER = f"LYS BBB legacy projects (*{PROJECT_FILE_SUFFIX})"

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Bruker T1 FLASH conversion utilities for the LYS BBB MRI pipeline.
 
 The quantitative output is the native-resolution coronal NIfTI. Fiji-oriented
