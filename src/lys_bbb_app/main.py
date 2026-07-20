@@ -1,4 +1,4 @@
-"""Application launcher for the connected desktop MVP preview."""
+"""Application launcher for the LYS BBB desktop MVP."""
 
 from __future__ import annotations
 

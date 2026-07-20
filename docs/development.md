@@ -134,7 +134,7 @@ conda run -n lys-bbb python -m pip install --no-deps -e .
 ```
 
 Launch the study launcher, open the explicitly synthetic design preview, pass a
-schema-v2 study root directly, or inspect a legacy schema-v1 project:
+schema-v3 study root directly, or inspect a legacy schema-v1 project:
 
 ```bash
 conda run -n lys-bbb lys-bbb-desktop
@@ -147,11 +147,13 @@ The preview is implemented in `src/lys_bbb_app/` and remains the place to evalua
 the persistent shell, page layout, navigation, status semantics, review interaction,
 and results presentation. Its typed demo records are not persisted.
 
-Outside demo mode, the application now creates/reopens a schema-v2 study root, persists
-subjects and expected workflows, records recent studies and audit events, stores source
-folder references, and enforces one-way blinded-to-unblinded group assignment. The
-schema-v1 `.lysbbb` file remains readable and can be migrated without modifying the
-source. Persistence and validation live in non-Qt repositories and services.
+Outside demo mode, the application now creates/reopens a schema-v3 study root, scans a
+selected MRI root read-only, proposes Bruker/NIfTI subject and role assignments, converts
+confirmed inputs to versioned NIfTI artifacts, and persists geometry, hashes,
+orientation operations, subjects, expected workflows, recent studies, audit events, and
+blinding. Schema-v2 roots migrate automatically; the schema-v1 `.lysbbb` file remains a
+non-destructive explicit migration input. Persistence, discovery, and conversion live in
+non-Qt repositories and services.
 
 New MVP studies use a study root:
 
@@ -167,11 +169,12 @@ study-root/
 └── logs/
 ```
 
-The current Phase 1 slice migrates a legacy `.lysbbb` file without modifying it, adds
-subjects and expected T1/T2 workflows, persists blinding/groups and source roots,
-records audit events, and restores the same state after reopening. Scientific processing
-is deliberately not connected yet. The next state milestone adds canonical artifacts,
-workflow states, reviews, dependencies, and outdated-result handling.
+The current slice migrates a legacy `.lysbbb` file without modifying it and connects MRI
+discovery/conversion. Bruker sources are identified from numeric scan folders containing
+`acqp` and `method`; T1 FLASH and high-resolution T2 RARE are proposals only until the
+user confirms the import table. Conversion runs through application/scientific services
+off the GUI thread. The next state milestone adds the general artifact/job/review/result
+model, process-level cancellation/recovery, and post-conversion image QC.
 
 Application tests should progressively use `pytest-qt`. Domain and service tests must
 remain runnable without showing a window; scientific backend tests remain responsible

@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from lys_bbb_app.domain.scan_import import (
+    ScanConversionResult,
+    ScanImportAssignment,
+    ScanInputRecord,
+)
 from lys_bbb_app.domain.study import (
     AuditEventRecord,
     BlindingState,
@@ -21,7 +26,7 @@ from lys_bbb_app.domain.study import (
 )
 
 
-STUDY_SCHEMA_VERSION = 2
+STUDY_SCHEMA_VERSION = 3
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -203,11 +208,14 @@ class StudyRepository:
                     raise InvalidStudyError(
                         "The selected folder does not contain a LYS BBB study database."
                     )
-                if version != STUDY_SCHEMA_VERSION:
+                if version > STUDY_SCHEMA_VERSION or version < 2:
                     raise UnsupportedStudyVersionError(
                         f"This study uses schema version {version}; this application "
-                        f"requires version {STUDY_SCHEMA_VERSION}."
+                        f"supports versions 2 through {STUDY_SCHEMA_VERSION}."
                     )
+                if version < STUDY_SCHEMA_VERSION:
+                    _migrate_schema(connection, version)
+                    connection.commit()
                 row = connection.execute("SELECT id FROM studies").fetchone()
                 if row is None or row["id"] != manifest["study_id"]:
                     raise InvalidStudyError(
@@ -217,6 +225,18 @@ class StudyRepository:
             raise
         except sqlite3.Error as exc:
             raise InvalidStudyError(f"The study database could not be read: {exc}") from exc
+
+        if manifest.get("schema_version") != STUDY_SCHEMA_VERSION:
+            with closing(_connect(database_path)) as connection:
+                study = connection.execute(
+                    "SELECT id, identifier, name FROM studies"
+                ).fetchone()
+            _write_manifest(
+                root,
+                study_id=study["id"],
+                identifier=study["identifier"],
+                name=study["name"],
+            )
 
         repository = cls(root)
         repository.snapshot()
@@ -265,6 +285,19 @@ class StudyRepository:
                         (study["id"],),
                     ).fetchall()
                 }
+                scan_inputs = tuple(
+                    _scan_input_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT si.*, s.subject_code
+                        FROM scan_inputs AS si
+                        JOIN subjects AS s ON s.id = si.subject_id
+                        WHERE si.study_id = ?
+                        ORDER BY s.subject_code COLLATE NOCASE, si.role, si.version DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
         except StudyStateError:
             raise
         except (sqlite3.Error, json.JSONDecodeError) as exc:
@@ -284,7 +317,9 @@ class StudyRepository:
             unblinded_at=study["unblinded_at"],
             unblinded_by=study["unblinded_by"],
             subjects=subjects,
+            scan_inputs=scan_inputs,
             group_definitions=groups,
+            mri_input_folder=folders.get("mri"),
             t1_input_folder=folders.get("t1"),
             t2_input_folder=folders.get("t2"),
         )
@@ -457,7 +492,7 @@ class StudyRepository:
         actor: str = "Application",
         require_available: bool = False,
     ) -> StudySnapshot:
-        if kind not in {"t1", "t2"}:
+        if kind not in {"mri", "t1", "t2"}:
             raise StudyStateError(f"Unsupported input-folder kind: {kind}")
         referenced_path = Path(path).expanduser().resolve()
         normalized_actor = _normalize_required(actor, "Actor")
@@ -497,6 +532,42 @@ class StudyRepository:
             raise StudyStateError(f"Could not store the input-folder reference: {exc}") from exc
         return self.snapshot()
 
+    def stage_scan_imports(
+        self,
+        assignments: tuple[ScanImportAssignment, ...],
+        *,
+        actor: str,
+    ) -> tuple[ScanInputRecord, ...]:
+        from lys_bbb_app.infrastructure.scan_input_repository import (
+            stage_scan_imports,
+        )
+
+        return stage_scan_imports(self, assignments, actor=actor)
+
+    def mark_scan_import_converting(self, record_id: str) -> None:
+        from lys_bbb_app.infrastructure.scan_input_repository import (
+            mark_scan_import_converting,
+        )
+
+        mark_scan_import_converting(self, record_id)
+
+    def complete_scan_import(
+        self,
+        record_id: str,
+        result: ScanConversionResult,
+        *,
+        actor: str,
+    ) -> None:
+        from lys_bbb_app.infrastructure.scan_input_repository import (
+            complete_scan_import,
+        )
+
+        complete_scan_import(self, record_id, result, actor=actor)
+
+    def fail_scan_import(self, record_id: str, error: str, *, actor: str) -> None:
+        from lys_bbb_app.infrastructure.scan_input_repository import fail_scan_import
+
+        fail_scan_import(self, record_id, error, actor=actor)
     def record_audit_event(
         self,
         event_type: str,
@@ -550,69 +621,13 @@ class StudyRepository:
 
 
 def _create_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript(
-        """
-        CREATE TABLE schema_migrations (
-            version INTEGER PRIMARY KEY,
-            applied_at TEXT NOT NULL
-        );
-        CREATE TABLE studies (
-            id TEXT PRIMARY KEY,
-            identifier TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-            description TEXT,
-            blinding_state TEXT NOT NULL CHECK (blinding_state IN ('BLINDED', 'UNBLINDED')),
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            unblinded_at TEXT,
-            unblinded_by TEXT
-        );
-        CREATE TABLE subjects (
-            id TEXT PRIMARY KEY,
-            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
-            subject_code TEXT NOT NULL CHECK (length(trim(subject_code)) > 0),
-            group_name TEXT,
-            metadata_json TEXT NOT NULL DEFAULT '{}',
-            expected_t1 INTEGER NOT NULL CHECK (expected_t1 IN (0, 1)),
-            expected_t2 INTEGER NOT NULL CHECK (expected_t2 IN (0, 1)),
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            UNIQUE(study_id, subject_code)
-        );
-        CREATE TABLE study_groups (
-            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
-            name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-            sort_order INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY(study_id, name)
-        );
-        CREATE TABLE input_folders (
-            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
-            kind TEXT NOT NULL CHECK (kind IN ('t1', 't2')),
-            path TEXT NOT NULL CHECK (length(trim(path)) > 0),
-            selected_at TEXT NOT NULL,
-            PRIMARY KEY(study_id, kind)
-        );
-        CREATE TABLE audit_events (
-            id TEXT PRIMARY KEY,
-            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
-            subject_id TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-            event_type TEXT NOT NULL,
-            actor TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            details_json TEXT NOT NULL DEFAULT '{}'
-        );
-        CREATE INDEX idx_subjects_study_code ON subjects(study_id, subject_code);
-        CREATE INDEX idx_subjects_study_group ON subjects(study_id, group_name);
-        CREATE INDEX idx_audit_events_study_time ON audit_events(study_id, created_at DESC);
-        """
-    )
-    connection.execute(
-        "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-        (STUDY_SCHEMA_VERSION, _utc_now()),
-    )
-    connection.execute(f"PRAGMA user_version = {STUDY_SCHEMA_VERSION}")
+    from lys_bbb_app.infrastructure.study_schema import create_schema
 
-
+    create_schema(
+        connection,
+        schema_version=STUDY_SCHEMA_VERSION,
+        applied_at=_utc_now(),
+    )
 def _resolve_study_root(path: Path) -> Path:
     resolved = path.expanduser().resolve()
     if resolved.is_dir():
@@ -648,10 +663,11 @@ def _read_manifest(root: Path) -> dict[str, Any]:
         raise InvalidStudyError(f"The study manifest could not be read: {exc}") from exc
     if manifest.get("format") != STUDY_MANIFEST_FORMAT:
         raise InvalidStudyError("The selected folder is not a LYS BBB study.")
-    if manifest.get("schema_version") != STUDY_SCHEMA_VERSION:
+    version = manifest.get("schema_version")
+    if not isinstance(version, int) or version > STUDY_SCHEMA_VERSION or version < 2:
         raise UnsupportedStudyVersionError(
-            f"The study manifest uses schema version {manifest.get('schema_version')}; "
-            f"this application requires version {STUDY_SCHEMA_VERSION}."
+            f"The study manifest uses schema version {version}; this application "
+            f"supports versions 2 through {STUDY_SCHEMA_VERSION}."
         )
     if manifest.get("database") != STUDY_DATABASE_NAME or not manifest.get("study_id"):
         raise InvalidStudyError("The study manifest is incomplete.")
@@ -680,6 +696,22 @@ def _subject_from_row(row: sqlite3.Row) -> SubjectRecord:
     )
 
 
+def _scan_input_from_row(row: sqlite3.Row, root_path: Path) -> ScanInputRecord:
+    from lys_bbb_app.infrastructure.scan_input_repository import scan_input_from_row
+
+    return scan_input_from_row(row, root_path)
+def _migrate_schema(connection: sqlite3.Connection, from_version: int) -> None:
+    from lys_bbb_app.infrastructure.study_schema import migrate_schema
+
+    try:
+        migrate_schema(
+            connection,
+            from_version,
+            target_version=STUDY_SCHEMA_VERSION,
+            applied_at=_utc_now(),
+        )
+    except ValueError as exc:
+        raise UnsupportedStudyVersionError(str(exc)) from exc
 def _insert_audit(
     connection: sqlite3.Connection,
     *,

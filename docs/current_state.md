@@ -21,7 +21,7 @@ zero cases because reviewed T1 brain masks are unavailable.
 | Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
 | Colab benchmark implementation | Three primary models, two mismatched controls, and a separate RS2 correction experiment |
 | Brain-extraction decision | RS2-Net is the visual front-runner; corrected-mask selection and reviewed-reference scoring remain pending |
-| Desktop application | Schema-v2 study-root creation/opening, recent studies, persistent subjects/workflow expectations, external-drive source references, audited one-way unblinding/group assignment, plus the connected synthetic workflow preview; scientific processing is not connected |
+| Desktop application | Schema-v3 study roots, recent studies, read-only Bruker/NIfTI discovery, editable subject/role/orientation review, versioned NIfTI conversion with provenance, persistent subjects/input state, blinding/groups/audit, plus the synthetic downstream workflow preview |
 | T2 desktop workflow | Not implemented; controlled model development is active in sibling `LYS_PROJ1`, but no frozen app release is installed here |
 | Tests | Test suite passes; biological validation is separate |
 
@@ -114,8 +114,8 @@ enhancement. They remain provisional until the validation experiments in
 
 ## Desktop foundation
 
-The PySide6 Phase 1 state milestone is implemented on
-`feat/pyside-project-foundation`. The launcher creates or opens a schema-v2 study root,
+The PySide6 input-foundation milestone is implemented on
+`feat/pyside-project-foundation`. The launcher creates or opens a schema-v3 study root,
 records recent studies, persists subjects and their expected T1/T2 workflows, stores T1
 and T2 source-root references, and restores the same state after reopening. Source image
 folders may live on mounted hard drives and are referenced in place; project setup does
@@ -124,8 +124,18 @@ not copy or modify their contents, and temporarily unavailable paths remain reco
 Study blinding is durable and one-way. A blinded study stores subjects without requiring
 groups and hides group information in the UI. Explicit unblinding records reviewer and
 time; group mappings may then be saved while individual subjects remain `Unassigned`.
-Study creation/opening, subject creation, input-folder selection, unblinding, and group
-assignment create append-only audit events visible from the Subjects page.
+Study creation/opening, subject discovery/creation, input-folder selection, MRI import,
+conversion success/failure, supersession, unblinding, and group assignment create
+append-only audit events visible from the Subjects page.
+
+Selecting an MRI root now scans nested Bruker sessions from their numeric `acqp`/`method`
+scan folders and recognisable direct NIfTI inputs. It proposes subject IDs and T1
+pre/post/T2 roles, gives preference to high-resolution RARE for native T2 rather than
+T2*, and requires a confirmation table where the user can correct identities, roles,
+coronal/native storage, and X/Y/Z storage-axis flips. Confirmed inputs are converted off
+the GUI thread into versioned NIfTI/provenance directories inside the study. Source data
+remain read-only on their original drive. Mask generation, registration, review,
+quantification, robust process cancellation, and crash recovery are not connected yet.
 
 This milestone contains no scientific processing inside Qt widgets and does not invoke
 or reproduce the external T2 lesion model. Production pipeline execution, persisted
@@ -154,11 +164,10 @@ exports, and logs. Existing schema-v1 `.lysbbb` files remain a supported migrati
 and are not overwritten during migration. Schema version 2 implements the
 study/subject/audit foundation.
 
-Durable study, subject, expected-workflow, group, blinding, input-folder, audit, and
-recent-study state is implemented. Artifact, dependency, review, job, method, and result
-tables remain Phase 2 work. The current source-folder selectors store references only;
-they do not scan subjects, validate MRI inputs, run jobs, or create scientific approval
-records.
+Durable study, subject, expected-workflow, group, blinding, input-folder, scan-input
+version, conversion result/failure, audit, and recent-study state is implemented.
+General artifact, dependency, review, job, method, and result tables remain Phase 2
+work. Converted scan inputs are not approvals and do not create scientific results.
 
 ### Upstream repository state
 
@@ -222,9 +231,9 @@ report identifies failure modes and the preferred pre-label generator.
 
 ## Desktop implementation milestone
 
-The implemented Phase 1 slice lets a user create a study root, migrate a schema-v1
-project, see recent studies, add subjects with expected T1/T2 workflows, close and
-reopen the application with the same subjects/setup statuses, navigate the Overview and
-Subjects screens, and inspect an append-only audit history. Remaining Phase 1 refinement
-is richer subject metadata and subject-owned input assignment. Scientific processing
-does not belong in this phase.
+The implemented input slice lets a user create a study root, migrate schema-v1/v2
+state, select an external-drive MRI root, review automatically discovered subjects and
+scan roles, convert confirmed Bruker/NIfTI inputs, close and reopen the application with
+the same versioned input state, and inspect the audit history. The next state milestone
+is the canonical artifact/review/job/result layer and a real post-conversion image QC
+screen.

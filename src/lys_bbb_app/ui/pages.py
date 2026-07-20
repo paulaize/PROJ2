@@ -345,6 +345,7 @@ class SubjectsPage(QWidget):
     subject_open_requested = Signal(str)
     preview_action = Signal(str)
     add_subject_requested = Signal()
+    import_mri_requested = Signal()
     group_assignment_requested = Signal()
     audit_history_requested = Signal()
 
@@ -362,10 +363,13 @@ class SubjectsPage(QWidget):
         history.clicked.connect(self.audit_history_requested)
         add_subject = QPushButton("Add subject")
         add_subject.clicked.connect(self.add_subject_requested)
+        import_mri = QPushButton("Import MRI folder…")
+        import_mri.clicked.connect(self.import_mri_requested)
         self.assign_groups = secondary_button("Assign groups…")
         self.assign_groups.clicked.connect(self.group_assignment_requested)
         heading_layout.addWidget(history)
         heading_layout.addWidget(self.assign_groups)
+        heading_layout.addWidget(import_mri)
         heading_layout.addWidget(add_subject)
         layout.addWidget(heading)
 
@@ -1178,31 +1182,31 @@ class SettingsPage(QScrollArea):
 
         inputs = QGroupBox("Study input locations")
         input_form = QFormLayout(inputs)
+        self.mri_input_folder = QLineEdit()
+        self.mri_input_folder.setReadOnly(True)
+        self.mri_input_folder.setPlaceholderText("No MRI source folder selected")
         self.t1_input_folder = QLineEdit()
         self.t1_input_folder.setReadOnly(True)
-        self.t1_input_folder.setPlaceholderText("No T1 source folder selected")
         self.t2_input_folder = QLineEdit()
         self.t2_input_folder.setReadOnly(True)
-        self.t2_input_folder.setPlaceholderText("No T2 source folder selected")
-        t1_browse = secondary_button("Browse…")
-        t1_browse.clicked.connect(lambda: self.input_folder_requested.emit("t1"))
-        t2_browse = secondary_button("Browse…")
-        t2_browse.clicked.connect(lambda: self.input_folder_requested.emit("t2"))
-        self.t1_input_row = QWidget()
-        t1_layout = QHBoxLayout(self.t1_input_row)
-        t1_layout.setContentsMargins(0, 0, 0, 0)
-        t1_layout.addWidget(self.t1_input_folder, 1)
-        t1_layout.addWidget(t1_browse)
-        self.t2_input_row = QWidget()
-        t2_layout = QHBoxLayout(self.t2_input_row)
-        t2_layout.setContentsMargins(0, 0, 0, 0)
-        t2_layout.addWidget(self.t2_input_folder, 1)
-        t2_layout.addWidget(t2_browse)
-        input_form.addRow("T1 source root", self.t1_input_row)
-        input_form.addRow("T2 source root", self.t2_input_row)
+        browse = secondary_button("Choose and review…")
+        browse.clicked.connect(lambda: self.input_folder_requested.emit("mri"))
+        self.mri_input_row = QWidget()
+        mri_layout = QHBoxLayout(self.mri_input_row)
+        mri_layout.setContentsMargins(0, 0, 0, 0)
+        mri_layout.addWidget(self.mri_input_folder, 1)
+        mri_layout.addWidget(browse)
+        input_form.addRow("MRI source root", self.mri_input_row)
+        self.legacy_input_note = QLabel()
+        self.legacy_input_note.setObjectName("muted")
+        self.legacy_input_note.setWordWrap(True)
+        self.legacy_input_note.hide()
+        input_form.addRow(self.legacy_input_note)
         input_note = QLabel(
-            "Source files are referenced in place and are never copied or modified by "
-            "project setup. A disconnected drive path is retained for reconnection."
+            "The selected root is scanned read-only for Bruker sessions and recognisable "
+            "NIfTI files. You review subject IDs, T1 pre/post/T2 roles, coronal orientation, "
+            "and optional storage-axis flips before versioned NIfTI copies are created "
+            "inside the study. A disconnected drive path is retained for reconnection."
         )
         input_note.setObjectName("muted")
         input_note.setWordWrap(True)
@@ -1290,11 +1294,23 @@ class SettingsPage(QScrollArea):
     def set_input_folders(
         self,
         *,
+        mri_path: Path | None,
         t1_path: Path | None,
         t2_path: Path | None,
         enabled: bool,
     ) -> None:
+        self.mri_input_folder.setText(str(mri_path) if mri_path is not None else "")
         self.t1_input_folder.setText(str(t1_path) if t1_path is not None else "")
         self.t2_input_folder.setText(str(t2_path) if t2_path is not None else "")
-        self.t1_input_row.setEnabled(enabled)
-        self.t2_input_row.setEnabled(enabled)
+        legacy = []
+        if t1_path is not None:
+            legacy.append(f"T1: {t1_path}")
+        if t2_path is not None:
+            legacy.append(f"T2: {t2_path}")
+        self.legacy_input_note.setText(
+            "Legacy source references retained from an older project — " + " · ".join(legacy)
+            if legacy
+            else ""
+        )
+        self.legacy_input_note.setVisible(bool(legacy))
+        self.mri_input_row.setEnabled(enabled)

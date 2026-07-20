@@ -29,10 +29,11 @@ import matplotlib.pyplot as plt
 
 import nibabel as nib
 from nibabel.affines import rescale_affine
-from nibabel.orientations import axcodes2ornt, ornt_transform, io_orientation
 from nibabel.processing import resample_to_output
 
 import brkraw
+
+from lys_bbb.image_orientation import to_coronal
 
 import brkraw.apps.loader.core as _brk_core
 
@@ -60,7 +61,6 @@ if not getattr(_brk_core, "_single_pack_patched", False):
 
 # use regex to find the appropriate files in brucker folder
 PROTOCOL_PATTERN = r"T1_FLASH_3D"
-CORONAL_AXCODES = ("R", "S", "A")
 
 
 def _first_str(obj):
@@ -100,18 +100,6 @@ def find_scans_by_protocol(study):
     pat = re.compile(PROTOCOL_PATTERN, re.IGNORECASE)
     targets = sorted(sid for sid in all_ids if pat.search(protocol_name(study, sid)))
     return targets, all_ids
-
-
-def to_coronal(img):
-    """Reorder/flip voxel axes so axis 2 indexes coronal slices.
-
-    This uses the NIfTI affine and does not interpolate. For these sagittal
-    FLASH scans it changes (185, 256, 96) into (96, 185, 256), so FIJI sees
-    256 coronal positions along the original anterior/posterior direction.
-    """
-    target = axcodes2ornt(CORONAL_AXCODES)
-    start = io_orientation(img.affine)
-    return img.as_reoriented(ornt_transform(start, target))
 
 
 def voxel_sizes(img):

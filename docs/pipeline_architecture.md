@@ -55,7 +55,7 @@ dependent desktop results outdated.
 
 | Stage | Current status | Required output |
 |---|---|---|
-| Study/project state | Phase 1 implemented | Schema-v2 study root, subjects, expected workflows, blinding/groups, source roots, and audit; artifact schema remains planned |
+| Study/project state | Input foundation implemented | Schema-v3 study root, subjects, expected workflows, blinding/groups, MRI roots, versioned converted inputs, and audit; general artifact schema remains planned |
 | Input inventory and validation | Implemented | Case/scan inventory |
 | Bruker T1 conversion | Implemented | Native pre/post coronal NIfTI |
 | T1 brain extraction | Model selection in progress | Immutable prediction plus reviewed mask |
@@ -144,12 +144,14 @@ The target study root uses:
 - migrations so older projects remain openable.
 
 Schema version 1 establishes only project identity, migration history, and T1/T2w
-folder assignments in a `.lysbbb` file. Implemented schema version 2 migrates that
-prototype into a study root containing `project.sqlite`, `project.json`, and managed
-derivative directories, then adds subjects, expected workflows, blinding/groups, and
-append-only audit events. The original prototype remains unchanged during migration.
-Saved raw-data paths may point to mounted hard drives and may be temporarily unavailable
-when a study is opened.
+folder assignments in a `.lysbbb` file. Schema version 2 introduced the study root,
+subjects, expected workflows, blinding/groups, and audit history. Implemented schema
+version 3 adds one combined MRI source reference plus subject-owned, versioned T1-pre,
+T1-post, and T2 input records with source identity, orientation operations, conversion
+state, geometry, hashes, and immutable NIfTI outputs. Schema-v2 roots migrate in place;
+the original schema-v1 prototype remains unchanged during explicit migration. Saved raw
+paths may point to mounted hard drives and may be temporarily unavailable when a study
+is opened.
 
 Until the foundation schema expands to own scientific metadata and review records,
 `study_metadata.csv` remains the editable metadata table, the manual worklist stores

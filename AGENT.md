@@ -69,9 +69,10 @@ Exact counts and dataset exceptions live in `docs/current_state.md`.
 
 1. Preserve progress on T1 brain-mask selection, reviewed references, registration QC,
    and enhancement signal-preservation validation.
-2. Implement desktop Phase 1: study roots, schema-v1 migration, recent studies,
-   subjects, persistent navigation, subject table, and audit history.
-3. Implement canonical artifacts, reviews, methods, results, dependencies, and outdated
+2. Preserve the implemented desktop input foundation: schema-v3 studies, read-only MRI
+   discovery, human-correctable subject/role/orientation proposals, versioned NIfTI
+   conversion, subjects, navigation, and audit history.
+3. Implement canonical artifacts, jobs, reviews, methods, results, dependencies, and outdated
    state before connecting scientific actions.
 4. Connect T1 import/mask review, then registration and provisional quantification.
 5. Integrate released T2 masks and validated frozen-release invocation without model
@@ -112,8 +113,9 @@ but do not delete user-created artifacts merely to tidy the worktree.
 
 Current supported code includes inventory, conversion, mask workflow/QC, rigid pre/post
 registration, analysis-manifest gating, provisional pair/cohort quantification, a
-schema-v2 PySide6 study-root foundation with persistent subjects, expected workflows,
-source-folder references, blinding/groups, audit history and recent studies, plus a
+schema-v3 PySide6 study-root foundation with persistent subjects, expected workflows,
+read-only Bruker/NIfTI discovery, reviewed subject/role/orientation assignments,
+versioned scan-input conversion/provenance, blinding/groups, audit history and recent studies, plus a
 connected synthetic design preview for the planned scientific workflow pages.
 
 Not implemented as production features: canonical artifact/review/job/result state, a

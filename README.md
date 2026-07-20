@@ -41,11 +41,13 @@ As of 2026-07-20:
 - The final analysis manifest includes 0 cases: 8 need mask review, 26 lack a brain
   mask, and 1 lacks conversion.
 - Study metadata and review decisions are not yet complete.
-- The PySide6 application now creates and reopens schema-v2 study directories, persists
-  subjects and expected T1/T2 workflows, retains external-drive source-folder
-  references, records audit events, and supports one-way blinded-to-unblinded group
-  assignment. The synthetic design preview remains available for later workflow pages;
-  artifact/job/review/result persistence and T2 execution are not yet implemented.
+- The PySide6 application now creates and reopens schema-v3 study directories, scans
+  external-drive Bruker/NIfTI folders read-only, lets the user correct discovered
+  subjects, T1-pre/T1-post/T2 roles and storage-axis operations, converts confirmed
+  inputs to versioned NIfTI/provenance artifacts, and persists blinding/group/audit
+  state. The synthetic design preview remains available for downstream workflow pages;
+  general artifact/job/review/result persistence and T2 model execution are not yet
+  implemented.
 - The test suite passes, but biological validation is not complete.
 
 See [current state](docs/current_state.md) for the exact cases, branch history, and

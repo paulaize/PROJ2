@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
 import pytest
 
 
@@ -25,6 +27,7 @@ from lys_bbb_app.main import parse_args  # noqa: E402
 from lys_bbb_app.ui.dialogs import (  # noqa: E402
     AddSubjectDialog,
     GroupAssignmentDialog,
+    ScanImportReviewDialog,
     UnblindingDialog,
 )
 from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
@@ -308,4 +311,60 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
         "STUDY_OPENED",
         "SUBJECT_GROUPS_ASSIGNED",
     ]
+    window.close()
+
+
+def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
+    qt_app: QApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = StudyService()
+    study = service.create_study(
+        CreateStudyRequest(
+            root_path=tmp_path / "import-study",
+            name="Import study",
+            identifier="import-study",
+            actor="Reviewer A",
+        )
+    )
+    source_root = tmp_path / "external-drive" / "mri"
+    source_root.mkdir(parents=True)
+    source = source_root / "C1S1_D1_t2w.nii.gz"
+    nib.save(
+        nib.Nifti1Image(np.ones((3, 4, 5), dtype=np.float32), np.eye(4)),
+        source,
+    )
+    window = MainWindow(
+        study_service=service,
+        recent_store=RecentStudiesStore(tmp_path / "preferences" / "recent.json"),
+    )
+    assert window.open_project_path(study.root_path)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: str(source_root),
+    )
+    monkeypatch.setattr(
+        ScanImportReviewDialog,
+        "exec",
+        lambda _dialog: QDialog.Accepted,
+    )
+
+    window.select_mri_source_folder()
+    thread = window._scan_import_thread
+    assert thread is not None
+    assert thread.wait(5000)
+    for _ in range(10):
+        qt_app.processEvents()
+
+    snapshot = service.current_study
+    assert snapshot is not None
+    assert snapshot.mri_input_folder == source_root.resolve()
+    assert len(snapshot.subjects) == 1
+    assert snapshot.subjects[0].subject_code == "C1S1_D1"
+    assert snapshot.scan_inputs[0].state.value == "CONVERTED"
+    assert snapshot.scan_inputs[0].output_path is not None
+    assert snapshot.scan_inputs[0].output_path.is_file()
+    assert window.subjects_page.proxy.rowCount() == 1
     window.close()

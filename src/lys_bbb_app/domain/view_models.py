@@ -101,6 +101,7 @@ class StudyViewModel:
     results: tuple[ResultViewModel, ...]
     blinded_review: bool = True
     group_definitions: tuple[str, ...] = ()
+    mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
     t2_input_folder: Path | None = None
 

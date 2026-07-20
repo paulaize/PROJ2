@@ -8,8 +8,8 @@ Operational facts about what is implemented today live in `docs/current_state.md
 
 The current code includes two deliberately separate experiences:
 
-- a real schema-v2 foundation that creates/reopens study roots, remembers recent
-  studies and T1/T2 source roots, persists subjects and expected workflows, enforces
+- a real schema-v3 foundation that creates/reopens study roots, remembers recent
+  studies and MRI source roots, persists subjects, versioned scan inputs, and expected workflows, enforces
   one-way blinded review, saves group assignments, and records audit history; and
 - a connected design preview (`lys-bbb-desktop --demo`) that renders the planned shell
   and workflow pages from explicitly synthetic, non-persistent view models.
@@ -17,9 +17,10 @@ The current code includes two deliberately separate experiences:
 The preview currently covers the study launcher, Overview, Subjects, Subject Workspace,
 Review/QC, Results/Export, and Settings. It supports navigation, filtering, subject-to-
 review routing, local approve/reject interaction, viewer slice/overlay controls, and
-preview export actions. Study, subject, blinding, group, source-folder, and audit state
-are production-connected outside demo mode. Artifact, review, job, result, and export
-behavior remains a visual and interaction prototype until the later phases below.
+preview export actions. Study, subject, blinding, group, source-folder, scan-input,
+conversion-provenance, and audit state are production-connected outside demo mode.
+Mask, registration, review, result, and export behavior remains a visual and interaction
+prototype until the later phases below.
 
 ## Product objective
 
@@ -227,7 +228,7 @@ machines or an unreliable network share is outside the MVP.
 ### Schema-v1 compatibility
 
 The `.lysbbb` single-file project is a legacy prototype and remains supported.
-Implemented schema version 2 provides the study/subject/audit foundation and a tested
+Implemented schema version 3 provides the study/subject/input foundation and a tested
 upgrade/import path that:
 
 1. opens schema-v1 files readably;
@@ -245,11 +246,13 @@ and manifest, then renames the staging directory into place. A failure removes o
 new incomplete staging area and never edits raw data or the legacy database. New
 migrations are append-only; schema version numbers are never reused.
 
-### Subject import contract
+### Subject discovery and MRI import contract
 
-The schema-v1 global T1/T2w folder selectors are transitional path storage, not subject
-import and not input validation. The MVP replaces them with explicit subject-owned
-assignments and a confirmation screen.
+The schema-v1 global T1/T2w folder selectors are retained only as legacy path storage.
+New studies select one MRI source root that may contain nested Bruker sessions or direct
+NIfTI files. The source is scanned read-only and every proposed match is shown on a
+confirmation screen before subjects or scan-input records are created. Selecting the
+root itself is retained as an audited reconnectable source reference.
 
 Supported T1 import routes are:
 
@@ -258,15 +261,36 @@ Supported T1 import routes are:
   conversion inside the study root; or
 - direct assignment of native pre-Gd and post-Gd NIfTI files.
 
-The app shows the proposed subject, session, acquisition, and pre/post role before it
-commits an import. It never infers experimental group, lesion side, exclusion, or review
-state from folder names.
+The implemented discovery rules are deliberately conservative:
 
-The initial T2 workflow accepts a native T2 NIfTI plus a released mask/provenance or a
-compatible frozen release package. Raw T2 conversion is included only after a dedicated
-adapter proves that it preserves the release's geometry/input contract. CSV/TSV subject
-manifests remain transparent import formats, but all proposed file matches require
-validation before activation.
+- a Bruker session contains numeric scan directories with `acqp` and `method` files;
+- subject IDs such as `C23S2_D1` are proposed from session names with explicit
+  confidence; unrecognised or BD-style names remain editable and require confirmation;
+- T1 pre/post is first identified from acquisition comments such as `preGd`/`postGd`,
+  then from the order of an otherwise unambiguous T1 FLASH pair with a warning;
+- native T2 prefers a T2-named high-resolution RARE acquisition over T2*/FcFLASH
+  alternatives; tied RARE scans are low-confidence and require user choice; and
+- localizers, TOF, alternative scans, experimental group, lesion side, exclusion, and
+  review status are never silently promoted from filenames.
+
+The confirmation table lets the user edit subject IDs and T1-pre/T1-post/T2 roles,
+ignore scans, choose native or coronal NIfTI storage, and reverse X/Y/Z storage axes.
+T1 defaults to interpolation-free coronal `RSA` storage because axis 2 then indexes the
+coronal slices used by the established T1 backend. T2 defaults to its native converted
+grid because the `LYS_PROJ1` release contract is defined on native T2. Storage-axis
+flips also update the affine; they change array ordering without silently relabelling
+world coordinates. Every choice is written to provenance and must be checked in later
+image QC.
+
+Confirmed Bruker scans are converted automatically to immutable, versioned NIfTI inputs
+below `outputs/subjects/<subject>/inputs/<role>/vNNN/`. Each version contains the NIfTI
+and `provenance.json` with source/output hashes, geometry, acquisition identity, and
+orientation operations. Reassignment creates a new version and supersedes, rather than
+deletes, the old input. A failed conversion remains visible as `FAILED` with its error.
+
+The T2 workflow subsequently accepts a released native-grid lesion mask/provenance or a
+compatible frozen release package. MRI import does not invoke or reproduce the external
+T2 model. CSV/TSV subject manifests remain a later transparent import format.
 
 ## Application shell and navigation
 
@@ -664,23 +688,26 @@ and labels that do not rely on colour alone.
 
 ## Implementation phases
 
-1. **Application shell and study model** — study-root creation/opening, recent studies,
-   schema-v1 migration, subjects, blinded-review state, deferred group assignment, main
-   navigation, subject table, and basic audit log.
+1. **Application shell and MRI input foundation** — study-root creation/opening, recent
+   studies, schema-v1/v2 migration, read-only source discovery, editable subject/role/
+   orientation proposals, versioned NIfTI conversion, blinded-review state, deferred
+   group assignment, main navigation, subject table, and audit log.
 2. **Artifact and workflow state model** — artifacts, dependencies, workflow policies,
    status badges, subject workspace, approval gates, and outdated handling.
-3. **T1 import and mask review** — subject-owned T1 inputs, validation, draft mask
-   generation/import, slice viewer, overlay, decisions, and ITK-SNAP correction flow.
+3. **T1 validation and mask review** — converted subject-owned T1 validation, draft
+   mask generation/import, slice viewer, overlay, decisions, and ITK-SNAP correction flow.
 4. **Registration and T1 quantification** — background rigid registration, QC/review,
    provisional measurement, method status, and subject result display.
-5. **T2 lesion integration** — T2 import, release validation, mask import/inference,
+5. **T2 lesion integration** — converted T2 validation, release validation, mask import/inference,
    review, provenance, and native-space lesion volume.
 6. **Results and exports** — cohort table, descriptive summaries, approved CSV, QC
    report, and reproducibility bundle.
 
-The implemented Phase 1 slice succeeds when a user creates a study, adds subjects,
-closes the application, reopens it, and sees the same subjects and setup statuses. The
-remaining Phase 1 refinement is richer subject metadata and subject-owned input import.
+The implemented input slice succeeds when a user creates a study, discovers or edits
+subjects and scan roles from a selected MRI root, converts the confirmed inputs, closes
+the application, reopens it, and sees the same versioned input and setup statuses. The
+next production slice is post-conversion image validation plus canonical artifact/job/
+review/result state.
 The full MVP succeeds only when a
 non-technical user can complete both workflows, understand every blocked or
 provisional state, approve eligible artifacts/results, export provenance-rich outputs,

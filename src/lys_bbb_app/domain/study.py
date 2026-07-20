@@ -7,6 +7,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from lys_bbb_app.domain.scan_import import ScanInputRecord
+
 
 class BlindingState(str, Enum):
     """One-way review blinding state for a study."""
@@ -52,7 +54,9 @@ class StudySnapshot:
     unblinded_at: str | None
     unblinded_by: str | None
     subjects: tuple[SubjectRecord, ...]
+    scan_inputs: tuple[ScanInputRecord, ...]
     group_definitions: tuple[str, ...]
+    mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
     t2_input_folder: Path | None = None
 
@@ -64,6 +68,11 @@ class StudySnapshot:
         return next(
             (subject for subject in self.subjects if subject.id == subject_id),
             None,
+        )
+
+    def inputs_for_subject(self, subject_id: str) -> tuple[ScanInputRecord, ...]:
+        return tuple(
+            record for record in self.scan_inputs if record.subject_id == subject_id
         )
 
 
