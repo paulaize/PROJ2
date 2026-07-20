@@ -6,19 +6,20 @@ This document is the product and application-architecture contract for the LYS B
 desktop MVP. Scientific details remain authoritative in the workflow-specific documents.
 Operational facts about what is implemented today live in `docs/current_state.md`.
 
-The current code includes two deliberately separate layers:
+The current code includes two deliberately separate experiences:
 
-- a real foundation that creates and reopens a schema-v1 `.lysbbb` SQLite file and
-  remembers T1/T2w folder paths; and
+- a real schema-v2 foundation that creates/reopens study roots, remembers recent
+  studies and T1/T2 source roots, persists subjects and expected workflows, enforces
+  one-way blinded review, saves group assignments, and records audit history; and
 - a connected design preview (`lys-bbb-desktop --demo`) that renders the planned shell
   and workflow pages from explicitly synthetic, non-persistent view models.
 
 The preview currently covers the study launcher, Overview, Subjects, Subject Workspace,
 Review/QC, Results/Export, and Settings. It supports navigation, filtering, subject-to-
 review routing, local approve/reject interaction, viewer slice/overlay controls, and
-preview export actions. It is a visual and interaction prototype, not evidence that the
-study, subject, artifact, review, job, result, or export persistence model below has been
-implemented.
+preview export actions. Study, subject, blinding, group, source-folder, and audit state
+are production-connected outside demo mode. Artifact, review, job, result, and export
+behavior remains a visual and interaction prototype until the later phases below.
 
 ## Product objective
 
@@ -225,9 +226,9 @@ machines or an unreliable network share is outside the MVP.
 
 ### Schema-v1 compatibility
 
-The current `.lysbbb` single-file project is a prototype and must not be abandoned.
-Phase 1 introduces schema version 2 for the study/subject/audit foundation and must
-provide a tested upgrade/import path that:
+The `.lysbbb` single-file project is a legacy prototype and remains supported.
+Implemented schema version 2 provides the study/subject/audit foundation and a tested
+upgrade/import path that:
 
 1. opens schema-v1 files readably;
 2. lets the user choose a target study root;
@@ -236,7 +237,7 @@ provide a tested upgrade/import path that:
 5. records a migration audit event; and
 6. leaves the original file unchanged as a recovery source.
 
-New studies use the study-root contract. The launcher may continue accepting a
+New studies use the study-root contract. The launcher continues accepting a
 `.lysbbb` path only as a legacy migration entry point.
 
 Migration builds a sibling staging directory, commits and validates the new database
@@ -677,8 +678,10 @@ and labels that do not rely on colour alone.
 6. **Results and exports** — cohort table, descriptive summaries, approved CSV, QC
    report, and reproducibility bundle.
 
-Phase 1 succeeds when a user creates a study, adds subjects, closes the application,
-reopens it, and sees the same subjects and statuses. The full MVP succeeds only when a
+The implemented Phase 1 slice succeeds when a user creates a study, adds subjects,
+closes the application, reopens it, and sees the same subjects and setup statuses. The
+remaining Phase 1 refinement is richer subject metadata and subject-owned input import.
+The full MVP succeeds only when a
 non-technical user can complete both workflows, understand every blocked or
 provisional state, approve eligible artifacts/results, export provenance-rich outputs,
 and reopen the study without losing state.

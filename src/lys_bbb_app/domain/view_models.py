@@ -54,6 +54,11 @@ class SubjectViewModel:
     updated: str
     metadata: tuple[tuple[str, str], ...] = ()
     history: tuple[str, ...] = ()
+    display_id: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.display_id or self.subject_id
 
 
 @dataclass(frozen=True)
@@ -94,6 +99,10 @@ class StudyViewModel:
     subjects: tuple[SubjectViewModel, ...]
     reviews: tuple[ReviewItemViewModel, ...]
     results: tuple[ResultViewModel, ...]
+    blinded_review: bool = True
+    group_definitions: tuple[str, ...] = ()
+    t1_input_folder: Path | None = None
+    t2_input_folder: Path | None = None
 
     def subject(self, subject_id: str) -> SubjectViewModel | None:
         return next(

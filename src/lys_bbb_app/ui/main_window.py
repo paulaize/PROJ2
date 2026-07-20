@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -21,8 +22,20 @@ from PySide6.QtWidgets import (
 
 from lys_bbb.project_service import ProjectService
 from lys_bbb.project_state import PROJECT_FILE_SUFFIX, ProjectStateError
+from lys_bbb_app.application.study_presenter import present_study
 from lys_bbb_app.demo_data import demo_study, empty_study
+from lys_bbb_app.domain.study import StudySnapshot
 from lys_bbb_app.domain.view_models import StudyViewModel
+from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore
+from lys_bbb_app.infrastructure.study_database import StudyStateError
+from lys_bbb_app.services.study_service import StudyService
+from lys_bbb_app.ui.dialogs import (
+    AddSubjectDialog,
+    AuditHistoryDialog,
+    CreateStudyDialog,
+    GroupAssignmentDialog,
+    UnblindingDialog,
+)
 from lys_bbb_app.ui.pages import (
     OverviewPage,
     ResultsPage,
@@ -36,15 +49,22 @@ from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
 from lys_bbb_app.domain.view_models import StatusValue
 
 
-PROJECT_FILTER = f"LYS BBB legacy projects (*{PROJECT_FILE_SUFFIX})"
+LEGACY_PROJECT_FILTER = f"LYS BBB legacy projects (*{PROJECT_FILE_SUFFIX})"
 
 
 class MainWindow(QMainWindow):
     """Application shell with real project setup and synthetic workflow pages."""
 
-    def __init__(self, project_service: ProjectService | None = None) -> None:
+    def __init__(
+        self,
+        project_service: ProjectService | None = None,
+        study_service: StudyService | None = None,
+        recent_store: RecentStudiesStore | None = None,
+    ) -> None:
         super().__init__()
         self.project_service = project_service or ProjectService()
+        self.study_service = study_service or StudyService()
+        self.recent_store = recent_store or RecentStudiesStore()
         self.current_study: StudyViewModel | None = None
         self.blinded_review = False
         self.nav_buttons: dict[str, QPushButton] = {}
@@ -64,15 +84,19 @@ class MainWindow(QMainWindow):
         preview_action.triggered.connect(self.open_design_preview)
         file_menu.addAction(preview_action)
 
-        create_action = QAction("&Create legacy project…", self)
+        create_action = QAction("&Create study…", self)
         create_action.setShortcut("Ctrl+N")
         create_action.triggered.connect(self.create_project)
         file_menu.addAction(create_action)
 
-        open_action = QAction("&Open legacy project…", self)
+        open_action = QAction("&Open study…", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self.open_project)
         file_menu.addAction(open_action)
+
+        migrate_action = QAction("&Migrate legacy .lysbbb project…", self)
+        migrate_action.triggered.connect(self.migrate_legacy_project)
+        file_menu.addAction(migrate_action)
 
         self.close_study_action = QAction("&Close study", self)
         self.close_study_action.setEnabled(False)
@@ -91,6 +115,9 @@ class MainWindow(QMainWindow):
         self.launcher_page.preview_requested.connect(self.open_design_preview)
         self.launcher_page.create_requested.connect(self.create_project)
         self.launcher_page.open_requested.connect(self.open_project)
+        self.launcher_page.migrate_requested.connect(self.migrate_legacy_project)
+        self.launcher_page.recent_open_requested.connect(self.open_project_path)
+        self.launcher_page.set_recent_studies(self.recent_store.list())
         self.root_stack.addWidget(self.launcher_page)
         self.root_stack.addWidget(self._build_shell())
         self.setCentralWidget(self.root_stack)
@@ -142,16 +169,17 @@ class MainWindow(QMainWindow):
         self.overview_page.navigate_requested.connect(self.show_page)
         self.subjects_page.subject_open_requested.connect(self.open_subject)
         self.subjects_page.preview_action.connect(self._show_preview_message)
-        self.subjects_page.unblinding_requested.connect(
-            lambda: self.settings_page.blinded_review.setChecked(False)
-        )
+        self.subjects_page.add_subject_requested.connect(self.add_subject)
+        self.subjects_page.group_assignment_requested.connect(self.manage_groups)
+        self.subjects_page.audit_history_requested.connect(self.show_audit_history)
         self.workspace_page.back_requested.connect(lambda: self.show_page("subjects"))
         self.workspace_page.review_requested.connect(self.open_reviews_for_subject)
         self.workspace_page.preview_action.connect(self._show_preview_message)
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
         self.results_page.preview_action.connect(self._show_preview_message)
         self.settings_page.preview_action.connect(self._show_preview_message)
-        self.settings_page.blinding_changed.connect(self.set_blinded_review)
+        self.settings_page.blinding_changed.connect(self._handle_blinding_toggle)
+        self.settings_page.input_folder_requested.connect(self.select_input_folder)
         return root
 
     def _build_header(self) -> QFrame:
@@ -222,13 +250,15 @@ class MainWindow(QMainWindow):
             self.nav_buttons[key] = button
             layout.addWidget(button)
         layout.addStretch()
-        release = QLabel("MVP design preview\nNo scientific jobs are connected")
-        release.setObjectName("navCaption")
-        release.setWordWrap(True)
-        layout.addWidget(release)
+        self.release_label = QLabel("MVP design preview\nNo scientific jobs are connected")
+        self.release_label.setObjectName("navCaption")
+        self.release_label.setWordWrap(True)
+        layout.addWidget(self.release_label)
         return sidebar
 
     def open_design_preview(self) -> None:
+        self.project_service.close_project()
+        self.study_service.close_study()
         self._set_study(demo_study())
         self.statusBar().showMessage(
             "Design preview opened. All subjects and decisions are synthetic.",
@@ -236,59 +266,130 @@ class MainWindow(QMainWindow):
         )
 
     def create_project(self) -> None:
-        selected, _filter = QFileDialog.getSaveFileName(
-            self,
-            "Create legacy LYS BBB project",
-            str(Path.home() / f"mouse-mri-project{PROJECT_FILE_SUFFIX}"),
-            PROJECT_FILTER,
-        )
-        if not selected:
+        dialog = CreateStudyDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
-        path = Path(selected)
-        if not path.name.lower().endswith(PROJECT_FILE_SUFFIX):
-            path = path.with_name(path.name + PROJECT_FILE_SUFFIX)
         try:
-            project = self.project_service.create_project(path)
-        except (ProjectStateError, OSError) as exc:
-            self._show_error("The project could not be created.", exc)
+            study = self.study_service.create_study(
+                dialog.request(actor=self._reviewer_identity())
+            )
+        except (StudyStateError, OSError) as exc:
+            self._show_error("The study could not be created.", exc)
             return
-        self._set_study(empty_study(project))
-        self.statusBar().showMessage("Legacy project created. No dummy subjects were added.", 8000)
+        self._record_recent(study)
+        self.project_service.close_project()
+        self._set_study(present_study(study))
+        self.statusBar().showMessage(
+            "Study created. Add the first subject from the Subjects page.",
+            8000,
+        )
 
     def open_project(self) -> None:
-        selected, _filter = QFileDialog.getOpenFileName(
+        selected = QFileDialog.getExistingDirectory(
             self,
-            "Open legacy LYS BBB project",
+            "Open LYS BBB study directory",
             str(Path.home()),
-            PROJECT_FILTER,
         )
         if selected:
             self.open_project_path(selected)
 
-    def open_project_path(self, database_path: Path | str) -> bool:
+    def open_project_path(self, project_path: Path | str) -> bool:
+        path = Path(project_path).expanduser()
+        if path.suffix.lower() == PROJECT_FILE_SUFFIX:
+            return self._open_legacy_project_path(path)
+        try:
+            study = self.study_service.open_study(path)
+        except (StudyStateError, OSError) as exc:
+            self._show_error("The study could not be opened.", exc)
+            return False
+        self._record_recent(study)
+        self.project_service.close_project()
+        self._set_study(present_study(study))
+        self.statusBar().showMessage(
+            f"Study reopened with {len(study.subjects)} persisted subjects.",
+            8000,
+        )
+        return True
+
+    def migrate_legacy_project(self) -> None:
+        legacy_path, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Select a legacy .lysbbb project",
+            str(Path.home()),
+            LEGACY_PROJECT_FILTER,
+        )
+        if not legacy_path:
+            return
+        parent = QFileDialog.getExistingDirectory(
+            self,
+            "Choose the parent directory for the migrated study",
+            str(Path(legacy_path).parent),
+        )
+        if not parent:
+            return
+        target_root = Path(parent) / f"{Path(legacy_path).stem}-study"
+        try:
+            study = self.study_service.migrate_legacy_project(
+                legacy_path,
+                target_root,
+                actor=self._reviewer_identity(),
+            )
+        except (ProjectStateError, StudyStateError, OSError) as exc:
+            self._show_error("The legacy project could not be migrated.", exc)
+            return
+        self._record_recent(study)
+        self.project_service.close_project()
+        self._set_study(present_study(study))
+        self.statusBar().showMessage(
+            "Legacy project migrated without modifying the original .lysbbb file.",
+            9000,
+        )
+
+    def _open_legacy_project_path(self, database_path: Path) -> bool:
         try:
             project = self.project_service.open_project(database_path)
         except (ProjectStateError, OSError) as exc:
-            self._show_error("The project could not be opened.", exc)
+            self._show_error("The legacy project could not be opened.", exc)
             return False
+        self.study_service.close_study()
         self._set_study(empty_study(project))
-        self.statusBar().showMessage("Legacy project opened. No dummy subjects were added.", 8000)
+        self.statusBar().showMessage(
+            "Legacy project opened read-only for inspection. Use Migrate legacy project "
+            "to add persistent subjects.",
+            9000,
+        )
         return True
 
-    def _set_study(self, study: StudyViewModel) -> None:
+    def _set_study(self, study: StudyViewModel, *, page_key: str = "overview") -> None:
         self.current_study = study
         self.study_name_label.setText(study.name)
+        persistent = self.study_service.current_study is not None and not study.is_demo
         if study.is_demo:
+            self.release_label.setText(
+                "MVP design preview\nNo scientific jobs are connected"
+            )
             self.preview_banner.setObjectName("previewBanner")
             self.preview_banner.setText(
                 "DESIGN PREVIEW — All subjects, images, reviews, jobs, and results are synthetic. "
                 "Interactions are not persisted."
             )
-        else:
+        elif persistent:
+            self.release_label.setText(
+                "Phase 1 persistent study\nScientific jobs are not connected"
+            )
             self.preview_banner.setObjectName("infoBanner")
             self.preview_banner.setText(
-                "LEGACY PROJECT — This real schema-v1 project contains no subject records yet. "
-                "Use the design preview to explore the planned workflow pages."
+                f"PERSISTENT STUDY — {len(study.subjects)} subjects stored in "
+                f"{study.root_path}. Scientific image processing is not connected yet."
+            )
+        else:
+            self.release_label.setText(
+                "Legacy project inspection\nMigration is required for subjects"
+            )
+            self.preview_banner.setObjectName("infoBanner")
+            self.preview_banner.setText(
+                "LEGACY PROJECT — This schema-v1 file is available for inspection. "
+                "Migrate it to a study directory before adding subjects."
             )
         self.preview_banner.style().unpolish(self.preview_banner)
         self.preview_banner.style().polish(self.preview_banner)
@@ -296,10 +397,19 @@ class MainWindow(QMainWindow):
         self.subjects_page.set_study(study)
         self.reviews_page.set_study(study)
         self.results_page.set_study(study)
-        self.set_blinded_review(self.settings_page.blinded_review.isChecked())
+        self.settings_page.set_study_state(
+            persistent=persistent,
+            blinded=study.blinded_review,
+        )
+        self.settings_page.set_input_folders(
+            t1_path=study.t1_input_folder,
+            t2_path=study.t2_input_folder,
+            enabled=persistent,
+        )
+        self.set_blinded_review(study.blinded_review)
         self.close_study_action.setEnabled(True)
         self.root_stack.setCurrentIndex(1)
-        self.show_page("overview")
+        self.show_page(page_key)
 
     def show_page(self, page_key: str) -> None:
         if page_key not in self.page_indices:
@@ -318,7 +428,175 @@ class MainWindow(QMainWindow):
             return
         self.workspace_page.set_subject(subject)
         self.show_page("workspace")
-        self.statusBar().showMessage(f"Opened subject {subject_id}.", 4000)
+        self.statusBar().showMessage(f"Opened subject {subject.label}.", 4000)
+
+    def add_subject(self) -> None:
+        if self.current_study is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Subject creation is disabled for synthetic preview records. Create a "
+                "persistent study to add real subjects."
+            )
+            return
+        if self.study_service.current_study is None:
+            self._show_error(
+                "Subjects cannot be added to a legacy project.",
+                StudyStateError("Migrate the .lysbbb project to a study directory first."),
+            )
+            return
+        dialog = AddSubjectDialog(
+            blinded=self.current_study.blinded_review,
+            group_definitions=self.current_study.group_definitions,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            snapshot = self.study_service.add_subject(
+                dialog.request(actor=self._reviewer_identity())
+            )
+        except StudyStateError as exc:
+            self._show_error("The subject could not be added.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.statusBar().showMessage(
+            f"Subject {dialog.subject_code.text().strip()} was saved.",
+            7000,
+        )
+
+    def manage_groups(self) -> None:
+        if self.current_study is None:
+            return
+        if self.current_study.blinded_review:
+            confirmation = UnblindingDialog(self)
+            if confirmation.exec() != QDialog.DialogCode.Accepted:
+                return
+            if self.current_study.is_demo:
+                self.settings_page.blinded_review.setChecked(False)
+            else:
+                try:
+                    snapshot = self.study_service.unblind(
+                        reviewer=self._reviewer_identity()
+                    )
+                except StudyStateError as exc:
+                    self._show_error("The study could not be unblinded.", exc)
+                    return
+                self._set_study(present_study(snapshot), page_key="subjects")
+
+        if self.current_study is None:
+            return
+        persistent = not self.current_study.is_demo and self.study_service.current_study is not None
+        assignment = GroupAssignmentDialog(
+            self.current_study.subjects,
+            self.current_study.group_definitions,
+            persistent=persistent,
+            parent=self,
+        )
+        if assignment.exec() != QDialog.DialogCode.Accepted:
+            return
+        if not persistent:
+            self._show_preview_message(
+                "Group assignments were previewed but not persisted."
+            )
+            return
+        try:
+            snapshot = self.study_service.assign_groups(
+                assignment.assignments(),
+                reviewer=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The group assignments could not be saved.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.statusBar().showMessage(
+            "Subject group assignments were saved and added to the audit history.",
+            8000,
+        )
+
+    def show_audit_history(self) -> None:
+        if self.current_study is None:
+            return
+        if self.current_study.is_demo:
+            self._show_preview_message(
+                "Synthetic preview interactions do not create persistent audit events."
+            )
+            return
+        if self.study_service.current_study is None:
+            self._show_preview_message(
+                "Legacy schema-v1 projects do not contain the Phase 1 audit history."
+            )
+            return
+        try:
+            events = self.study_service.list_audit_events()
+        except StudyStateError as exc:
+            self._show_error("The audit history could not be opened.", exc)
+            return
+        AuditHistoryDialog(events, self).exec()
+
+    def select_input_folder(self, kind: str) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_preview_message(
+                "Create or migrate a persistent study before selecting source folders."
+            )
+            return
+        current = (
+            self.current_study.t1_input_folder
+            if kind == "t1"
+            else self.current_study.t2_input_folder
+        )
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            f"Select {kind.upper()} source folder",
+            str(current or Path.home()),
+        )
+        if not selected:
+            return
+        try:
+            snapshot = self.study_service.set_input_folder(
+                kind,
+                selected,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The source folder could not be saved.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="settings")
+        self.statusBar().showMessage(
+            f"{kind.upper()} source folder saved. Files remain in their original location.",
+            8000,
+        )
+
+    def _handle_blinding_toggle(self, blinded: bool) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self.set_blinded_review(blinded)
+            return
+        if self.study_service.current_study is None:
+            self.settings_page.set_study_state(persistent=False, blinded=True)
+            self.set_blinded_review(True)
+            return
+        if blinded:
+            self.settings_page.set_study_state(persistent=True, blinded=False)
+            self.set_blinded_review(False)
+            self._show_preview_message("An unblinded study cannot be blinded again.")
+            return
+        confirmation = UnblindingDialog(self)
+        if confirmation.exec() != QDialog.DialogCode.Accepted:
+            self.settings_page.set_study_state(persistent=True, blinded=True)
+            self.set_blinded_review(True)
+            return
+        try:
+            snapshot = self.study_service.unblind(reviewer=self._reviewer_identity())
+        except StudyStateError as exc:
+            self.settings_page.set_study_state(persistent=True, blinded=True)
+            self.set_blinded_review(True)
+            self._show_error("The study could not be unblinded.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="settings")
+        self.statusBar().showMessage(
+            "Study unblinded. The action was recorded and cannot be reversed.",
+            9000,
+        )
 
     def set_blinded_review(self, blinded: bool) -> None:
         self.blinded_review = blinded
@@ -326,22 +604,19 @@ class MainWindow(QMainWindow):
         self.subjects_page.set_blinded_review(blinded)
         self.workspace_page.set_blinded_review(blinded)
         self.results_page.set_blinded_review(blinded)
-        mode = "enabled" if blinded else "disabled"
-        self.statusBar().showMessage(
-            f"Blinded review mode {mode}. Preview settings are not persisted.",
-            7000,
-        )
 
     def open_reviews_for_subject(self, subject_id: str) -> None:
         self.show_page("reviews")
         self.reviews_page.focus_subject(subject_id)
 
     def show_launcher(self) -> None:
+        self.launcher_page.set_recent_studies(self.recent_store.list())
         self.root_stack.setCurrentIndex(0)
-        self.statusBar().showMessage("Choose another study or reopen the design preview.")
+        self.statusBar().showMessage("Choose another study or open the design preview.")
 
     def close_study(self) -> None:
         self.project_service.close_project()
+        self.study_service.close_study()
         self.current_study = None
         self.study_name_label.setText("No study open")
         self.close_study_action.setEnabled(False)
@@ -349,6 +624,18 @@ class MainWindow(QMainWindow):
 
     def _show_preview_message(self, message: str) -> None:
         self.statusBar().showMessage(message, 9000)
+
+    def _reviewer_identity(self) -> str:
+        reviewer = self.settings_page.reviewer.text().strip()
+        return reviewer or "Local researcher"
+
+    def _record_recent(self, study: StudySnapshot) -> None:
+        try:
+            self.recent_store.record(study)
+            self.launcher_page.set_recent_studies(self.recent_store.list())
+        except OSError:
+            # Recent history is a convenience and must never block study access.
+            pass
 
     def _show_error(self, summary: str, exc: Exception) -> None:
         message = QMessageBox(self)

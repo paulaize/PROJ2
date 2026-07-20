@@ -21,7 +21,7 @@ zero cases because reviewed T1 brain masks are unavailable.
 | Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
 | Colab benchmark implementation | Three primary models, two mismatched controls, and a separate RS2 correction experiment |
 | Brain-extraction decision | RS2-Net is the visual front-runner; corrected-mask selection and reviewed-reference scoring remain pending |
-| Desktop application | Connected PySide6 design preview for launcher, overview, subjects, workspace, review/QC, results/export, and settings; schema-v1 SQLite project creation/reopening remains available; production processing is not connected |
+| Desktop application | Schema-v2 study-root creation/opening, recent studies, persistent subjects/workflow expectations, external-drive source references, audited one-way unblinding/group assignment, plus the connected synthetic workflow preview; scientific processing is not connected |
 | T2 desktop workflow | Not implemented; controlled model development is active in sibling `LYS_PROJ1`, but no frozen app release is installed here |
 | Tests | Test suite passes; biological validation is separate |
 
@@ -114,11 +114,18 @@ enhancement. They remain provisional until the validation experiments in
 
 ## Desktop foundation
 
-The first PySide6 milestone is implemented on `feat/pyside-project-foundation`. The
-launcher can create or open a `.lysbbb` project, store T1 and optional T2w input-folder
-paths in a schema-versioned SQLite database, reopen that state, and report when a
-previously selected drive is unavailable. Source image folders are referenced in place;
-project setup does not copy or modify their contents.
+The PySide6 Phase 1 state milestone is implemented on
+`feat/pyside-project-foundation`. The launcher creates or opens a schema-v2 study root,
+records recent studies, persists subjects and their expected T1/T2 workflows, stores T1
+and T2 source-root references, and restores the same state after reopening. Source image
+folders may live on mounted hard drives and are referenced in place; project setup does
+not copy or modify their contents, and temporarily unavailable paths remain recorded.
+
+Study blinding is durable and one-way. A blinded study stores subjects without requiring
+groups and hides group information in the UI. Explicit unblinding records reviewer and
+time; group mappings may then be saved while individual subjects remain `Unassigned`.
+Study creation/opening, subject creation, input-folder selection, unblinding, and group
+assignment create append-only audit events visible from the Subjects page.
 
 This milestone contains no scientific processing inside Qt widgets and does not invoke
 or reproduce the external T2 lesion model. Production pipeline execution, persisted
@@ -141,16 +148,17 @@ The 2026-07-20 MVP contract expands the desktop target from a T1/T2 folder shell
 subject-centred application with two workflows: T1 enhancement and T2 lesion volume.
 The authoritative product contract is `docs/desktop_application.md`.
 
-The target replaces new single-file projects with a study root containing
+New projects now use a study root containing
 `project.sqlite`, `project.json`, imports, job workspaces, immutable outputs, reports,
 exports, and logs. Existing schema-v1 `.lysbbb` files remain a supported migration input
-and must never be overwritten during migration. Desktop Phase 1 will introduce schema
-version 2 for the study/subject/audit foundation.
+and are not overwritten during migration. Schema version 2 implements the
+study/subject/audit foundation.
 
-No durable code for the expanded study/subject/artifact model has been implemented yet.
-The design preview exercises view models and navigation only. In particular, the
-current folder selectors do not scan subjects, validate MRI inputs, run jobs, or
-create persistent review/approval records.
+Durable study, subject, expected-workflow, group, blinding, input-folder, audit, and
+recent-study state is implemented. Artifact, dependency, review, job, method, and result
+tables remain Phase 2 work. The current source-folder selectors store references only;
+they do not scan subjects, validate MRI inputs, run jobs, or create scientific approval
+records.
 
 ### Upstream repository state
 
@@ -214,8 +222,9 @@ report identifies failure modes and the preferred pre-label generator.
 
 ## Desktop implementation milestone
 
-Desktop Phase 1 is complete when a user can create a study root, migrate a schema-v1
+The implemented Phase 1 slice lets a user create a study root, migrate a schema-v1
 project, see recent studies, add subjects with expected T1/T2 workflows, close and
-reopen the application with the same subjects/statuses, navigate the Overview and
-Subjects screens, and inspect an append-only audit history. Scientific processing does
-not belong in this phase.
+reopen the application with the same subjects/setup statuses, navigate the Overview and
+Subjects screens, and inspect an append-only audit history. Remaining Phase 1 refinement
+is richer subject metadata and subject-owned input assignment. Scientific processing
+does not belong in this phase.

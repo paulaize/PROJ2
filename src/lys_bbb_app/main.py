@@ -20,7 +20,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "project",
         nargs="?",
         type=Path,
-        help="optional existing legacy .lysbbb project to open",
+        help="optional study directory/project.json or legacy .lysbbb project to open",
     )
     parser.add_argument(
         "--demo",

@@ -41,11 +41,11 @@ As of 2026-07-20:
 - The final analysis manifest includes 0 cases: 8 need mask review, 26 lack a brain
   mask, and 1 lacks conversion.
 - Study metadata and review decisions are not yet complete.
-- The PySide6 application now includes a connected, explicitly synthetic design preview
-  for the launcher, overview, subjects, subject workspace, review/QC, results/export,
-  and settings screens. Real schema-v1 projects still contain only project identity and
-  folder references; production subject/artifact/job/review/result persistence and
-  T2 execution is not yet implemented.
+- The PySide6 application now creates and reopens schema-v2 study directories, persists
+  subjects and expected T1/T2 workflows, retains external-drive source-folder
+  references, records audit events, and supports one-way blinded-to-unblinded group
+  assignment. The synthetic design preview remains available for later workflow pages;
+  artifact/job/review/result persistence and T2 execution are not yet implemented.
 - The test suite passes, but biological validation is not complete.
 
 See [current state](docs/current_state.md) for the exact cases, branch history, and
@@ -111,19 +111,18 @@ flow while scientific backends and durable study state are developed. Settings i
 a blinded-review preview: groups can be hidden during review and deferred until an
 explicit later unblinding/group-assignment step.
 
-The existing foundation can still create/reopen a `.lysbbb` project and remember T1 and
-optional T2w input folders. Reopen one directly with:
+Create or open a persistent study directory from the launcher. Reopen one directly with:
 
 ```bash
-conda run -n lys-bbb lys-bbb-desktop /path/to/study.lysbbb
+conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
 ```
 
 Images stay in their source folders, including mounted hard drives; project setup neither
-copies nor modifies them. The application does not yet create the target study-root
-layout, import real subjects, or execute pipeline stages. New MVP studies will use a
-directory containing `project.sqlite`, `project.json`, imports, workspaces, outputs,
-reports, exports, and logs. Existing `.lysbbb` projects remain supported as migration
-sources.
+copies nor modifies them. New studies contain `project.sqlite`, `project.json`, imports,
+workspaces, outputs, reports, exports, and logs. Existing `.lysbbb` projects remain
+readable and can be migrated without modifying the original file. The application can
+persist real subject identities and setup state, but it does not yet import subject MRI
+files or execute scientific pipeline stages.
 
 The target screens and implementation phases are defined in
 [Desktop application MVP](docs/desktop_application.md).

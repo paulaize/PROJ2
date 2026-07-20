@@ -112,10 +112,12 @@ but do not delete user-created artifacts merely to tidy the worktree.
 
 Current supported code includes inventory, conversion, mask workflow/QC, rigid pre/post
 registration, analysis-manifest gating, provisional pair/cohort quantification, a
-schema-v1 PySide6 project foundation, and a connected synthetic design preview for the
-planned desktop pages.
+schema-v2 PySide6 study-root foundation with persistent subjects, expected workflows,
+source-folder references, blinding/groups, audit history and recent studies, plus a
+connected synthetic design preview for the planned scientific workflow pages.
 
-Not implemented as production features: a single end-to-end workflow, external T2 model
+Not implemented as production features: canonical artifact/review/job/result state, a
+single end-to-end workflow, external T2 model
 invocation, T2-to-T1 transform/QC, atlas registration, validated enhancement thresholds,
 durable subject/artifact/review/job state, long-format regional results,
 production-connected desktop processing/review/results behavior, or installers.

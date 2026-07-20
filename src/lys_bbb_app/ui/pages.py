@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 
 from PySide6.QtCore import QModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -37,7 +37,7 @@ from lys_bbb_app.domain.view_models import (
     StudyViewModel,
     SubjectViewModel,
 )
-from lys_bbb_app.ui.dialogs import GroupAssignmentDialog, UnblindingDialog
+from lys_bbb_app.infrastructure.recent_studies import RecentStudy
 from lys_bbb_app.ui.models import (
     ApprovedResultsProxyModel,
     ResultsTableModel,
@@ -90,6 +90,8 @@ class StudyLauncherPage(QWidget):
     preview_requested = Signal()
     create_requested = Signal()
     open_requested = Signal()
+    migrate_requested = Signal()
+    recent_open_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -134,15 +136,18 @@ class StudyLauncherPage(QWidget):
         preview.setObjectName("openDesignPreviewButton")
         preview.setMinimumWidth(190)
         preview.clicked.connect(self.preview_requested)
-        create = secondary_button("Create legacy project…")
+        create = secondary_button("Create study…")
         create.setObjectName("createProjectButton")
         create.clicked.connect(self.create_requested)
-        open_button = secondary_button("Open legacy project…")
+        open_button = secondary_button("Open existing study…")
         open_button.setObjectName("openProjectButton")
         open_button.clicked.connect(self.open_requested)
+        migrate = secondary_button("Migrate legacy .lysbbb…")
+        migrate.clicked.connect(self.migrate_requested)
         actions.addWidget(preview)
         actions.addWidget(create)
         actions.addWidget(open_button)
+        actions.addWidget(migrate)
         hero_layout.addLayout(actions)
         outer.addWidget(hero)
 
@@ -150,20 +155,29 @@ class StudyLauncherPage(QWidget):
         recent_title.setObjectName("sectionTitle")
         outer.addWidget(recent_title)
 
-        cards = QHBoxLayout()
-        cards.setSpacing(16)
-        cards.addWidget(self._recent_preview_card(), 1)
-        cards.addWidget(self._future_recent_card(), 1)
-        outer.addLayout(cards)
+        self.recent_layout = QHBoxLayout()
+        self.recent_layout.setSpacing(16)
+        outer.addLayout(self.recent_layout)
+        self.set_recent_studies(())
         outer.addStretch()
 
         note = QLabel(
             "Design-preview records are synthetic and never written to project state. "
-            "Legacy schema-v1 projects remain available while study-root Phase 1 is built."
+            "Persistent studies use a versioned study directory; source images may stay "
+            "on mounted hard drives."
         )
         note.setObjectName("previewBanner")
         note.setWordWrap(True)
         outer.addWidget(note)
+
+    def set_recent_studies(self, studies: tuple[RecentStudy, ...]) -> None:
+        _clear_layout(self.recent_layout)
+        if studies:
+            for study in studies[:3]:
+                self.recent_layout.addWidget(self._recent_study_card(study), 1)
+        else:
+            self.recent_layout.addWidget(self._empty_recent_card(), 1)
+        self.recent_layout.addWidget(self._recent_preview_card(), 1)
 
     def _recent_preview_card(self) -> QFrame:
         card = QFrame()
@@ -184,24 +198,45 @@ class StudyLauncherPage(QWidget):
         layout.addWidget(button, alignment=Qt.AlignLeft)
         return card
 
-    def _future_recent_card(self) -> QFrame:
+    def _empty_recent_card(self) -> QFrame:
         card = QFrame()
         card.setObjectName("recentCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 18, 20, 18)
-        title = QLabel("Your studies will appear here")
+        title = QLabel("No recent persistent studies")
         title.setObjectName("cardTitle")
         detail = QLabel(
-            "Study-root projects will show subject counts, pending reviews, schema version, "
-            "and last-opened time."
+            "Create a study or open an existing study directory to add it here."
         )
         detail.setObjectName("muted")
         detail.setWordWrap(True)
         button = secondary_button("Open existing study…")
-        button.setEnabled(False)
-        button.setToolTip("Study-root opening arrives with schema version 2.")
+        button.clicked.connect(self.open_requested)
         layout.addWidget(title)
         layout.addWidget(detail)
+        layout.addStretch()
+        layout.addWidget(button, alignment=Qt.AlignLeft)
+        return card
+
+    def _recent_study_card(self, study: RecentStudy) -> QFrame:
+        card = QFrame()
+        card.setObjectName("recentCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 18)
+        title = QLabel(study.name)
+        title.setObjectName("cardTitle")
+        detail = QLabel(study.path)
+        detail.setObjectName("muted")
+        detail.setWordWrap(True)
+        opened = QLabel(f"Last opened: {study.last_opened}")
+        opened.setObjectName("metadata")
+        button = secondary_button("Open study")
+        button.clicked.connect(
+            lambda _checked=False, path=study.path: self.recent_open_requested.emit(path)
+        )
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addWidget(opened)
         layout.addStretch()
         layout.addWidget(button, alignment=Qt.AlignLeft)
         return card
@@ -307,12 +342,13 @@ class OverviewPage(QScrollArea):
 class SubjectsPage(QWidget):
     subject_open_requested = Signal(str)
     preview_action = Signal(str)
-    unblinding_requested = Signal()
+    add_subject_requested = Signal()
+    group_assignment_requested = Signal()
+    audit_history_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self.blinded_review = False
-        self._subjects: tuple[SubjectViewModel, ...] = ()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
@@ -320,12 +356,13 @@ class SubjectsPage(QWidget):
             "Subjects",
             "Central worklist for imported data, review gates, and workflow readiness.",
         )
+        history = secondary_button("Audit history")
+        history.clicked.connect(self.audit_history_requested)
         add_subject = QPushButton("Add subject")
-        add_subject.clicked.connect(
-            lambda: self.preview_action.emit("Subject import is not persisted in design preview.")
-        )
+        add_subject.clicked.connect(self.add_subject_requested)
         self.assign_groups = secondary_button("Assign groups…")
-        self.assign_groups.clicked.connect(self._preview_group_assignment)
+        self.assign_groups.clicked.connect(self.group_assignment_requested)
+        heading_layout.addWidget(history)
         heading_layout.addWidget(self.assign_groups)
         heading_layout.addWidget(add_subject)
         layout.addWidget(heading)
@@ -397,7 +434,6 @@ class SubjectsPage(QWidget):
         self.state_filter.currentTextChanged.connect(self._apply_filters)
 
     def set_study(self, study: StudyViewModel) -> None:
-        self._subjects = study.subjects
         self.model.set_subjects(study.subjects)
         groups = sorted(
             {subject.group for subject in study.subjects if subject.group is not None}
@@ -422,25 +458,6 @@ class SubjectsPage(QWidget):
         self.assign_groups.setText(
             "Unblind and assign groups…" if blinded else "Assign groups…"
         )
-
-    def _preview_group_assignment(self) -> None:
-        if self.blinded_review:
-            confirmation = UnblindingDialog(self)
-            if confirmation.exec() != QDialog.DialogCode.Accepted:
-                return
-            self.unblinding_requested.emit()
-            if self.blinded_review:
-                self.preview_action.emit(
-                    "The page could not leave blinded mode, so no group data were shown."
-                )
-                return
-
-        assignment = GroupAssignmentDialog(self._subjects, self)
-        if assignment.exec() == QDialog.DialogCode.Accepted:
-            self.preview_action.emit(
-                "Group assignments were previewed but not persisted. The final action "
-                "will be validated and recorded in the audit history."
-            )
 
     def _apply_filters(self, *_args) -> None:
         self.proxy.set_filters(
@@ -528,7 +545,7 @@ class SubjectWorkspacePage(QScrollArea):
 
     def set_subject(self, subject: SubjectViewModel) -> None:
         self.current_subject = subject
-        self.subject_title.setText(subject.subject_id)
+        self.subject_title.setText(subject.label)
         self._refresh_subject_subtitle()
 
         _clear_layout(self.metadata_layout)
@@ -1032,6 +1049,7 @@ class ResultsPage(QWidget):
 class SettingsPage(QScrollArea):
     preview_action = Signal(str)
     blinding_changed = Signal(bool)
+    input_folder_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -1048,9 +1066,9 @@ class SettingsPage(QScrollArea):
         )
         layout.addWidget(heading)
 
-        note = QLabel("Preview controls are not persisted yet.")
-        note.setObjectName("previewBanner")
-        layout.addWidget(note)
+        self.persistence_note = QLabel("Preview controls are not persisted yet.")
+        self.persistence_note.setObjectName("previewBanner")
+        layout.addWidget(self.persistence_note)
 
         blinding = QGroupBox("Review blinding")
         blinding_layout = QVBoxLayout(blinding)
@@ -1069,14 +1087,47 @@ class SettingsPage(QScrollArea):
         layout.addWidget(blinding)
         self.blinded_review.toggled.connect(self.blinding_changed)
 
+        inputs = QGroupBox("Study input locations")
+        input_form = QFormLayout(inputs)
+        self.t1_input_folder = QLineEdit()
+        self.t1_input_folder.setReadOnly(True)
+        self.t1_input_folder.setPlaceholderText("No T1 source folder selected")
+        self.t2_input_folder = QLineEdit()
+        self.t2_input_folder.setReadOnly(True)
+        self.t2_input_folder.setPlaceholderText("No T2 source folder selected")
+        t1_browse = secondary_button("Browse…")
+        t1_browse.clicked.connect(lambda: self.input_folder_requested.emit("t1"))
+        t2_browse = secondary_button("Browse…")
+        t2_browse.clicked.connect(lambda: self.input_folder_requested.emit("t2"))
+        self.t1_input_row = QWidget()
+        t1_layout = QHBoxLayout(self.t1_input_row)
+        t1_layout.setContentsMargins(0, 0, 0, 0)
+        t1_layout.addWidget(self.t1_input_folder, 1)
+        t1_layout.addWidget(t1_browse)
+        self.t2_input_row = QWidget()
+        t2_layout = QHBoxLayout(self.t2_input_row)
+        t2_layout.setContentsMargins(0, 0, 0, 0)
+        t2_layout.addWidget(self.t2_input_folder, 1)
+        t2_layout.addWidget(t2_browse)
+        input_form.addRow("T1 source root", self.t1_input_row)
+        input_form.addRow("T2 source root", self.t2_input_row)
+        input_note = QLabel(
+            "Source files are referenced in place and are never copied or modified by "
+            "project setup. A disconnected drive path is retained for reconnection."
+        )
+        input_note.setObjectName("muted")
+        input_note.setWordWrap(True)
+        input_form.addRow(input_note)
+        layout.addWidget(inputs)
+
         standard = QGroupBox("Standard settings")
         form = QFormLayout(standard)
-        reviewer = QLineEdit("Paul-Andréas")
+        self.reviewer = QLineEdit("Paul-Andréas")
         editor = QLineEdit("/Applications/ITK-SNAP.app")
         export_dir = QLineEdit("~/Documents/LYS exports")
         backups = QCheckBox("Create automatic project backups")
         backups.setChecked(True)
-        form.addRow("Reviewer display name", reviewer)
+        form.addRow("Reviewer display name", self.reviewer)
         form.addRow("External editor", editor)
         form.addRow("Default export directory", export_dir)
         form.addRow("Backups", backups)
@@ -1126,3 +1177,35 @@ class SettingsPage(QScrollArea):
         )
         layout.addWidget(save, alignment=Qt.AlignRight)
         layout.addStretch()
+
+    def set_study_state(self, *, persistent: bool, blinded: bool) -> None:
+        self.blinded_review.blockSignals(True)
+        self.blinded_review.setChecked(blinded)
+        self.blinded_review.blockSignals(False)
+        self.blinded_review.setEnabled(not persistent or blinded)
+        if persistent:
+            self.persistence_note.setObjectName("infoBanner")
+            self.persistence_note.setText(
+                "Study-level blinding is persisted. Unblinding is one-way and creates "
+                "an audit event. Other user preferences are not persisted yet."
+                if blinded
+                else "This study has been unblinded. It cannot be marked blinded again; "
+                "other user preferences are not persisted yet."
+            )
+        else:
+            self.persistence_note.setObjectName("previewBanner")
+            self.persistence_note.setText("Preview controls are not persisted yet.")
+        self.persistence_note.style().unpolish(self.persistence_note)
+        self.persistence_note.style().polish(self.persistence_note)
+
+    def set_input_folders(
+        self,
+        *,
+        t1_path: Path | None,
+        t2_path: Path | None,
+        enabled: bool,
+    ) -> None:
+        self.t1_input_folder.setText(str(t1_path) if t1_path is not None else "")
+        self.t2_input_folder.setText(str(t2_path) if t2_path is not None else "")
+        self.t1_input_row.setEnabled(enabled)
+        self.t2_input_row.setEnabled(enabled)

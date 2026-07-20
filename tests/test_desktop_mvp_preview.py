@@ -12,17 +12,24 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog  # noqa: E402
 
 from lys_bbb.project_service import ProjectService  # noqa: E402
 from lys_bbb_app.demo_data import demo_study  # noqa: E402
+from lys_bbb_app.domain.study import (  # noqa: E402
+    CreateStudyRequest,
+    CreateSubjectRequest,
+)
+from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore  # noqa: E402
 from lys_bbb_app.main import parse_args  # noqa: E402
 from lys_bbb_app.ui.dialogs import (  # noqa: E402
+    AddSubjectDialog,
     GroupAssignmentDialog,
     UnblindingDialog,
 )
 from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
 from lys_bbb_app.ui.pages import ReviewsPage  # noqa: E402
+from lys_bbb_app.services.study_service import StudyService  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -186,4 +193,90 @@ def test_opening_real_schema_v1_project_does_not_inject_demo_records(
     assert window.reviews_page.queue_list.count() == 0
     assert window.results_page.proxy.rowCount() == 0
     assert "legacy project" in window.preview_banner.text().lower()
+    window.close()
+
+
+def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
+    qt_app: QApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = StudyService()
+    study = service.create_study(
+        CreateStudyRequest(
+            root_path=tmp_path / "persistent-study",
+            name="Persistent study",
+            identifier="persistent-study",
+            actor="Reviewer A",
+        )
+    )
+    service.close_study()
+    recent_store = RecentStudiesStore(tmp_path / "preferences" / "recent.json")
+    window = MainWindow(study_service=service, recent_store=recent_store)
+
+    assert window.open_project_path(study.root_path) is True
+    assert window.current_study is not None
+    assert window.current_study.is_demo is False
+    assert window.subjects_page.proxy.rowCount() == 0
+    assert "persistent study" in window.preview_banner.text().lower()
+
+    monkeypatch.setattr(AddSubjectDialog, "exec", lambda _dialog: QDialog.Accepted)
+    monkeypatch.setattr(
+        AddSubjectDialog,
+        "request",
+        lambda _dialog, actor: CreateSubjectRequest(
+            "Mouse-P01",
+            True,
+            True,
+            actor=actor,
+        ),
+    )
+    window.add_subject()
+    qt_app.processEvents()
+    assert window.subjects_page.proxy.rowCount() == 1
+    assert (
+        window.subjects_page.model.data(
+            window.subjects_page.model.index(0, 0),
+            Qt.DisplayRole,
+        )
+        == "Mouse-P01"
+    )
+    assert window.subjects_page.table.isColumnHidden(1)
+
+    t1_source = tmp_path / "external-drive" / "t1"
+    t1_source.mkdir(parents=True)
+    monkeypatch.setattr(
+        QFileDialog,
+        "getExistingDirectory",
+        lambda *_args, **_kwargs: str(t1_source),
+    )
+    window.select_input_folder("t1")
+    assert window.current_study is not None
+    assert window.current_study.t1_input_folder == t1_source.resolve()
+    assert window.settings_page.t1_input_folder.text() == str(t1_source.resolve())
+
+    monkeypatch.setattr(UnblindingDialog, "exec", lambda _dialog: QDialog.Accepted)
+    monkeypatch.setattr(GroupAssignmentDialog, "exec", lambda _dialog: QDialog.Accepted)
+    monkeypatch.setattr(
+        GroupAssignmentDialog,
+        "assignments",
+        lambda dialog: {next(iter(dialog.group_selectors)): "Treatment A"},
+    )
+    window.manage_groups()
+    qt_app.processEvents()
+    assert window.current_study is not None
+    assert window.current_study.blinded_review is False
+    assert window.current_study.subjects[0].group == "Treatment A"
+    assert not window.subjects_page.table.isColumnHidden(1)
+
+    window.close_study()
+    assert window.open_project_path(study.root_path) is True
+    assert window.current_study is not None
+    assert len(window.current_study.subjects) == 1
+    assert window.current_study.subjects[0].label == "Mouse-P01"
+    assert window.current_study.subjects[0].group == "Treatment A"
+    assert [event.event_type for event in service.list_audit_events()[:2]] == [
+        "STUDY_OPENED",
+        "SUBJECT_GROUPS_ASSIGNED",
+    ]
     window.close()

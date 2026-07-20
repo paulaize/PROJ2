@@ -55,7 +55,7 @@ dependent desktop results outdated.
 
 | Stage | Current status | Required output |
 |---|---|---|
-| Study/project state | Foundation implemented | Versioned local state; subject/artifact schema still planned |
+| Study/project state | Phase 1 implemented | Schema-v2 study root, subjects, expected workflows, blinding/groups, source roots, and audit; artifact schema remains planned |
 | Input inventory and validation | Implemented | Case/scan inventory |
 | Bruker T1 conversion | Implemented | Native pre/post coronal NIfTI |
 | T1 brain extraction | Model selection in progress | Immutable prediction plus reviewed mask |
@@ -66,7 +66,7 @@ dependent desktop results outdated.
 | Native T2 lesion volume | Planned MVP | Approved-mask voxel count and volume in mm³ |
 | T2-to-T1 linkage | Post-MVP | Transform, transferred mask, registration QC |
 | Atlas mapping | Explicitly excluded from MVP | Subject-space labels and QC |
-| Desktop application | Foundation implemented | Project create/open and folder setup; six-screen subject workflow remains planned |
+| Desktop application | Persistent shell implemented | Study create/open/migrate, recent studies, subjects, blinding/groups, source folders, and audit; scientific actions remain planned |
 
 ## Review, method, and result states
 
@@ -144,11 +144,12 @@ The target study root uses:
 - migrations so older projects remain openable.
 
 Schema version 1 establishes only project identity, migration history, and T1/T2w
-folder assignments in a `.lysbbb` file. Phase 1 introduces schema version 2 and migrates
-that prototype into a study root containing `project.sqlite`, `project.json`, and
-managed derivative directories. The original prototype remains unchanged during
-migration. Saved raw-data paths may point to mounted hard drives and may be temporarily
-unavailable when a study is opened.
+folder assignments in a `.lysbbb` file. Implemented schema version 2 migrates that
+prototype into a study root containing `project.sqlite`, `project.json`, and managed
+derivative directories, then adds subjects, expected workflows, blinding/groups, and
+append-only audit events. The original prototype remains unchanged during migration.
+Saved raw-data paths may point to mounted hard drives and may be temporarily unavailable
+when a study is opened.
 
 Until the foundation schema expands to own scientific metadata and review records,
 `study_metadata.csv` remains the editable metadata table, the manual worklist stores

@@ -52,6 +52,13 @@ QLabel#infoBanner {
     border-radius: 6px;
     padding: 8px 12px;
 }
+QLabel#errorBanner {
+    background: #fdecec;
+    color: #9f2f2f;
+    border: 1px solid #efc0c0;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
 QPushButton {
     background: #073f78;
     color: white;

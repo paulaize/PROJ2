@@ -43,7 +43,7 @@ class SubjectTableModel(QAbstractTableModel):
             return None
         subject = self.subjects[index.row()]
         values = (
-            subject.subject_id,
+            subject.label,
             subject.group,
             subject.t1_data,
             subject.brain_mask,
@@ -111,7 +111,7 @@ class SubjectFilterProxyModel(QSortFilterProxyModel):
         subject = source.subject_at(source_row) if isinstance(source, SubjectTableModel) else None
         if subject is None:
             return False
-        if self.search_text and self.search_text not in subject.subject_id.lower():
+        if self.search_text and self.search_text not in subject.label.lower():
             return False
         if self.group_name != "All groups" and subject.group != self.group_name:
             return False

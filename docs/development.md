@@ -133,25 +133,27 @@ conda install -n lys-bbb pyside6
 conda run -n lys-bbb python -m pip install --no-deps -e .
 ```
 
-Launch the study launcher, open the explicitly synthetic design preview, or pass an
-existing schema-v1 project directly:
+Launch the study launcher, open the explicitly synthetic design preview, pass a
+schema-v2 study root directly, or inspect a legacy schema-v1 project:
 
 ```bash
 conda run -n lys-bbb lys-bbb-desktop
 conda run -n lys-bbb lys-bbb-desktop --demo
+conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
 conda run -n lys-bbb lys-bbb-desktop /path/to/study.lysbbb
 ```
 
-The preview is implemented in `src/lys_bbb_app/` and is the current place to evaluate
+The preview is implemented in `src/lys_bbb_app/` and remains the place to evaluate
 the persistent shell, page layout, navigation, status semantics, review interaction,
-and results presentation. Its typed demo records are not persisted. Opening a real
-schema-v1 project shows an empty real-study state rather than injecting preview subjects.
+and results presentation. Its typed demo records are not persisted.
 
-The schema-v1 `.lysbbb` file stores only project identity and absolute T1/T2w folder
-paths. It does not copy source images or run scientific stages. Persistence and folder
-validation live in non-Qt modules.
+Outside demo mode, the application now creates/reopens a schema-v2 study root, persists
+subjects and expected workflows, records recent studies and audit events, stores source
+folder references, and enforces one-way blinded-to-unblinded group assignment. The
+schema-v1 `.lysbbb` file remains readable and can be migrated without modifying the
+source. Persistence and validation live in non-Qt repositories and services.
 
-New MVP studies will use a study root:
+New MVP studies use a study root:
 
 ```text
 study-root/
@@ -165,10 +167,11 @@ study-root/
 └── logs/
 ```
 
-Phase 1 must migrate a legacy `.lysbbb` file without modifying it, add subjects and
-expected T1/T2 workflows, create the persistent shell/Overview/Subjects screens,
-record audit events, and restore the same state after reopening. It must not connect
-scientific processing yet.
+The current Phase 1 slice migrates a legacy `.lysbbb` file without modifying it, adds
+subjects and expected T1/T2 workflows, persists blinding/groups and source roots,
+records audit events, and restores the same state after reopening. Scientific processing
+is deliberately not connected yet. The next state milestone adds canonical artifacts,
+workflow states, reviews, dependencies, and outdated-result handling.
 
 Application tests should progressively use `pytest-qt`. Domain and service tests must
 remain runnable without showing a window; scientific backend tests remain responsible
