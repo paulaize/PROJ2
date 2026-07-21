@@ -2,10 +2,12 @@ import numpy as np
 
 from lys_bbb.brain_mask_refinement import (
     GapRefinementConfig,
+    MSeamCleanupConfig,
     assess_mask_regularity,
     detect_gap_volume,
     refine_direct_seam,
     robust_normalize,
+    stabilize_m_seam_mask,
 )
 
 
@@ -116,3 +118,103 @@ def test_mask_regularity_flags_disconnected_island_without_editing_mask() -> Non
     assert report.connected_components == 2
     assert "disconnected_components" in report.warnings
     assert np.array_equal(mask, original)
+
+
+def test_m_seam_cleanup_removes_small_slice_island_in_brain_body() -> None:
+    raw = np.zeros((64, 64, 25), dtype=bool)
+    xx, yy = np.meshgrid(np.arange(64), np.arange(64), indexing="ij")
+    brain = ((xx - 31.5) / 20.0) ** 2 + ((yy - 31.5) / 23.0) ** 2 <= 1.0
+    raw[:, :, :] = brain[:, :, None]
+    candidate = raw.copy()
+    candidate[2:5, 2:5, 12] = True
+    raw[2:5, 2:5, 12] = True
+    # Connect the island through the preceding slice so it is part of the same 3-D
+    # component while remaining a visibly separate component in slice 12.
+    candidate[2:30, 2:12, 11] = True
+    raw[2:30, 2:12, 11] = True
+
+    cleaned, report = stabilize_m_seam_mask(
+        candidate,
+        raw,
+        (0.08, 0.08, 0.10),
+        MSeamCleanupConfig(min_shape_disagreement_fraction=0.50),
+    )
+
+    assert not cleaned[2:5, 2:5, 12].any()
+    assert report.in_plane_cleaned_slices == (12,)
+    assert report.in_plane_island_voxels_removed == 9
+    assert report.subset_of_raw_rs2
+
+
+def test_m_seam_cleanup_preserves_comparable_components_at_tapered_end() -> None:
+    candidate = np.zeros((64, 64, 15), dtype=bool)
+    xx, yy = np.meshgrid(np.arange(64), np.arange(64), indexing="ij")
+    for slice_index in range(candidate.shape[2]):
+        radius = 5 if slice_index == 3 else 22
+        candidate[:, :, slice_index] = (
+            (xx - 31.5) ** 2 + (yy - 31.5) ** 2 <= radius**2
+        )
+    # This end-slice island joins the much larger component in the next slice, so it
+    # is not a separate 3-D object and should remain available for human review.
+    candidate[38:42, 29:33, 3] = True
+    raw = candidate.copy()
+
+    cleaned, report = stabilize_m_seam_mask(
+        candidate,
+        raw,
+        (0.08, 0.08, 0.50),
+        MSeamCleanupConfig(min_shape_disagreement_fraction=0.50),
+    )
+
+    assert cleaned[38:42, 29:33, 3].all()
+    assert 3 not in report.in_plane_cleaned_slices
+
+
+def test_m_seam_cleanup_repairs_short_shape_outlier_run_from_stable_flanks() -> None:
+    raw = np.zeros((72, 72, 31), dtype=bool)
+    xx, yy = np.meshgrid(np.arange(72), np.arange(72), indexing="ij")
+    brain = ((xx - 35.5) / 25.0) ** 2 + ((yy - 35.5) / 27.0) ** 2 <= 1.0
+    raw[:, :, :] = brain[:, :, None]
+    candidate = raw.copy()
+    candidate[20:52, 47:, 13:18] = False
+    before_error = int(np.count_nonzero(candidate ^ raw))
+
+    cleaned, report = stabilize_m_seam_mask(
+        candidate,
+        raw,
+        (0.08, 0.08, 0.10),
+        MSeamCleanupConfig(
+            consensus_half_window_mm=0.80,
+            min_shape_disagreement_fraction=0.02,
+            max_repair_run_mm=0.60,
+            max_slice_change_fraction=0.30,
+        ),
+    )
+
+    assert report.repaired_slice_runs == ((13, 17),)
+    assert int(np.count_nonzero(cleaned ^ raw)) < before_error
+    assert report.voxels_added_from_raw_rs2 > 0
+    assert report.subset_of_raw_rs2
+
+
+def test_m_seam_cleanup_does_not_repair_long_shape_change() -> None:
+    raw = np.zeros((72, 72, 31), dtype=bool)
+    xx, yy = np.meshgrid(np.arange(72), np.arange(72), indexing="ij")
+    brain = ((xx - 35.5) / 25.0) ** 2 + ((yy - 35.5) / 27.0) ** 2 <= 1.0
+    raw[:, :, :] = brain[:, :, None]
+    candidate = raw.copy()
+    candidate[20:52, 47:, 9:22] = False
+
+    cleaned, report = stabilize_m_seam_mask(
+        candidate,
+        raw,
+        (0.08, 0.08, 0.10),
+        MSeamCleanupConfig(
+            consensus_half_window_mm=1.00,
+            min_shape_disagreement_fraction=0.02,
+            max_repair_run_mm=0.60,
+        ),
+    )
+
+    assert report.repaired_slice_runs == ()
+    assert np.array_equal(cleaned, candidate)

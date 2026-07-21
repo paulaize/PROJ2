@@ -422,8 +422,12 @@ CELLS = [
         )
         RANDOM_WALKER_BETA = 180.0
         REGULARITY_CONFIG = MaskRegularityConfig()
+        M_SEAM_CLEANUP_CONFIG = MSeamCleanupConfig()
         METHOD_DESCRIPTIONS = {
-            'rs2_m_seam': 'Direct removal superior to a detected dark M-shaped line',
+            'rs2_m_seam': (
+                'Direct removal superior to a detected dark M-shaped line plus conservative '
+                'in-plane-island and short-run continuity cleanup'
+            ),
             'rs2_marker_watershed': 'Marker-controlled watershed on the local T1 gradient',
             'rs2_random_walker': 'Marker-based random walker on local T1 intensity',
         }
@@ -451,7 +455,20 @@ CELLS = [
             raw_metadata['regularity_qc'] = raw_regularity.to_dict()
             raw_metadata_path.write_text(json.dumps(raw_metadata, indent=2) + '\n')
 
-            seam_mask, seam_stats = refine_direct_seam(raw_rsa, gaps, REFINEMENT_CONFIG)
+            seam_before_cleanup, seam_stats = refine_direct_seam(
+                raw_rsa, gaps, REFINEMENT_CONFIG
+            )
+            seam_mask, seam_cleanup = stabilize_m_seam_mask(
+                seam_before_cleanup, raw_rsa, spacing_rsa, M_SEAM_CLEANUP_CONFIG
+            )
+            seam_stats['continuity_cleanup'] = seam_cleanup.to_dict()
+            seam_stats['output_foreground_voxels'] = int(np.count_nonzero(seam_mask))
+            seam_stats['removed_voxels'] = int(
+                np.count_nonzero(raw_rsa) - np.count_nonzero(seam_mask)
+            )
+            seam_stats['removed_fraction'] = (
+                seam_stats['removed_voxels'] / np.count_nonzero(raw_rsa)
+            )
             watershed_mask, watershed_stats = refine_watershed(
                 normalized, raw_rsa, gaps, spacing_rsa, REFINEMENT_CONFIG
             )

@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from lys_bbb.project_service import ProjectService
-from lys_bbb.project_state import InputFolderKind
+from lys_bbb.project_state import InputFolderKind, ProjectDatabase
 from lys_bbb_app.domain.study import CreateStudyRequest, CreateSubjectRequest
 from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore
 from lys_bbb_app.infrastructure.study_database import (
@@ -197,10 +196,9 @@ def test_legacy_migration_preserves_source_and_folder_references(tmp_path: Path)
     t2_path = tmp_path / "external-drive" / "t2"
     t1_path.mkdir(parents=True)
     t2_path.mkdir()
-    legacy_service = ProjectService()
-    legacy_service.create_project(legacy_path, name="Legacy study")
-    legacy_service.set_input_folder(InputFolderKind.T1, t1_path)
-    legacy_service.set_input_folder(InputFolderKind.T2, t2_path)
+    legacy = ProjectDatabase.create(legacy_path, name="Legacy study")
+    legacy.set_input_folder(InputFolderKind.T1, t1_path)
+    legacy.set_input_folder(InputFolderKind.T2, t2_path)
     before = hashlib.sha256(legacy_path.read_bytes()).hexdigest()
 
     service = StudyService()

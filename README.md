@@ -8,19 +8,18 @@ T1: pre/post import → brain-mask review → registration review → enhancemen
 T2: native T2 → frozen-model draft mask → human review → lesion volume
 ```
 
-The repository is a substantial development checkpoint, not a finished scientific
-product. Study creation, MRI import, input validation, orientation correction, audit
-history, frozen T2 inference, and persistent draft T2 outputs work. No workflow yet
-produces a human-approved result from inside the application.
+The repository is a working development checkpoint, not a finished scientific product.
+The desktop application completes the reviewed T2 path through an approved native-space
+lesion volume and CSV export. The selected T1 mask generator runs locally, but T1
+artifacts, registration review, and enhancement are not yet connected to study state.
 
 ## Immediate goal
 
-Development is frozen horizontally. The next milestone is one complete T2 vertical
-slice:
+Development is frozen horizontally. The active milestone is the first persistent T1
+vertical slice:
 
-> Import and validate T2, run the frozen model, review or replace the draft mask,
-> approve it, calculate an official native-space lesion volume, export one CSV, and
-> recover the same approved state after reopening the study.
+> Generate or import a pre-Gd brain-mask draft, review or correct it, record an immutable
+> decision, approve the exact mask artifact, and recover the same state after reopening.
 
 Do not add pages, modalities, models, atlas features, or general-purpose framework code
 until this user story passes its tests.
@@ -47,25 +46,9 @@ Production code never imports the live `~/Documents/LYS_PROJ1` checkout. It acce
 an immutable checksummed release. The current T2 release remains external at
 `~/Downloads/LYS_v1_RatLesNetV2_mac_inference`.
 
-## Current checkpoint
-
-- Canonical schema-v7 study roots and stable subject IDs.
-- Read-only Bruker/NIfTI discovery and reviewed scan-role assignment.
-- Versioned NIfTI conversion, storage-axis flips, validation, and ITK-SNAP viewing.
-- Reversible subject archiving, renaming, blinding, groups, and audit history.
-- Frozen five-model RatLesNetV2 validation and single/cohort T2 inference.
-- Persistent probability maps, draft masks, QC previews, provisional volumes, jobs,
-  checksums, and release provenance.
-- Safe ITK-SNAP correction copies, immutable corrected-mask artifacts, explicit
-  approval/rejection, official native-space lesion volume, and approved-only T2 CSV.
-- T1 backend utilities for conversion, registration, mask review, and provisional
-  enhancement; none are connected end-to-end in the desktop application.
-
-The T1-guided RS2 refinement notebook is the strongest current T1 brain-mask pre-label
-approach by visual inspection. Its outputs remain automatic candidates requiring human
-review.
-
-See [current state](docs/current_state.md) for exact blockers and the milestone contract.
+See [current state](docs/current_state.md) for the implemented behavior, remaining
+blockers, and acceptance criteria. This README intentionally does not duplicate that
+changing inventory.
 
 ## Run locally
 

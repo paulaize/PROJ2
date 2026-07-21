@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QMessageBox,
 )
 
-from lys_bbb.project_service import ProjectService  # noqa: E402
+from lys_bbb.project_state import ProjectDatabase  # noqa: E402
 from lys_bbb.scan_discovery import discover_mri_source  # noqa: E402
 from lys_bbb_app.demo_data import demo_study  # noqa: E402
 from lys_bbb_app.domain.study import (  # noqa: E402
@@ -425,7 +425,7 @@ def test_opening_real_schema_v1_project_does_not_inject_demo_records(
     tmp_path: Path,
 ) -> None:
     project_path = tmp_path / "real-study.lysbbb"
-    ProjectService().create_project(project_path, name="Real study")
+    ProjectDatabase.create(project_path, name="Real study")
 
     window = MainWindow()
     assert window.open_project_path(project_path) is True
@@ -464,6 +464,8 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.current_study.is_demo is False
     assert window.subjects_page.proxy.rowCount() == 0
     assert "persistent study" in window.preview_banner.text().lower()
+    assert "t2 inference, mask correction/review" in window.preview_banner.text().lower()
+    assert "t1 processing is not yet connected" in window.preview_banner.text().lower()
     window.show_page("results")
     assert window.results_page.results_stack.currentWidget() is window.results_page.results_empty
     assert window.results_page.plot_stack.currentWidget() is window.results_page.plot_empty

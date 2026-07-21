@@ -18,9 +18,7 @@ from uuid import uuid4
 
 
 LEGACY_SCHEMA_VERSION = 1
-CURRENT_SCHEMA_VERSION = LEGACY_SCHEMA_VERSION  # Compatibility name for existing callers.
 PROJECT_APPLICATION_ID = 0x4C595342  # "LYSB" in a SQLite application_id.
-PROJECT_FILE_SUFFIX = ".lysbbb"
 
 
 class ProjectStateError(RuntimeError):
@@ -88,10 +86,10 @@ def _pragma_int(connection: sqlite3.Connection, name: str) -> int:
 
 def _apply_migrations(connection: sqlite3.Connection) -> None:
     version = _pragma_int(connection, "user_version")
-    if version > CURRENT_SCHEMA_VERSION:
+    if version > LEGACY_SCHEMA_VERSION:
         raise UnsupportedProjectVersionError(
             f"This project uses schema version {version}; this application supports "
-            f"up to version {CURRENT_SCHEMA_VERSION}."
+            f"up to version {LEGACY_SCHEMA_VERSION}."
         )
 
     if version < 1:

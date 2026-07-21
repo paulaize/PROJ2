@@ -10,11 +10,11 @@ current branch is a consolidation candidate for `main`: it has a sensible intern
 boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v7 studies, real MRI
 import, frozen-model T2 inference, immutable review, and approved T2 results.
 
-The reason progress feels incomplete is that development moved horizontally across the
-application foundation without completing one reviewed scientific workflow vertically.
+The T2 reviewed-result workflow now crosses the first visible finish line. The product
+remains incomplete because the equivalent persistent T1 path has not yet been built.
 
-At this checkpoint, Ruff and all 149 tests pass locally. GitHub Actions runs the same
-style check and offscreen suite on pushes and pull requests.
+At this checkpoint, Ruff and the complete test suite pass locally. GitHub Actions runs
+the same style check and offscreen suite on pushes and pull requests.
 
 ```text
 First complete vertical workflow
@@ -37,23 +37,17 @@ T2 input → validation → inference → draft/corrected mask → human decisio
 - Preserve blinded review, optional groups, reviewer identity, and audit history.
 - Open active MRI inputs in ITK-SNAP.
 
+The persistent T2 review controls live in each subject's `T2 Lesion` tab. The global
+`Reviews` page, cohort chart, QC/reproducibility export buttons, and most settings remain
+explicitly labelled design fixtures; they do not save scientific state. `--demo` is
+entirely synthetic.
+
 ### T2 lesion workflow
 
-- Validate the external five-model LYS v1 RatLesNetV2 release and its hashes.
-- Run one subject or the eligible cohort using MPS, CUDA, or CPU.
-- Preserve native affine; average five probability maps; apply threshold 0.40; perform
-  no postprocessing.
-- Persist probability maps, immutable draft masks, QC previews, provisional voxel count
-  and volume, jobs, release provenance, and audit events.
-- Create a safe editable copy for ITK-SNAP without exposing the registered mask to
-  in-place modification.
-- Validate and import an ITK-SNAP correction as a new immutable artifact version.
-- Record one immutable approval or rejection per exact artifact; rejection requires an
-  issue and notes.
-- Calculate an official voxel count and native-space mm³ volume only after approval.
-- Mark masks and official results outdated when their T2, release, or active mask changes.
-- Export active approved T2 results to CSV; blinded exports omit the group column.
-- Reopen the study with releases, jobs, artifacts, decisions, results, and audit intact.
+The complete T2 path—checksummed five-model inference, immutable draft/correction,
+human decision, official native-space volume, approved-only CSV, invalidation, and
+reopening—is implemented. Its exact acceptance criteria are recorded below; release and
+scientific details live in `t2_lesion_integration.md`.
 
 The supplied unseen T2 smoke case reproduced the prior result exactly at the binary-mask
 level: 7,339 voxels and identical affine. CPU/MPS probability differences were at most
@@ -69,10 +63,15 @@ level: 7,339 voxels and identical affine. CPU/MPS probability differences were a
   suppress diffuse signal and remains provisional.
 
 The T1-guided RS2 refinement experiment has now run on the frozen ten-case cohort and
-is the best current pre-label approach by visual inspection. It produced valid native-
-grid candidates for all ten cases, applied a gated correction in seven, and retained raw
-RS2 in three where no confident gap was found. No specific corrected variant is yet a
-formally approved winner, and no output is ground truth.
+is the best current pre-label approach by visual inspection. Review selected M-seam over
+raw RS2, marker-watershed, and random-walker. A local macOS command now invokes the exact
+reviewed RS2 commit and weight, applies M-seam, removes conservatively gated small slice
+islands, repairs only short outlier runs with agreeing flanks, and writes native-grid
+drafts plus QC and provenance. The added continuity cleanup still needs ten-case visual
+review, and no automatic output is ground truth or an approved mask. Exact eight-way
+TTA is CPU/CUDA on the tested M1 because it exceeded MPS memory. The explicit MPS/no-TTA
+variant completed one real case in 83 seconds and reached raw-mask Dice 0.980 against its
+Colab TTA counterpart; it is recorded as a distinct draft method, not an equivalent run.
 
 ## Known dataset exceptions
 
@@ -119,7 +118,8 @@ Use ITK-SNAP for correction. Do not build an embedded segmentation editor.
 
 ## What follows
 
-After a real-case desktop smoke test of the T2 slice, finish the T1 vertical slice:
+After a real-case desktop smoke test of the completed T2 slice, finish the T1 vertical
+slice. The local draft generator now exists; application persistence and review do not:
 
 ```text
 T1 import → refined RS2 pre-label/import → mask review/approval

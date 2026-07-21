@@ -146,7 +146,7 @@ technical details.
 ### Reviews
 
 The product uses one review concept for T1 masks, T2 masks, registrations, and eligible
-results. The first complete implementation may route correction through ITK-SNAP:
+results. Mask correction routes through ITK-SNAP:
 
 1. preserve the immutable automatic draft;
 2. make or select an editable copy;

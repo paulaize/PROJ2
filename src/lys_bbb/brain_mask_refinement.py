@@ -55,6 +55,53 @@ class MaskRegularityConfig:
 
 
 @dataclass(frozen=True)
+class MSeamCleanupConfig:
+    """Conservative physical rules for stabilising an M-seam draft mask.
+
+    The cleanup is deliberately restricted to two failure modes observed during the
+    frozen ten-case review: small in-plane islands in established brain-containing
+    slices and short shape outlier runs bracketed by similar masks.  Interpolated
+    repairs are always intersected with the immutable raw RS2 prediction, so the
+    cleanup can never invent foreground outside the model prediction.
+    """
+
+    profile_area_fraction: float = 0.20
+    max_secondary_component_fraction: float = 0.12
+    max_secondary_component_area_mm2: float = 4.0
+    consensus_half_window_mm: float = 0.70
+    min_shape_disagreement_fraction: float = 0.035
+    max_repair_run_mm: float = 0.60
+    min_flank_dice: float = 0.92
+    max_flank_area_change_fraction: float = 0.18
+    max_slice_change_fraction: float = 0.12
+
+
+@dataclass(frozen=True)
+class MSeamCleanupReport:
+    """Auditable changes made to one automatic M-seam draft mask."""
+
+    input_foreground_voxels: int
+    output_foreground_voxels: int
+    disconnected_voxels_removed: int
+    in_plane_island_voxels_removed: int
+    in_plane_cleaned_slices: tuple[int, ...]
+    candidate_outlier_slices: tuple[int, ...]
+    outlier_score_by_slice: tuple[tuple[int, float], ...]
+    repaired_slice_runs: tuple[tuple[int, int], ...]
+    skipped_slice_runs: tuple[tuple[int, int, str], ...]
+    voxels_added_from_raw_rs2: int
+    voxels_removed_by_run_repair: int
+    changed_voxels: int
+    subset_of_raw_rs2: bool
+    configuration: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation for provenance metadata."""
+
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class MaskRegularityReport:
     """Physical and slice-profile measurements used to guide human review."""
 
@@ -427,6 +474,239 @@ def _largest_component(mask: np.ndarray) -> np.ndarray:
     sizes = np.bincount(labels.ravel())
     sizes[0] = 0
     return labels == int(np.argmax(sizes))
+
+
+def _largest_fully_connected_component(mask: np.ndarray) -> tuple[np.ndarray, int]:
+    """Keep the largest component using full connectivity and report removed voxels."""
+
+    foreground = np.asarray(mask, dtype=bool)
+    structure = ndi.generate_binary_structure(foreground.ndim, foreground.ndim)
+    labels, count = ndi.label(foreground, structure=structure)
+    if count <= 1:
+        return foreground.copy(), 0
+    sizes = np.bincount(labels.ravel())
+    sizes[0] = 0
+    largest = labels == int(np.argmax(sizes))
+    return largest, int(np.count_nonzero(foreground & ~largest))
+
+
+def _prune_small_in_plane_islands(
+    mask: np.ndarray,
+    spacing_rs: tuple[float, float],
+    config: MSeamCleanupConfig,
+) -> tuple[np.ndarray, tuple[int, ...], int]:
+    """Remove small secondary 2-D components only in the established brain body.
+
+    Comparable bilateral components at the normally tapering ends are preserved.  A
+    slice is changed only when the main component is within the central area profile
+    and all secondary components are small both relative to it and in physical area.
+    """
+
+    output = np.asarray(mask, dtype=bool).copy()
+    counts = np.count_nonzero(output, axis=(0, 1))
+    if not np.any(counts):
+        return output, (), 0
+    body_threshold = float(counts.max() * config.profile_area_fraction)
+    pixel_area_mm2 = float(spacing_rs[0] * spacing_rs[1])
+    structure = ndi.generate_binary_structure(2, 2)
+    cleaned_slices: list[int] = []
+    removed_voxels = 0
+    for slice_index in range(output.shape[2]):
+        slice_mask = output[:, :, slice_index]
+        if int(np.count_nonzero(slice_mask)) < body_threshold:
+            continue
+        labels, component_count = ndi.label(slice_mask, structure=structure)
+        if component_count <= 1:
+            continue
+        sizes = np.bincount(labels.ravel())
+        sizes[0] = 0
+        largest_label = int(np.argmax(sizes))
+        largest_size = int(sizes[largest_label])
+        secondary_size = int(sizes.sum() - largest_size)
+        if largest_size == 0 or secondary_size == 0:
+            continue
+        relative_size = secondary_size / largest_size
+        secondary_area = secondary_size * pixel_area_mm2
+        if (
+            relative_size > config.max_secondary_component_fraction
+            or secondary_area > config.max_secondary_component_area_mm2
+        ):
+            continue
+        output[:, :, slice_index] = labels == largest_label
+        cleaned_slices.append(slice_index)
+        removed_voxels += secondary_size
+    return output, tuple(cleaned_slices), removed_voxels
+
+
+def _dice(left: np.ndarray, right: np.ndarray) -> float:
+    left = np.asarray(left, dtype=bool)
+    right = np.asarray(right, dtype=bool)
+    denominator = int(np.count_nonzero(left)) + int(np.count_nonzero(right))
+    if denominator == 0:
+        return 1.0
+    return float(2 * np.count_nonzero(left & right) / denominator)
+
+
+def _signed_distance(mask: np.ndarray, spacing: tuple[float, float]) -> np.ndarray:
+    foreground = np.asarray(mask, dtype=bool)
+    return ndi.distance_transform_edt(foreground, sampling=spacing) - ndi.distance_transform_edt(
+        ~foreground, sampling=spacing
+    )
+
+
+def _true_runs(values: np.ndarray) -> list[tuple[int, int]]:
+    """Return inclusive start/stop indices for all true runs."""
+
+    padded = np.pad(np.asarray(values, dtype=np.int8), 1)
+    changes = np.diff(padded)
+    starts = np.flatnonzero(changes == 1)
+    stops = np.flatnonzero(changes == -1) - 1
+    return [(int(start), int(stop)) for start, stop in zip(starts, stops, strict=True)]
+
+
+def stabilize_m_seam_mask(
+    m_seam_mask_rsa: np.ndarray,
+    raw_rs2_mask_rsa: np.ndarray,
+    spacing_rsa: tuple[float, float, float],
+    config: MSeamCleanupConfig | None = None,
+) -> tuple[np.ndarray, MSeamCleanupReport]:
+    """Clean observed M-seam topology failures without approving the result.
+
+    First, true disconnected 3-D islands and sufficiently small in-plane islands are
+    removed.  Second, a longitudinal majority profile identifies short abnormal shape
+    runs.  A run is repaired only when it is bracketed by highly similar slices; its
+    masks are interpolated between the flanks using physical signed-distance fields.
+    Every repair remains a subset of the immutable raw RS2 mask.
+    """
+
+    candidate = np.asarray(m_seam_mask_rsa, dtype=bool)
+    raw = np.asarray(raw_rs2_mask_rsa, dtype=bool)
+    if candidate.ndim != 3 or candidate.shape != raw.shape:
+        raise ValueError("M-seam cleanup requires matching three-dimensional masks")
+    if not candidate.any() or not raw.any():
+        raise ValueError("M-seam cleanup requires non-empty masks")
+    if np.any(candidate & ~raw):
+        raise ValueError("The M-seam mask must be a subset of the raw RS2 prediction")
+    spacing = np.asarray(spacing_rsa, dtype=np.float64)
+    if spacing.shape != (3,) or not np.all(np.isfinite(spacing)) or np.any(spacing <= 0):
+        raise ValueError("M-seam cleanup spacing must contain three finite positive values")
+    config = config or MSeamCleanupConfig()
+
+    input_voxels = int(np.count_nonzero(candidate))
+    output, disconnected_removed = _largest_fully_connected_component(candidate)
+    output, island_slices, island_removed = _prune_small_in_plane_islands(
+        output, (float(spacing[0]), float(spacing[1])), config
+    )
+    output, newly_disconnected = _largest_fully_connected_component(output)
+    disconnected_removed += newly_disconnected
+
+    counts = np.count_nonzero(output, axis=(0, 1)).astype(np.float64)
+    profile = counts >= float(counts.max() * config.profile_area_fraction)
+    radius = max(2, int(np.ceil(config.consensus_half_window_mm / spacing[2])))
+    scores = np.zeros(output.shape[2], dtype=np.float64)
+    outliers = np.zeros(output.shape[2], dtype=bool)
+    for slice_index in range(radius, output.shape[2] - radius):
+        if not profile[slice_index]:
+            continue
+        neighbourhood = output[:, :, slice_index - radius : slice_index + radius + 1]
+        consensus = np.count_nonzero(neighbourhood, axis=2) > neighbourhood.shape[2] // 2
+        union = int(np.count_nonzero(output[:, :, slice_index] | consensus))
+        if union == 0:
+            continue
+        score = float(np.count_nonzero(output[:, :, slice_index] ^ consensus) / union)
+        scores[slice_index] = score
+        outliers[slice_index] = score >= config.min_shape_disagreement_fraction
+
+    # Join two suspicious parts separated by one unflagged slice. This is limited to
+    # the detection mask; every resulting run must still pass the anatomical flank and
+    # maximum-change gates below.
+    outliers = ndi.binary_closing(outliers, structure=np.ones(3, dtype=bool))
+    max_run_slices = max(1, int(np.floor(config.max_repair_run_mm / spacing[2])))
+    repaired_runs: list[tuple[int, int]] = []
+    skipped_runs: list[tuple[int, int, str]] = []
+    added_voxels = 0
+    removed_voxels = 0
+    for start, stop in _true_runs(outliers):
+        run_length = stop - start + 1
+        if run_length > max_run_slices:
+            skipped_runs.append((start, stop, "run_too_long"))
+            continue
+        left_index, right_index = start - 1, stop + 1
+        if left_index < 0 or right_index >= output.shape[2]:
+            skipped_runs.append((start, stop, "missing_flank"))
+            continue
+        if not (profile[left_index] and profile[right_index]):
+            skipped_runs.append((start, stop, "outside_stable_brain_profile"))
+            continue
+        left = output[:, :, left_index]
+        right = output[:, :, right_index]
+        flank_dice = _dice(left, right)
+        left_area = int(np.count_nonzero(left))
+        right_area = int(np.count_nonzero(right))
+        mean_area = max((left_area + right_area) / 2.0, np.finfo(float).eps)
+        flank_area_change = abs(left_area - right_area) / mean_area
+        if flank_dice < config.min_flank_dice:
+            skipped_runs.append((start, stop, "flank_shape_mismatch"))
+            continue
+        if flank_area_change > config.max_flank_area_change_fraction:
+            skipped_runs.append((start, stop, "flank_area_mismatch"))
+            continue
+
+        left_distance = _signed_distance(left, (float(spacing[0]), float(spacing[1])))
+        right_distance = _signed_distance(right, (float(spacing[0]), float(spacing[1])))
+        replacements: list[tuple[int, np.ndarray, int, int]] = []
+        rejected_reason = ""
+        for offset, slice_index in enumerate(range(start, stop + 1), start=1):
+            weight = offset / (run_length + 1)
+            interpolated = ((1.0 - weight) * left_distance + weight * right_distance) >= 0
+            interpolated &= raw[:, :, slice_index]
+            interpolated, _ = _largest_fully_connected_component(interpolated)
+            if not interpolated.any():
+                rejected_reason = "empty_interpolation"
+                break
+            current = output[:, :, slice_index]
+            union = max(int(np.count_nonzero(current | interpolated)), 1)
+            changed_fraction = np.count_nonzero(current ^ interpolated) / union
+            if changed_fraction > config.max_slice_change_fraction:
+                rejected_reason = "repair_exceeds_change_limit"
+                break
+            additions = int(np.count_nonzero(interpolated & ~current))
+            removals = int(np.count_nonzero(current & ~interpolated))
+            replacements.append((slice_index, interpolated, additions, removals))
+        if rejected_reason:
+            skipped_runs.append((start, stop, rejected_reason))
+            continue
+        for slice_index, replacement, additions, removals in replacements:
+            output[:, :, slice_index] = replacement
+            added_voxels += additions
+            removed_voxels += removals
+        repaired_runs.append((start, stop))
+
+    output, final_disconnected = _largest_fully_connected_component(output)
+    disconnected_removed += final_disconnected
+    if np.any(output & ~raw):
+        raise RuntimeError("M-seam cleanup created foreground outside the raw RS2 mask")
+    changed_voxels = int(np.count_nonzero(candidate ^ output))
+    scored_slices = tuple(
+        (int(index), float(scores[index])) for index in np.flatnonzero(outliers)
+    )
+    report = MSeamCleanupReport(
+        input_foreground_voxels=input_voxels,
+        output_foreground_voxels=int(np.count_nonzero(output)),
+        disconnected_voxels_removed=disconnected_removed,
+        in_plane_island_voxels_removed=island_removed,
+        in_plane_cleaned_slices=island_slices,
+        candidate_outlier_slices=tuple(int(index) for index in np.flatnonzero(outliers)),
+        outlier_score_by_slice=scored_slices,
+        repaired_slice_runs=tuple(repaired_runs),
+        skipped_slice_runs=tuple(skipped_runs),
+        voxels_added_from_raw_rs2=added_voxels,
+        voxels_removed_by_run_repair=removed_voxels,
+        changed_voxels=changed_voxels,
+        subset_of_raw_rs2=not bool(np.any(output & ~raw)),
+        configuration=asdict(config),
+    )
+    return output, report
 
 
 def refine_direct_seam(

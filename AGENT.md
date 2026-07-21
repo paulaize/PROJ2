@@ -16,23 +16,24 @@ application. Do not create another repository or a second application shell.
 
 ## Current milestone
 
-Finish the T2 vertical slice before expanding anything else:
+The reviewed T2 vertical slice is complete. Finish the first T1 vertical step without
+expanding the application shell:
 
 ```text
-validated native T2
-→ frozen-model inference
+validated native pre-Gd T1
+→ checksummed local RS2 inference
+→ selected M-seam refinement and conservative continuity cleanup
 → immutable draft mask
 → accept, reject, or import ITK-SNAP correction
-→ approved mask
-→ official native-space volume
-→ approved-results CSV
+→ approved brain mask
 → reopen with state intact
 ```
 
 Acceptance criteria are authoritative in `docs/current_state.md`.
 
-Until this slice is complete, do not add more pages, layout polish, modalities, models,
-atlas work, synthetic-preview features, schema revisions, or generic job abstractions.
+Until this slice is complete, do not add more pages, layout polish, modalities, atlas
+work, synthetic-preview features, unrelated schema revisions, or generic job
+abstractions.
 
 ## Non-negotiable rules
 
@@ -56,31 +57,25 @@ atlas work, synthetic-preview features, schema revisions, or generic job abstrac
   explicit audited actions.
 - Add focused tests for every state transition and behavior change.
 
-## Current truth
+## Current facts
 
-- Schema-v7 studies, MRI import/conversion/validation, subjects, audit, blinding/groups,
-  ITK-SNAP launch, T2 inference, correction, review, official volume, and approved-only
-  CSV export are production-connected.
-- T2 inference creates persistent probability maps, draft masks, QC previews, jobs,
-  provenance, and provisional volumes; only an immutable human approval creates an
-  official result.
-- Zero T1 cases currently pass the final scientific analysis gate.
-- The T1-guided RS2 refinement notebook is the strongest current T1 brain-mask pre-label
-  approach by visual inspection. It remains unapproved; three-dimensional regularity is
-  a QC warning and review aid, never an automatic approval rule.
-- T1 registration exists in backend development outputs but lacks explicit approvals.
-- Enhancement normalization remains method-development work.
+- The reviewed T2 path through immutable approval, official native-space volume, CSV
+  export, and reopening is production-connected.
+- The selected local RS2/M-seam T1 draft generator is implemented; persistent T1
+  artifact/review state is the active milestone.
+- T1 registration approval and enhancement method validation remain incomplete.
 
-Exact operational facts live in `docs/current_state.md`.
+Exact implementation facts and acceptance criteria live only in
+`docs/current_state.md`.
 
 ## Ownership and legacy boundary
 
 New production state uses `lys_bbb_app.infrastructure.StudyRepository` and
 feature-specific repositories/services.
 
-`lys_bbb.project_state` and `lys_bbb.project_service.ProjectService` are frozen legacy
-schema-v1 compatibility code. They exist only to inspect and migrate old `.lysbbb`
-files. Do not add new features to them and do not use them for schema-v7 studies.
+`lys_bbb.project_state.ProjectDatabase` is the frozen schema-v1 compatibility layer.
+Production uses it only to inspect and migrate old `.lysbbb` files; tests may create
+schema-v1 fixtures with it. Do not add features to it or use it for schema-v7 studies.
 
 ## Documentation authority
 

@@ -127,11 +127,6 @@ def brain_mask_gate(row: dict[str, Any]) -> tuple[str, str, str]:
     return "mask_ready", status, ""
 
 
-def manual_gate(row: dict[str, Any]) -> tuple[str, str, str]:
-    """Backward-compatible name for older tests and callers."""
-    return brain_mask_gate(row)
-
-
 def registration_gate(row: dict[str, Any]) -> tuple[str, str]:
     if not row.get("registration_qc_png"):
         return "missing_registration_qc", "missing registration QC"

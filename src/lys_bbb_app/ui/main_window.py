@@ -444,8 +444,9 @@ class MainWindow(QMainWindow):
             self.preview_banner.setText(
                 f"PERSISTENT STUDY — {len(study.subjects)} subjects stored in "
                 f"{study.root_path}. MRI discovery and versioned NIfTI conversion are "
-                "connected. Frozen T2 inference creates versioned draft masks; human "
-                "approval, T1 processing, and final quantification remain pending."
+                "connected. T2 inference, mask correction/review, approved native-space "
+                "volume, and approved-results CSV export are connected. T1 processing "
+                "is not yet connected to persistent study state."
             )
         else:
             self.release_label.setText(

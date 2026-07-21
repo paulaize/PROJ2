@@ -117,8 +117,6 @@ value by default and requires audited unblinding before adding group columns.
 - Atlas mapping and regional quantification.
 - Embedded mask editing.
 - Model release marketplaces or arbitrary parameter editing.
-- Import of externally released masks unless it is required after the reviewed-result
-  slice is complete.
 
 The implemented acceptance criteria are listed in `current_state.md` and exercised by
 `tests/test_t2_review.py`.

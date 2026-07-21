@@ -70,9 +70,9 @@ Use the dependency direction UI → service → backend/repository. Do not impor
 modules from widgets or Qt from domain/backend code. `tests/test_app_architecture.py`
 enforces this boundary.
 
-Current production state uses `StudyRepository` and feature-specific repositories. The
-old `lys_bbb.project_state` and `ProjectService` are frozen schema-v1 migration support;
-do not extend them.
+Current production state uses `StudyRepository` and feature-specific repositories.
+`lys_bbb.project_state.ProjectDatabase` is the frozen schema-v1 compatibility layer.
+Production uses it only for legacy inspection and migration; do not extend it.
 
 The T2 review slice is divided into `lys_bbb.t2_review` for native-grid binary-mask
 validation and measurement, `T2ReviewService` for correction/review coordination, a
@@ -87,11 +87,18 @@ approved-only CSV. Keep new image logic in the backend and new use cases out of 
 conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py --help
 conda run -n lys-bbb python scripts/brain_extraction/build_rs2_refinement_notebook.py
 conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py --help
+conda run -n lys-bbb lys-bbb-t1-mask-setup --help
+conda run -n lys-bbb lys-bbb-t1-mask --help
 conda run -n lys-bbb python scripts/masks/open_manual_mask_editor.py --help
 ```
 
 The notebook builder embeds the tested `brain_mask_refinement.py` source. Rebuild and
 run notebook-structure tests after changing that algorithm.
+
+The local setup command downloads and validates the exact RS2 source and model used by
+the frozen Colab run. The mask command accepts one native pre-Gd T1, refuses to overwrite
+an output directory, and preserves raw RS2, refined draft, diagnostics, QC, checksums,
+and provenance separately. These are automatic drafts, never approvals.
 
 ### Transitional T1 backend
 
@@ -118,8 +125,8 @@ normalization, and thresholds pass their documented gates.
 through the launcher, but new studies never use it. Migration creates a new study root
 and leaves the original file unchanged.
 
-Do not use `ProjectService` in new production code. Its tests exist to guarantee recovery
-of old user projects.
+The compatibility tests exercise the schema-v1 database class directly so old user
+projects remain recoverable without maintaining a second application service.
 
 ## Generated outputs
 

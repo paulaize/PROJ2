@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from lys_bbb_app.domain.view_models import SubjectViewModel
+from lys_bbb_app.ui.layout_helpers import clear_layout
 from lys_bbb_app.ui.widgets import (
     ElidedLabel,
     StatusBadge,
@@ -195,9 +196,9 @@ class T2LesionPanel(QScrollArea):
         self.artifact_title.setText(
             f"{artifact.origin_label} · version {artifact.version}"
         )
-        _clear_layout(self.artifact_status_container)
+        clear_layout(self.artifact_status_container)
         self.artifact_status_container.addWidget(StatusBadge(artifact.state))
-        _clear_layout(self.stats_layout)
+        clear_layout(self.stats_layout)
         volume_label = (
             "Official volume" if artifact.official_volume_text else "Provisional volume"
         )
@@ -307,14 +308,3 @@ class T2LesionPanel(QScrollArea):
                 self.current_subject.subject_id,
                 self.current_subject.t2_artifact.artifact_id,
             )
-
-
-def _clear_layout(layout) -> None:
-    while layout.count():
-        item = layout.takeAt(0)
-        widget = item.widget()
-        child = item.layout()
-        if widget is not None:
-            widget.deleteLater()
-        elif child is not None:
-            _clear_layout(child)

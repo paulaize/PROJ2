@@ -14,12 +14,25 @@ dependencies = [
 [project.scripts]
 lys-bbb-desktop = "lys_bbb_app.main:main"
 lys-bbb-t2-infer = "lys_bbb.t2_inference_cli:main"
+lys-bbb-t1-mask = "lys_bbb.t1_brain_mask_cli:main"
+lys-bbb-t1-mask-setup = "lys_bbb.t1_brain_mask_setup_cli:main"
 
 [project.optional-dependencies]
 conversion = ["brkraw==0.5.7"]
 brain-refinement = ["scikit-image>=0.23,<1"]
 desktop = ["PySide6>=6.7,<7", "brkraw==0.5.7"]
 t2-inference = ["torch>=2.2"]
+t1-inference = [
+  "acvl-utils==0.2.1",
+  "batchgenerators>=0.25,<1",
+  "einops>=0.4",
+  "gdown>=5,<6",
+  "imageio>=2.22",
+  "monai==1.4.0",
+  "pandas>=1.5",
+  "tifffile>=2022.10",
+  "torch>=2.2",
+]
 test = ["pytest>=8", "ruff>=0.8"]
 
 [tool.pytest.ini_options]
