@@ -1,133 +1,106 @@
 # Agent operating brief
 
-Read this file first, then open only the authoritative document relevant to the task.
-Do not reconstruct project status from old branches or ignored outputs alone.
+Read this file first. Then open only the authoritative document needed for the task.
 
-## Purpose
+## Product
 
-Build a reproducible scientific backend and subject-centred desktop application for
-mouse T1 and T2 MRI analysis:
+Build a reproducible PySide6 application for subject-owned mouse MRI workflows:
 
-1. import and validate pre/post T1-weighted scans;
-2. create and review a brain mask on native pre-Gd T1;
-3. rigidly register post-Gd T1 into pre-Gd T1 space;
-4. calculate semi-quantitative gadolinium-enhancement outputs;
-5. import a released T2 lesion mask or invoke a validated frozen external model release;
-6. calculate reviewed native-space T2 lesion volume; and
-7. expose both workflows through a non-programmer desktop interface.
+```text
+T1 Enhancement
+T2 Lesion Segmentation and Native-space Volume
+```
+
+`src/lys_bbb/` is the Qt-free scientific backend. `src/lys_bbb_app/` is the desktop
+application. Do not create another repository or a second application shell.
+
+## Current milestone
+
+Finish the T2 vertical slice before expanding anything else:
+
+```text
+validated native T2
+→ frozen-model inference
+→ immutable draft mask
+→ accept, reject, or import ITK-SNAP correction
+→ approved mask
+→ official native-space volume
+→ approved-results CSV
+→ reopen with state intact
+```
+
+Acceptance criteria are authoritative in `docs/current_state.md`.
+
+Until this slice is complete, do not add more pages, layout polish, modalities, models,
+atlas work, synthetic-preview features, schema revisions, or generic job abstractions.
 
 ## Non-negotiable rules
 
-- Use `conda run -n lys-bbb python ...` unless the user specifies another environment.
-- Never modify raw Bruker data.
-- Treat native pre-Gd coronal T1 as the quantitative reference space.
-- Do not independently segment post-Gd T1 by default. Register it to pre-Gd T1 and use
-  the approved pre-space brain mask.
-- Automatic brain masks are immutable predictions or pre-labels, never ground truth.
-- Final masks and registrations require an explicit human decision.
-- Report the current static scans as semi-quantitative T1-weighted gadolinium
-  enhancement—not absolute T1, `Ktrans`, `Ki`, DCE, or absolute permeability.
-- T2 model development is owned by the sibling `~/Documents/LYS_PROJ1` repository.
-  Never recreate its training, tuning, checkpoint-selection, or validation logic here.
-  The desktop integrates only a versioned, checksummed release contract from that
-  repository.
-- Never make the production application import Python from a live `LYS_PROJ1` checkout.
-  The local path identifies development ownership, not a portable runtime dependency.
-- Artifact approval, method approval, result approval, and job success are independent.
-  Never promote one merely because another passed.
-- Keep scientific processing outside the GUI. The application calls stable,
-  tested backend services.
-- Add or update focused tests with behavior changes.
-- Keep product scope strictly to the registered T1 enhancement and T2 lesion workflows.
-  Do not add another modality or scientific workflow without an explicit user decision.
-- Blinded review hides or defers group assignment, never reviewer identity. Record the
-  blinding state on review decisions; make unblinding and group import explicit audited
-  actions, and never infer groups from subject names or folders.
+- Use `conda run -n lys-bbb python ...` unless instructed otherwise.
+- Never modify raw Bruker data or overwrite immutable artifacts.
+- Keep scientific processing outside Qt widgets: UI → service → backend/repository.
+- Automatic masks are drafts, never ground truth.
+- Human approval requires reviewer identity and time. Rejection requires a reason.
+- Job success, artifact approval, method approval, and result approval are independent.
+- New or corrected masks are new versions; previous files and decisions remain.
+- Changing an approved dependency makes results outdated; it never silently replaces
+  or deletes them.
+- Native pre-Gd T1 is the T1 reference. Register post-Gd to pre-Gd and use the approved
+  pre-space mask for both.
+- Use only semi-quantitative T1-weighted gadolinium-enhancement terminology. Never claim
+  absolute T1, `Ktrans`, `Ki`, DCE, or absolute permeability.
+- T2 model development stays in `~/Documents/LYS_PROJ1`. This repository validates and
+  invokes frozen checksummed releases and never imports its live checkout.
+- Keep product scope to the T1 and T2 workflows unless explicitly changed.
+- Blinding hides groups, not reviewer identity. Unblinding and group assignment are
+  explicit audited actions.
+- Add focused tests for every state transition and behavior change.
 
 ## Current truth
 
-The repository is technically functional but not biologically ready:
+- Schema-v6 studies, MRI import/conversion/validation, subjects, audit, blinding/groups,
+  ITK-SNAP launch, and T2 inference are production-connected.
+- T2 inference creates persistent probability maps, draft masks, QC previews, jobs,
+  provenance, and provisional volumes. T2 review and official results are missing.
+- Zero T1 cases currently pass the final scientific analysis gate.
+- The T1-guided RS2 refinement notebook is the strongest current T1 brain-mask pre-label
+  approach by visual inspection. It remains unapproved; three-dimensional regularity is
+  a QC warning and review aid, never an automatic approval rule.
+- T1 registration exists in backend development outputs but lacks explicit approvals.
+- Enhancement normalization remains method-development work.
 
-- 34 T1 pre/post cases are converted and have registration outputs.
-- 0 cases currently pass the final analysis gate.
-- T1 brain-mask quality and explicit review are the immediate blocker.
-- The frozen 10-image upload package, pinned Colab notebooks, and ITK-SNAP comparison
-  launcher are ready. The primary and control runs make RS2-Net the visual front-runner,
-  but it includes a recurring superior skull cap. A separate T1-guided correction
-  notebook is ready; corrected-mask selection and reviewed-reference scoring remain.
-- A separate optional Colab notebook adds CAMRI rodent T2/T2* and deepbet human-T1
-  controls. Their domain mismatch must remain explicit in outputs and documentation.
-- Current enhancement normalization and bias correction remain method-development
-  choices, not validated primary endpoints.
-- The frozen five-model LYS v1 RatLesNetV2 release is integrated through an
-  inference-only adapter. Cohort execution creates persistent native-space probability
-  maps, draft masks, provisional volumes, QC previews, job/release provenance, and audit
-  events. Human mask review and official result approval are not yet connected.
-- Slices 50–170 are a standardized QC display range only. Quantification uses the full
-  approved brain mask.
+Exact operational facts live in `docs/current_state.md`.
 
-Exact counts and dataset exceptions live in `docs/current_state.md`.
+## Ownership and legacy boundary
 
-## Current priority order
+New production state uses `lys_bbb_app.infrastructure.StudyRepository` and
+feature-specific repositories/services.
 
-1. Preserve progress on T1 brain-mask selection, reviewed references, registration QC,
-   and enhancement signal-preservation validation.
-2. Preserve the implemented desktop input foundation: schema-v6 studies, read-only MRI
-   discovery, human-correctable subject/role/orientation proposals, versioned NIfTI
-   conversion, subjects, navigation, and audit history.
-3. Extend the implemented T2 release/job/draft-artifact slice with canonical immutable
-   review, correction, approval, dependencies, methods, and approved results.
-4. Connect T1 import/mask review, then registration and provisional quantification.
-5. Add released-mask import and finish T2 human review without model-development code.
-6. Add combined T1/T2 results, QC, and reproducibility exports.
-7. Keep atlas mapping outside the MVP.
+`lys_bbb.project_state` and `lys_bbb.project_service.ProjectService` are frozen legacy
+schema-v1 compatibility code. They exist only to inspect and migrate old `.lysbbb`
+files. Do not add new features to them and do not use them for schema-v6 studies.
 
 ## Documentation authority
 
-- `README.md`: human entry point and core commands.
-- `docs/current_state.md`: live state, blockers, and branch history.
-- `docs/pipeline_architecture.md`: processing graph and ownership boundaries.
-- `docs/brain_extraction.md`: current mask policy and Colab benchmark contract.
-- `docs/enhancement_quantification.md`: formulas, terminology, and unresolved method
-  validation.
-- `docs/t2_lesion_integration.md`: `LYS_PROJ1` T2 release interface.
-- `docs/desktop_application.md`: non-programmer product architecture.
-- `docs/development.md`: active CLI entry points and developer workflow.
+- `README.md`: short human entry point.
+- `docs/current_state.md`: current facts, blockers, and immediate milestone.
+- `docs/pipeline_architecture.md`: ownership, package, state, and storage boundaries.
+- `docs/desktop_application.md`: stable product contract, not an implementation wishlist.
+- `docs/t2_lesion_integration.md`: frozen release and T2 review contract.
+- `docs/brain_extraction.md`: current T1 mask decision and QC policy.
+- `docs/enhancement_quantification.md`: T1 measurement meaning and validation.
+- `docs/development.md`: active commands and developer workflow.
 
-When code and documentation disagree, verify behavior in code and tests, then update the
-single authoritative document rather than adding another planning file.
+When code, tests, and documentation disagree, verify behavior in code and tests and
+update the single authoritative document. Git history is the archive; do not retain
+obsolete plans inside current-state documents.
 
-## Repository and branch policy
+## Repository hygiene
 
-The feature branches preceding the 2026-07 cleanup are a linear historical stack, not
-alternative implementations. The latest branch contains all of their work. New work
-should start from the consolidated tip, use one short-lived branch per bounded change,
-and merge or delete it when complete.
-
-Generated outputs under `output/`, `derivatives/`, and `reports/` are ignored and shared
-across branches. They can be stale after code changes. Never infer that an output was
-produced by the checked-out revision without provenance.
-
-Preserve manual masks and review decisions. Other generated outputs can be regenerated,
-but do not delete user-created artifacts merely to tidy the worktree.
-
-## Implementation boundaries
-
-Current supported code includes inventory, conversion, mask workflow/QC, rigid pre/post
-registration, analysis-manifest gating, provisional pair/cohort quantification, a
-schema-v6 PySide6 study-root foundation with persistent and reversibly archived subjects, expected workflows,
-read-only Bruker/NIfTI discovery, reviewed subject/role/orientation assignments,
-versioned scan-input conversion/provenance, blinding/groups, audit history and recent
-studies, frozen T2 release validation/inference, persistent T2 jobs and draft artifacts,
-plus a connected synthetic design preview for the remaining scientific workflow pages.
-
-Not implemented as production features: immutable artifact review/correction/approval,
-official result/method/dependency state, a fully approved end-to-end workflow, T1 desktop
-execution, T2 released-mask import, T2-to-T1 transform/QC, atlas registration, validated
-enhancement thresholds, production-connected exports, or installers.
-
-Scientific functions belong in `src/lys_bbb/`; all desktop code belongs in
-`src/lys_bbb_app/`. Do not create a second Qt shell or compatibility package. Keep CLIs
-and external-model adapters thin. Model-specific T1 inference adapters belong under
-`scripts/brain_extraction/<model>/` and must conform to the output contract in
-`docs/brain_extraction.md`.
+- Preserve manual masks, review decisions, and raw data.
+- Generated outputs under `output/`, `derivatives/`, and `reports/` are ignored and can
+  be stale across branches.
+- Split large modules only while implementing the next vertical slice and only along a
+  real responsibility boundary.
+- Keep CLIs thin and typed domain records Qt-free.
+- Run the full suite before committing. Use CI as the visible merge gate.

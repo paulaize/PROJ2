@@ -1,214 +1,125 @@
-# External T2 lesion integration
+# T2 lesion integration
 
-## Ownership boundary
+## Ownership
 
-The T2w brain-lesion segmentation model is developed and evaluated in the sibling
-`~/Documents/LYS_PROJ1` repository. Its active development branch at the 2026-07-20
-audit is `dl-ratlesnetv2-finetune`, with the executable protocol in
-`docs/ratlesnetv2_lys_v1_kaggle_workflow.md` in that repository. `LYS_PROJ2` must not
-contain a duplicate training pipeline, private development weights, experiment
-selection, or an independent reimplementation.
+`~/Documents/LYS_PROJ1` owns RatLesNetV2 model development, training, model/threshold
+selection, validation, and frozen releases. `LYS_PROJ2` owns release validation,
+inference execution, study artifacts, human review, approved native-space volume, and
+exports.
 
-The desktop MVP supports two controlled paths:
+The application never trains, tunes, chooses, or silently updates a T2 model and never
+imports Python from the live sibling checkout.
 
-1. import a released native-T2 lesion mask and its provenance; or
-2. validate and invoke an installed frozen RatLesNetV2 release package to create a draft
-   mask that still requires human review.
+## Current frozen release
 
-The application never trains, tunes, chooses, or silently updates the release. T2
-integration must not block T1 brain-extraction validation.
-
-## Handoff from LYS_PROJ1
-
-The controlled `LYS_PROJ1` workflow is designed to freeze:
-
-- the selected loss and initialization route;
-- five grouped-fold RatLesNetV2 checkpoints;
-- an OOF-validation-selected probability threshold;
-- an unweighted mean-probability ensemble;
-- `postprocessing=none` unless a later version validates another rule; and
-- dataset/split, code revision, environment, model hashes, locked-test, and evaluation
-  provenance in a reproducibility artifact bundle.
-
-That scientific artifact bundle is the source for an application release. The first
-approved inference bundle is now connected through a narrow local adapter and structured
-completion records. The app validates and uses that immutable release; it never imports
-the sibling working tree or runs directly from an active training branch.
-
-## Connected LYS v1 inference release
-
-The current installed release directory on the development workstation is:
+Development workstation location:
 
 ```text
-/Users/paul-andreaslaize/Downloads/LYS_v1_RatLesNetV2_mac_inference
-```
-
-It contains:
-
-```text
-LYS_v1_RatLesNetV2_mac_inference/
+~/Downloads/LYS_v1_RatLesNetV2_mac_inference/
 ├── bundle_manifest.json
 ├── frozen_spec.json
 ├── selected_threshold.json
-├── models/
-│   ├── fold_0.model
-│   └── ... fold_4.model
+├── models/fold_0.model ... fold_4.model
 └── RatLesNetv2/
     ├── LICENSE
     ├── UPSTREAM_GIT_COMMIT.txt
     └── lib/
 ```
 
-The validator checks both specifications, the OOF-only threshold record, all five weight
-hashes, folds 0–4, unweighted mean-probability ensembling, `postprocessing=none`, and the
-bundled upstream revision/runtime files. It records the runtime-file hashes and refuses
-execution if the registered bundle changes later. The release remains read-only and
-external to the study. `LYS_PROJ2` contains only the small inference orchestration layer; weights,
-training, model selection, calibration, and cross-validation are not copied here.
+Before every run, the application checks:
 
-For each eligible study subject, the adapter adds the required singleton modality
-dimension to the managed 3-D T2 NIfTI. It performs no spatial resampling or reorientation,
-loads all five models, normalizes as RatLesNetV2 expects, averages their lesion
-probabilities, applies threshold 0.40, performs no postprocessing, and validates that the
-saved probability and mask geometry match the native input.
+- RatLesNetV2 architecture and upstream revision;
+- exactly folds 0–4 and every model SHA-256;
+- OOF-validation threshold selection and `locked_test_used=false`;
+- threshold 0.40;
+- unweighted mean lesion probability;
+- `postprocessing=none`;
+- frozen specification and runtime-file hashes.
 
-Outputs live in a new job-specific directory under
-`outputs/t2_lesion/jobs/<job-id>/`. Each subject receives
-`ensemble_probability.nii.gz`, `ensemble_mask.nii.gz`, and `qc_preview.png`; the job also
-writes `inference_manifest.csv` and `inference_summary.json`. SQLite records the release,
-job, source input, hashes, device, provisional voxel count/volume, and immutable artifact
-version. File existence alone never promotes a failed or interrupted run.
+The release remains external and read-only. Weights, training code, calibration, and
+cross-validation are not copied into this repository or into a study.
 
-The supplied unseen scan was reproduced through this adapter. A sandbox CPU execution
-matched the prior MPS binary mask voxel-for-voxel (7,339 voxels), preserved the affine,
-and differed in continuous probability by at most 1.73 × 10⁻⁶.
+## Inference contract
 
-The T2 lesion mask and T1 brain mask solve different problems:
+An eligible subject has an active, validated native T2 NIfTI with spacing
+0.07 × 0.07 × 0.5 mm. The adapter:
 
-```text
-T1 brain mask       valid tissue support for T1 analysis
-T2 lesion mask      stroke pathology defined independently of gadolinium
-pre/post T1         enhancement measurement
-```
+1. adds only the required singleton modality dimension;
+2. performs no spatial resampling or reorientation;
+3. applies the frozen RatLesNetV2 normalization;
+4. loads all five checksummed models;
+5. averages their lesion-probability maps;
+6. applies threshold 0.40;
+7. performs no connected-component or other postprocessing; and
+8. validates output shape and affine against the native input.
 
-## Frozen model-release contract
-
-A future general-purpose runnable release package has this logical content:
+Job outputs:
 
 ```text
-release/
-├── release.json
-├── preprocessing.json
-├── inference_contract.json
-├── threshold.json
-├── provenance.json
-├── checksums.sha256
-└── model files
+outputs/t2_lesion/jobs/<job-id>/
+├── cases/<subject-id>/
+│   ├── ensemble_probability.nii.gz
+│   ├── ensemble_mask.nii.gz
+│   └── qc_preview.png
+├── inference_manifest.csv
+└── inference_summary.json
 ```
 
-Before installation or use, the application validates:
+SQLite records release, job, source input, hashes, device, provisional voxel count and
+volume, and artifact version. File presence alone never proves success.
 
-- release ID and immutable version;
-- expected model-file count and checksums;
-- input type and application compatibility;
-- preprocessing and inference contracts;
-- threshold and postprocessing setting;
-- human-review requirement;
-- model-development code revision and evaluation provenance; and
-- absence of undeclared mutable runtime parameters.
+The supplied unseen smoke case matched the previous MPS mask voxel-for-voxel: 7,339
+voxels and identical affine. Maximum CPU/MPS probability difference was 1.73 × 10⁻⁶.
 
-Release validation creates a `model_releases` record. It does not imply that any lesion
-prediction is approved. The connected v1 bundle uses the equivalent concrete files
-listed above; no metadata field is invented when the release does not declare it.
-
-## Released-mask contract
-
-For each case/session, the released `LYS_PROJ1` contract should provide or make
-derivable:
-
-- canonical mouse and session ID;
-- native T2w input image identity;
-- binary lesion mask on exactly the T2w image grid;
-- image/mask shape, affine, spacing, orientation, and permitted labels;
-- model name, release version, code revision, and weight checksum;
-- preprocessing and postprocessing description;
-- automatic QC and prediction status;
-- optional external review decision and reviewed-mask checksum, which the importing
-  study records as provenance but does not silently treat as its own approval.
-
-The final file naming can change, but these semantics must not.
-
-## MVP responsibilities of this repository
-
-For native-space lesion volume, the desktop application owns:
-
-1. selecting and validating the matching T2w scan;
-2. validating an imported mask and provenance or validating/invoking a frozen release;
-3. recording the generated or imported mask as an immutable draft artifact;
-4. validating native-grid shape, affine, spacing, orientation, and binary labels;
-5. requiring explicit human approval or rejection;
-6. preserving corrected masks as new artifact versions;
-7. calculating lesion voxel count and volume in mm³ from the approved native-grid mask;
-8. recording reviewer, warnings, method/release ID, checksums, and dependency links; and
-9. marking the result outdated if the T2 scan, mask, or method changes.
-
-T2-to-T1 registration is not required for the MVP native lesion-volume result.
-
-Items 1–4, draft provenance, provisional native-space voxel/volume calculation, T2 input
-invalidation, and ITK-SNAP inspection are implemented for generated masks. Items 5–9 are
-only partially complete: the current value is explicitly provisional until immutable
-review/correction, approval, dependency records, and approved-result export are added.
-
-## Post-MVP T2-to-T1 linkage
-
-Later lesion-associated T1 analysis may register native T2 to native pre-Gd T1,
-visually approve the multimodal registration, transfer the lesion mask with nearest-
-neighbour interpolation, and calculate lesion/perilesional enhancement metrics. That is
-a separate reviewed workflow and must not block native-space lesion volume.
+## Current stopping point
 
 ```text
-T2 lesion mask ── native T2
-       │
-       └─ nearest-neighbour through approved T2→T1 transform
-                            ↓
-                     native pre-Gd T1
-                            ↓
-             lesion-associated enhancement metrics
+validated T2 → inference → immutable draft mask → provisional volume
+                                      ↑
+                             implemented to here
 ```
 
-Native T2 lesion volume remains the primary T2 MVP measurement. Do not repeatedly
-resample lesion or T1 intensity images.
+The mask is always `DRAFT_REVIEW_REQUIRED`. The displayed volume is provisional and
+must not be exported as an approved measurement.
 
-## Post-MVP linked metrics
+## Next review-to-result contract
 
-Once the transform is validated, useful outputs include:
+### Review actions
 
-- native T2 lesion volume and morphology;
-- mean, median, and 95th-percentile enhancement inside lesion;
-- enhancing lesion volume and percent of lesion enhancing;
-- integrated positive enhancement inside and outside lesion;
-- lesion-to-mirrored-contralateral ratio;
-- physical-distance perilesional rings;
-- ipsilateral and contralateral outside-lesion brain;
-- D1-to-D7 scalar changes.
+- `Approve`: accept this exact native-grid mask version.
+- `Reject`: require issue code and notes; keep the draft.
+- `Open for correction`: create an editable copy and open T2 plus copy in ITK-SNAP.
+- `Import corrected mask`: validate shape, affine, binary labels, checksum, and source;
+  store it as a new immutable version.
 
-Voxelwise persistent/resolved/new compartments require an additional validated D1-to-D7
-registration. They must not be inferred from scalar deltas alone.
+Every decision records reviewer, time, notes, issue code where required, and study
+blinding state.
 
-## Atlas relationship
+### Official volume
 
-Atlas mapping is optional and later. An MRI-compatible atlas may register through T2,
-then have its labels composed into pre-Gd T1 space. Enhancement remains measured in
-native pre-Gd T1. Start with larger regions supported by the MRI resolution; do not imply
-fine anatomical precision from small atlas labels.
+Only an approved mask may produce the official result:
 
-## MVP integration acceptance
+```text
+lesion_voxel_count = count(mask == 1)
+lesion_volume_mm3  = lesion_voxel_count × voxel_volume_mm3
+```
 
-The external link is ready only when a reviewed representative set demonstrates correct
-subject matching, release/checksum validation, native-grid mask validation, immutable
-draft creation, human review, corrected-mask versioning, native-space volume, dependency
-invalidation, provenance export, and structured failure behavior. A successful model
-process or a lesion prediction file alone is not sufficient.
+The result records approved mask ID/checksum, native T2 ID, spacing, model release,
+method version, reviewer, approval time, and warnings. A new source T2, approved mask, or
+release/method makes the old result `OUTDATED` without deleting it.
 
-T2-to-T1 alignment, nearest-neighbour transfer, and lesion-associated enhancement have
-their own later validation gate.
+### First export
+
+The first production export is a simple approved-results CSV. It includes no unapproved
+value by default and requires audited unblinding before adding group columns.
+
+## Deferred
+
+- T2-to-T1 registration and lesion-associated enhancement.
+- Atlas mapping and regional quantification.
+- Embedded mask editing.
+- Model release marketplaces or arbitrary parameter editing.
+- Import of externally released masks unless it is required after the reviewed-result
+  slice is complete.
+
+The immediate acceptance criteria are listed in `current_state.md`.

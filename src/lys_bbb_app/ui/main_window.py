@@ -68,7 +68,7 @@ LEGACY_PROJECT_FILTER = (
 
 
 class MainWindow(QMainWindow):
-    """Application shell with persistent MRI import and synthetic downstream pages."""
+    """Application shell for canonical studies and a labelled synthetic design preview."""
 
     def __init__(
         self,
@@ -979,7 +979,7 @@ class MainWindow(QMainWindow):
             return
         if self.study_service.current_study is None:
             self._show_preview_message(
-                "Legacy schema-v1 projects do not contain the Phase 1 audit history."
+                "Legacy schema-v1 projects do not contain the canonical study audit history."
             )
             return
         try:

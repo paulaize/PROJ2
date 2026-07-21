@@ -1,4 +1,4 @@
-"""Focused tests for canonical Phase 1 study-root persistence."""
+"""Focused tests for canonical schema-v6 study-root persistence and migration."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _create_study(tmp_path: Path, *, blinded: bool = True) -> StudyRepository:
             root_path=tmp_path / "eae-study",
             name="EAE Mouse Study",
             identifier="EAE-2026",
-            description="Persistent Phase 1 test",
+            description="Persistent canonical study test",
             blinded=blinded,
             group_definitions=("Vehicle", "Treatment A"),
             actor="Test researcher",

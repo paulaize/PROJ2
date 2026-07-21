@@ -254,7 +254,7 @@ class SubjectWorkspacePage(QScrollArea):
         button.setToolTip(
             ""
             if action_enabled
-            else "This input is ready. The versioned artifact/review step is the next milestone."
+            else "This workflow action is not connected in the current build."
         )
         button.clicked.connect(self._show_t2 if target_t2 else self._show_inputs)
         layout.addWidget(button, 1, 1, Qt.AlignRight)

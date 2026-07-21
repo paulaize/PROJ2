@@ -57,7 +57,7 @@ def present_legacy_project(project: LegacyProjectRecord) -> StudyViewModel:
 
 
 def present_study(study: StudySnapshot) -> StudyViewModel:
-    """Represent durable Phase 1 state without inventing scientific outputs."""
+    """Represent canonical durable state without inventing scientific outputs."""
 
     subjects = tuple(
         _present_subject(

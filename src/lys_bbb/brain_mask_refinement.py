@@ -38,6 +38,49 @@ class GapRefinementConfig:
     min_corrected_slices: int = 3
 
 
+@dataclass(frozen=True)
+class MaskRegularityConfig:
+    """Conservative warning thresholds for a 3-D mouse-brain mask.
+
+    These checks describe suspicious geometry; they never edit, accept, or reject a
+    mask. End slices below ``profile_area_fraction`` of the maximum cross-sectional
+    area are excluded from local-change checks because a normal brain tapers there.
+    """
+
+    profile_area_fraction: float = 0.20
+    max_adjacent_area_change_fraction: float = 0.55
+    max_one_slice_area_deviation_fraction: float = 0.30
+    max_centroid_step_mm: float = 0.75
+    min_compactness: float = 0.05
+
+
+@dataclass(frozen=True)
+class MaskRegularityReport:
+    """Physical and slice-profile measurements used to guide human review."""
+
+    foreground_voxels: int
+    volume_mm3: float
+    connected_components: int
+    occupied_slice_range: tuple[int, int]
+    internal_empty_slices: tuple[int, ...]
+    slice_area_mm2: tuple[float, ...]
+    centroid_rs_mm: tuple[tuple[float, float] | None, ...]
+    max_adjacent_area_change_fraction: float
+    abrupt_area_pairs: tuple[tuple[int, int], ...]
+    max_centroid_step_mm: float
+    abrupt_centroid_pairs: tuple[tuple[int, int], ...]
+    one_slice_outlier_slices: tuple[int, ...]
+    surface_area_mm2: float
+    surface_to_volume_ratio_mm_inverse: float
+    compactness: float
+    warnings: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable representation for provenance metadata."""
+
+        return asdict(self)
+
+
 @dataclass
 class SliceGap:
     """A detected superior separating line for one coronal slice."""
@@ -49,6 +92,149 @@ class SliceGap:
     confidence: float = 0.0
     coverage: float = 0.0
     reason: str = ""
+
+
+def _voxel_face_surface_area(mask: np.ndarray, spacing: np.ndarray) -> float:
+    """Estimate physical surface area by counting exposed voxel faces."""
+
+    padded = np.pad(np.asarray(mask, dtype=np.int8), 1)
+    surface_area = 0.0
+    for axis in range(3):
+        exposed_faces = int(np.count_nonzero(np.diff(padded, axis=axis)))
+        face_area = float(np.prod(np.delete(spacing, axis)))
+        surface_area += exposed_faces * face_area
+    return surface_area
+
+
+def assess_mask_regularity(
+    mask_rsa: np.ndarray,
+    spacing_rsa: tuple[float, float, float],
+    config: MaskRegularityConfig | None = None,
+) -> MaskRegularityReport:
+    """Measure 3-D regularity without changing or approving the supplied mask.
+
+    The report looks for disconnected islands, internal empty slices, sudden changes
+    in coronal area or centroid, and isolated one-slice area deviations. Surface and
+    compactness measurements are expressed in physical units so anisotropic scans are
+    not treated as isotropic voxel grids.
+    """
+
+    mask = np.asarray(mask_rsa, dtype=bool)
+    if mask.ndim != 3:
+        raise ValueError("Mask regularity assessment requires a three-dimensional mask")
+    if not mask.any():
+        raise ValueError("Mask regularity assessment requires a non-empty mask")
+    spacing = np.asarray(spacing_rsa, dtype=np.float64)
+    if spacing.shape != (3,) or not np.all(np.isfinite(spacing)) or np.any(spacing <= 0):
+        raise ValueError("Mask spacing must contain three finite positive values")
+    config = config or MaskRegularityConfig()
+
+    foreground_voxels = int(np.count_nonzero(mask))
+    voxel_volume = float(np.prod(spacing))
+    volume_mm3 = foreground_voxels * voxel_volume
+    _, connected_components = ndi.label(mask)
+
+    counts = np.count_nonzero(mask, axis=(0, 1)).astype(np.float64)
+    areas = counts * float(spacing[0] * spacing[1])
+    occupied = np.flatnonzero(counts)
+    first_slice, last_slice = int(occupied[0]), int(occupied[-1])
+    internal_empty = tuple(
+        int(index)
+        for index in range(first_slice, last_slice + 1)
+        if counts[index] == 0
+    )
+
+    centroid_rs: list[tuple[float, float] | None] = []
+    for slice_index in range(mask.shape[2]):
+        coordinates = np.argwhere(mask[:, :, slice_index])
+        if coordinates.size == 0:
+            centroid_rs.append(None)
+            continue
+        centroid = coordinates.mean(axis=0) * spacing[:2]
+        centroid_rs.append((float(centroid[0]), float(centroid[1])))
+
+    profile = areas >= float(areas.max() * config.profile_area_fraction)
+    area_changes: list[tuple[tuple[int, int], float]] = []
+    centroid_steps: list[tuple[tuple[int, int], float]] = []
+    for left in range(mask.shape[2] - 1):
+        right = left + 1
+        if not (profile[left] and profile[right]):
+            continue
+        denominator = max(float((areas[left] + areas[right]) / 2.0), np.finfo(float).eps)
+        area_change = float(abs(areas[right] - areas[left]) / denominator)
+        area_changes.append(((left, right), area_change))
+        left_centroid, right_centroid = centroid_rs[left], centroid_rs[right]
+        if left_centroid is not None and right_centroid is not None:
+            centroid_step = float(
+                np.linalg.norm(np.asarray(right_centroid) - np.asarray(left_centroid))
+            )
+            centroid_steps.append(((left, right), centroid_step))
+
+    abrupt_area_pairs = tuple(
+        pair
+        for pair, change in area_changes
+        if change > config.max_adjacent_area_change_fraction
+    )
+    abrupt_centroid_pairs = tuple(
+        pair
+        for pair, step in centroid_steps
+        if step > config.max_centroid_step_mm
+    )
+
+    one_slice_outliers: list[int] = []
+    for index in range(1, mask.shape[2] - 1):
+        if not (profile[index - 1] and profile[index] and profile[index + 1]):
+            continue
+        neighbour_area = float((areas[index - 1] + areas[index + 1]) / 2.0)
+        neighbour_disagreement = abs(
+            float(areas[index - 1]) - float(areas[index + 1])
+        ) / max(neighbour_area, np.finfo(float).eps)
+        if neighbour_disagreement > config.max_one_slice_area_deviation_fraction:
+            continue
+        deviation = abs(float(areas[index]) - neighbour_area) / max(
+            neighbour_area, np.finfo(float).eps
+        )
+        if deviation > config.max_one_slice_area_deviation_fraction:
+            one_slice_outliers.append(index)
+
+    surface_area = _voxel_face_surface_area(mask, spacing)
+    surface_to_volume = surface_area / volume_mm3
+    compactness = float(36.0 * np.pi * volume_mm3**2 / surface_area**3)
+
+    warnings: list[str] = []
+    if connected_components > 1:
+        warnings.append("disconnected_components")
+    if internal_empty:
+        warnings.append("internal_empty_slices")
+    if abrupt_area_pairs:
+        warnings.append("abrupt_cross_section_change")
+    if abrupt_centroid_pairs:
+        warnings.append("abrupt_centroid_motion")
+    if one_slice_outliers:
+        warnings.append("isolated_one_slice_area_outlier")
+    if compactness < config.min_compactness:
+        warnings.append("low_physical_compactness")
+
+    return MaskRegularityReport(
+        foreground_voxels=foreground_voxels,
+        volume_mm3=volume_mm3,
+        connected_components=int(connected_components),
+        occupied_slice_range=(first_slice, last_slice),
+        internal_empty_slices=internal_empty,
+        slice_area_mm2=tuple(float(value) for value in areas),
+        centroid_rs_mm=tuple(centroid_rs),
+        max_adjacent_area_change_fraction=max(
+            (change for _, change in area_changes), default=0.0
+        ),
+        abrupt_area_pairs=abrupt_area_pairs,
+        max_centroid_step_mm=max((step for _, step in centroid_steps), default=0.0),
+        abrupt_centroid_pairs=abrupt_centroid_pairs,
+        one_slice_outlier_slices=tuple(one_slice_outliers),
+        surface_area_mm2=surface_area,
+        surface_to_volume_ratio_mm_inverse=surface_to_volume,
+        compactness=compactness,
+        warnings=tuple(warnings),
+    )
 
 
 def robust_normalize(image: np.ndarray, mask: np.ndarray) -> np.ndarray:

@@ -57,7 +57,9 @@ CELLS = [
         RS2 boundary and leave a slice unchanged when the image does not supply a
         sufficiently continuous dark gap. These safeguards do **not** make the masks
         ground truth: every candidate still requires visual review, especially for
-        cortical under-segmentation.
+        cortical under-segmentation. Non-destructive 3-D regularity checks also flag
+        discontinuous area profiles, centroid jumps, isolated one-slice changes, and
+        physically irregular surfaces for closer review.
 
         ## Run instructions
 
@@ -419,6 +421,7 @@ CELLS = [
             min_corrected_slices=3,
         )
         RANDOM_WALKER_BETA = 180.0
+        REGULARITY_CONFIG = MaskRegularityConfig()
         METHOD_DESCRIPTIONS = {
             'rs2_m_seam': 'Direct removal superior to a detected dark M-shaped line',
             'rs2_marker_watershed': 'Marker-controlled watershed on the local T1 gradient',
@@ -442,6 +445,11 @@ CELLS = [
             spacing_rsa = tuple(native_spacing[axis] for axis in orientation['order'])
             normalized = robust_normalize(image_rsa, raw_rsa)
             gaps = detect_gap_volume(normalized, raw_rsa, spacing_rsa, REFINEMENT_CONFIG)
+            raw_regularity = assess_mask_regularity(raw_rsa, spacing_rsa, REGULARITY_CONFIG)
+            raw_metadata_path = RESULTS / 'metadata' / 'rs2net_raw' / f'{case_id}.json'
+            raw_metadata = json.loads(raw_metadata_path.read_text())
+            raw_metadata['regularity_qc'] = raw_regularity.to_dict()
+            raw_metadata_path.write_text(json.dumps(raw_metadata, indent=2) + '\n')
 
             seam_mask, seam_stats = refine_direct_seam(raw_rsa, gaps, REFINEMENT_CONFIG)
             watershed_mask, watershed_stats = refine_watershed(
@@ -477,8 +485,13 @@ CELLS = [
             REFINEMENT_CACHE[case_id] = {
                 'image_rsa': image_rsa, 'raw_rsa': raw_rsa, 'gaps': gaps,
                 'spacing_rsa': spacing_rsa, 'orientation': orientation, 'results': results,
+                'raw_regularity': raw_regularity,
             }
             for model_id, (candidate_rsa, stats) in results.items():
+                regularity = assess_mask_regularity(
+                    candidate_rsa, spacing_rsa, REGULARITY_CONFIG
+                )
+                stats['regularity_qc'] = regularity.to_dict()
                 candidate_native = rsa_to_native(candidate_rsa, orientation).astype(np.uint8)
                 output_path = RESULTS / 'predictions' / model_id / f'{case_id}_brain_mask.nii.gz'
                 save_mask_like(candidate_native, image_object, output_path)
@@ -517,6 +530,11 @@ CELLS = [
                     'removed_voxels': stats['removed_voxels'],
                     'removed_percent': round(100.0 * stats['removed_fraction'], 3),
                     'slice_errors': len(stats.get('slice_errors', {})),
+                    'regularity_warning_count': len(regularity.warnings),
+                    'regularity_warnings': ';'.join(regularity.warnings),
+                    'one_slice_outliers': len(regularity.one_slice_outlier_slices),
+                    'max_centroid_step_mm': round(regularity.max_centroid_step_mm, 4),
+                    'surface_area_mm2': round(regularity.surface_area_mm2, 4),
                 })
 
         with (RESULTS / 'refinement_summary.csv').open('w', newline='') as stream:
@@ -664,6 +682,7 @@ CELLS = [
         print('\nInterpretation:')
         print('- unchanged_no_confident_correction means the image-based safety gate retained raw RS2.')
         print('- A large removed percentage is not automatically good; inspect the cortex for under-segmentation.')
+        print('- Regularity warnings prioritize review; they do not reject, repair, or approve a mask.')
         print('- Compare the same method across all 10 cases. Do not select a method from one attractive slice.')
         print('- These outputs are automatic candidates, not reviewed masks and not quantification inputs.')
         """,
@@ -676,6 +695,10 @@ CELLS = [
         for case in CASES:
             case_id, image_path = case['case_id'], case['image']
             image_object = nib.load(str(image_path))
+            image_native = np.asanyarray(image_object.dataobj)
+            _, orientation = native_to_rsa(image_native, image_object.affine)
+            native_spacing = tuple(float(value) for value in image_object.header.get_zooms()[:3])
+            spacing_rsa = tuple(native_spacing[axis] for axis in orientation['order'])
             raw_path = RESULTS / 'predictions' / 'rs2net_raw' / f'{case_id}_brain_mask.nii.gz'
             raw_object = nib.load(str(raw_path))
             raw = np.asanyarray(raw_object.dataobj) > 0
@@ -688,6 +711,10 @@ CELLS = [
                 binary_ok = set(np.unique(np.asanyarray(mask_object.dataobj))).issubset({0, 1})
                 nonempty_ok = bool(mask.any() and not mask.all())
                 subset_of_raw = bool(not np.any(mask & ~raw))
+                mask_rsa, _ = native_to_rsa(mask, image_object.affine)
+                regularity = assess_mask_regularity(
+                    mask_rsa, spacing_rsa, REGULARITY_CONFIG
+                )
                 if not all((shape_ok, affine_ok, binary_ok, nonempty_ok, subset_of_raw)):
                     raise ValueError(f'Validation failed for {case_id} {model_id}')
                 validation_rows.append({
@@ -695,6 +722,14 @@ CELLS = [
                     'affine_ok': affine_ok, 'binary_ok': binary_ok,
                     'nonempty_ok': nonempty_ok, 'subset_of_raw_rs2': subset_of_raw,
                     'foreground_voxels': int(mask.sum()),
+                    'regularity_warning_count': len(regularity.warnings),
+                    'regularity_warnings': ';'.join(regularity.warnings),
+                    'max_adjacent_area_change_fraction': round(
+                        regularity.max_adjacent_area_change_fraction, 6
+                    ),
+                    'max_centroid_step_mm': round(regularity.max_centroid_step_mm, 6),
+                    'surface_area_mm2': round(regularity.surface_area_mm2, 6),
+                    'compactness': round(regularity.compactness, 6),
                 })
 
         with (RESULTS / 'validation_summary.csv').open('w', newline='') as stream:
@@ -714,6 +749,7 @@ CELLS = [
             '  conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \\\n'
             '    ~/Downloads/t1_brain_extraction_rs2_refinement_results.zip\n\n'
             'Inspect the full anterior-posterior extent and specifically check for lost superior cortex.\n'
+            'Regularity warnings are review aids only; they do not approve or repair a mask.\n'
             'Do not use an automatic candidate for quantification until it has been accepted or corrected.\n'
         )
         (RESULTS / 'README.txt').write_text(readme)
@@ -722,6 +758,7 @@ CELLS = [
             'purpose': 'Experimental T1-guided correction of superior skull in RS2-Net masks',
             'case_count': len(CASES), 'models': MODEL_ORDER,
             'refinement_configuration': asdict(REFINEMENT_CONFIG),
+            'regularity_configuration': asdict(REGULARITY_CONFIG),
             'random_walker_enabled': RUN_RANDOM_WALKER,
             'random_walker_beta': RANDOM_WALKER_BETA if RUN_RANDOM_WALKER else None,
             'rs2_provenance': RS2_PROVENANCE, 'runtime': RUNTIME,

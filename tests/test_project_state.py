@@ -1,4 +1,4 @@
-"""Tests for versioned SQLite project state and application services."""
+"""Regression tests for frozen schema-v1 project compatibility."""
 
 from __future__ import annotations
 

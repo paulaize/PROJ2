@@ -236,7 +236,7 @@ class OverviewPage(QScrollArea):
         )
         refresh = secondary_button("Refresh")
         refresh.setEnabled(False)
-        refresh.setToolTip("Live database refresh arrives in Phase 1.")
+        refresh.setToolTip("The current study refreshes after each completed action.")
         heading_layout.addWidget(refresh)
         self.layout.addWidget(heading)
 

@@ -1,6 +1,8 @@
-"""Application services for desktop project setup.
+"""Frozen service for opening and migrating schema-v1 ``.lysbbb`` projects.
 
-The Qt layer calls this service instead of owning persistence or pipeline behavior.
+New studies use ``lys_bbb_app.services.StudyService`` and the schema-v6
+``StudyRepository``. Keep this adapter only for backward compatibility and do not add
+new application or scientific behavior here.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from lys_bbb.project_state import (
 
 
 class ProjectService:
-    """Manage the project currently open in the desktop application."""
+    """Manage one legacy single-file project for compatibility workflows."""
 
     def __init__(self) -> None:
         self._database: ProjectDatabase | None = None

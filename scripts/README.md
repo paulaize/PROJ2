@@ -3,6 +3,10 @@
 Scripts are grouped by pipeline stage. Reusable logic belongs in `src/lys_bbb/`;
 scripts should remain thin command-line adapters unless they integrate an external tool.
 
+The current application milestone is T2 review and approval. Most scripts below are
+retained, tested T1 research/reproducibility tools; they are not parallel production
+applications and should not be expanded while the T2 vertical slice is active.
+
 | Folder | Purpose |
 |---|---|
 | `inventory/` | Inspect raw Bruker sessions and assign scan roles |
@@ -12,8 +16,8 @@ scripts should remain thin command-line adapters unless they integrate an extern
 | `qc/` | Build registration, mask, study, analysis, and readiness reports |
 | `quantification/` | Run provisional pair or cohort enhancement analysis |
 
-`brain_extraction/mbe/` is an adapter for MouseBrainExtractor, not the project-wide
-brain-extraction API. New benchmarked models should receive their own adapter and must
-write the common output contract described in `docs/brain_extraction.md`.
+`brain_extraction/mbe/` is a frozen comparison adapter for MouseBrainExtractor, not the
+project-wide brain-extraction API. The active T1 pre-label experiment is the RS2
+refinement described in `docs/brain_extraction.md`.
 
 Generated images, masks, tables, and model weights do not belong under `scripts/`.

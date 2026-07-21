@@ -1,290 +1,150 @@
 # Current project state
 
-Last audited: 2026-07-20. This file records operational facts, not future design.
+Last audited: 2026-07-21. This document contains current facts and the immediate
+milestone only. Historical plans belong in Git history.
 
-## Readiness summary
+## Executive summary
 
-The T1 backend works on synthetic tests and development cases, but the cohort is not
-ready for biological interpretation. The final analysis manifest currently includes
-zero cases because reviewed T1 brain masks are unavailable.
+The repository is technically coherent and should not be replaced or split now. The
+current branch is a consolidation candidate for `main`: it has a sensible internal
+boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v6 studies, real MRI
+import, and real frozen-model T2 inference.
 
-| Area | Current state |
-|---|---|
-| Raw inventory | 36 sessions, 285 scans, no inventory failures |
-| Intended T1 cases | 35 case IDs |
-| Converted T1 pairs | 34 |
-| Rigid registration outputs | 34; numeric similarity improved in all cases |
-| Explicit registration approvals | 0 |
-| MouseBrainExtractor pre-labels | 8 |
-| Explicitly approved T1 brain masks | 0 |
-| Final analysis cases | 0 |
-| Frozen Colab benchmark inputs | 10 T1 images packaged; primary GPU run completed successfully |
-| Colab benchmark implementation | Three primary models, two mismatched controls, and a separate RS2 correction experiment |
-| Brain-extraction decision | RS2-Net is the visual front-runner; corrected-mask selection and reviewed-reference scoring remain pending |
-| Desktop application | Schema-v6 study roots, read-only Bruker/NIfTI discovery, editable subject/role/orientation review, versioned conversion/validation, persistent subjects/jobs/draft T2 artifacts/release provenance, blinding/groups/audit, plus the synthetic downstream preview |
-| T2 desktop workflow | Frozen five-model LYS v1 release validation and cohort inference are connected; native-space draft masks, probability maps, QC previews, and provisional volumes persist; approval is pending |
-| Tests | Test suite passes; biological validation is separate |
+The reason progress feels incomplete is that development moved horizontally across the
+application foundation without completing one reviewed scientific workflow vertically.
 
-The data contain static pre/post `T1_FLASH_3D_Glymphatic_Sag` scans. They do not
-contain the multi-TR or dynamic acquisitions required for quantitative T1 mapping or
-DCE permeability modeling.
+At this audit, Ruff and all 139 tests pass locally. GitHub Actions now runs the same
+style check and offscreen test suite on pushes and pull requests.
 
-## Dataset exceptions
+```text
+Closest workflow today
 
-- `C23S2_D1` failed T1 conversion because `brkraw` reported no valid ParaVision study.
-- `C26S5_D1` has no usable T1 pre/post pair.
-- `C23S3` has both `D1` and `D1_bis`; one must be selected before a unique D1-to-D7
-  comparison is possible.
+T2 input → validation → inference → draft mask → provisional volume
+                                      ↑
+                         review and approval missing
+```
+
+## Implemented now
+
+### Desktop and study state
+
+- Create, open, and reopen schema-v6 study roots.
+- Reference read-only Bruker/NIfTI source folders on mounted drives.
+- Discover scans and let users correct subject IDs, T1/T2 roles, and orientation actions.
+- Convert confirmed inputs to versioned managed NIfTI files with provenance.
+- Validate geometry and checksums; batch-flip storage axes as new versions.
+- Rename or reversibly archive subjects without losing historical state.
+- Preserve blinded review, optional groups, reviewer identity, and audit history.
+- Open active MRI inputs in ITK-SNAP.
+
+### T2 lesion workflow
+
+- Validate the external five-model LYS v1 RatLesNetV2 release and its hashes.
+- Run one subject or the eligible cohort using MPS, CUDA, or CPU.
+- Preserve native affine; average five probability maps; apply threshold 0.40; perform
+  no postprocessing.
+- Persist probability maps, immutable draft masks, QC previews, provisional voxel count
+  and volume, jobs, release provenance, and audit events.
+- Mark a draft outdated when its source T2 is replaced or flipped.
+- Reopen the study with the same release, job, and draft-artifact state.
+
+The supplied unseen T2 smoke case reproduced the prior result exactly at the binary-mask
+level: 7,339 voxels and identical affine. CPU/MPS probability differences were at most
+1.73 × 10⁻⁶.
+
+### T1 scientific backend
+
+- 36 raw sessions and 285 scans inventoried.
+- 35 intended T1 cases; 34 converted pairs.
+- 34 rigid registration outputs; zero explicit registration approvals.
+- Zero explicitly approved T1 brain masks and zero cases in the final analysis gate.
+- Enhancement calculation exists, but its independent pre/post normalization may
+  suppress diffuse signal and remains provisional.
+
+The T1-guided RS2 refinement experiment has now run on the frozen ten-case cohort and
+is the best current pre-label approach by visual inspection. It produced valid native-
+grid candidates for all ten cases, applied a gated correction in seven, and retained raw
+RS2 in three where no confident gap was found. No specific corrected variant is yet a
+formally approved winner, and no output is ground truth.
+
+## Known dataset exceptions
+
+- `C23S2_D1`: T1 conversion failure; no valid ParaVision study reported by `brkraw`.
+- `C26S5_D1`: no usable T1 pre/post pair.
+- `C23S3`: both `D1` and `D1_bis`; one must be selected for a unique longitudinal pair.
 - Treatment groups remain blinded.
 
-## Brain masks
+## Immediate milestone: T2 reviewed result
 
-Existing MouseBrainExtractor masks cover:
+The next development branch should be narrowly scoped to this user story:
 
-```text
-C23S5_D1
-C24S3_D1
-C24S4_D1
-C24S4_D7
-C25S1_D1
-C26S1_D1
-C26S2_D1
-C26S3_D7
-```
+> A researcher imports and validates T2, runs the frozen model, reviews or corrects the
+> draft mask, approves it, receives an official native-space lesion volume, exports one
+> CSV, and reopens the study with the complete state intact.
 
-Seven corresponding editable masks are unchanged copies of their pre-label. The
-`C23S5_D1` mask was edited and marked with the legacy `_done` filename, but it still
-lacks an explicit review approval. Filename state is therefore insufficient.
+Acceptance criteria:
 
-Current final gate:
+1. A draft mask can be accepted, rejected, or replaced by an ITK-SNAP-corrected mask.
+2. A correction is a new immutable artifact version; the automatic prediction remains.
+3. Reviewer identity, timestamp, decision, notes, issue code, and blinding state persist.
+4. Rejection requires a reason; approval does not require a note.
+5. Official voxel count and volume are calculated only from an approved native-grid mask.
+6. Provisional values are never silently promoted to official results.
+7. Replacing T2, approving another mask version, or changing the model release makes the
+   previous official result `OUTDATED` without deleting it.
+8. One approved-results CSV includes subject ID, optional group, value, unit, method,
+   mask checksum, release ID, reviewer, approval time, and result state.
+9. Closing and reopening preserves artifacts, decisions, dependencies, result, and audit.
+10. Tests cover allowed and blocked transitions, correction validation, invalidation,
+    export gating, and reopening.
 
-```text
-8  mask_needs_review
-26 missing_brain_mask
-1  missing_conversion
-0  included
-```
+Use ITK-SNAP for correction. Do not build an embedded segmentation editor.
 
-Largest-component cleanup and an eight-case testing-only cohort have run successfully.
-Those masks and cohort outputs are engineering artifacts, not accepted labels or
-biological results.
+## Explicitly frozen until the milestone passes
 
-The first model-comparison cohort is frozen in
-`config/brain_extraction_benchmark_10.txt`. Its 10-image local upload archive and exact
-Colab notebook generated MBE isotropic, MBE anisotropic, and RS2-Net masks successfully
-under one manifest/output contract. The downloaded masks have not yet been reviewed or
-scored against accepted references, so no benchmark winner has been selected.
+- Additional application pages or synthetic-preview features.
+- More responsive-layout polishing.
+- Atlas or T2-to-T1 integration.
+- New modalities or models.
+- General-purpose plugin/job/workflow frameworks.
+- New schema revisions unless the T2 review/result data genuinely requires one.
+- Cohort charts beyond the single approved-results CSV.
 
-An optional companion notebook is ready for two explicitly mismatched diagnostic
-controls: the CAMRI rodent T2/T2* U-Net and human-T1 deepbet. Its outputs use the same
-manifest and native-grid mask contract, and the local review launcher can combine both
-archives into one five-model ITK-SNAP comparison.
+## What follows
 
-The two controls performed worse than RS2-Net on visual inspection. RS2-Net closely
-follows the brain but recurrently includes a bright superior skull cap, most prominently
-in high-contrast images where a dark M-shaped brain--skull separation is visible.
-Increasing the RS2 probability threshold did not remove this false positive reliably.
-
-`notebooks/brain_extraction_rs2_refinement_colab.ipynb` is now ready to rerun RS2 once
-and compare three T1-guided postprocessors on the same ten images: a direct M-seam cut,
-marker-controlled watershed, and random walker. It preserves raw RS2, writes every
-candidate separately, generates interactive and durable QC, and packages all four masks
-for the existing ITK-SNAP review launcher. The algorithms were exercised locally on the
-downloaded ten-case results, but the exact notebook still awaits its first Colab run and
-formal human selection.
-
-## Registration and quantification
-
-Rigid post-Gd-to-pre-Gd registration is available for each converted pair. Improved
-cross-correlation is a useful automatic check, but not a human pass. The least similar
-registered cases deserve early visual review.
-
-Pair and cohort quantification currently implement:
-
-- rigid registration;
-- supplied pre-space mask enforcement;
-- smooth bias correction;
-- independent masked-median normalization;
-- difference, ratio, and percent-enhancement maps;
-- whole-mask, side-aware, lesion-hook, and D1-to-D7 summary metrics.
-
-The bias-correction and normalization choices may suppress broad biological
-enhancement. They remain provisional until the validation experiments in
-`docs/enhancement_quantification.md` pass.
-
-## Desktop foundation
-
-The PySide6 input-foundation milestone is implemented on
-`feat/pyside-project-foundation`. The launcher creates or opens a schema-v6 study root,
-records recent studies, persists subjects and their expected T1/T2 workflows, stores T1
-and T2 source-root references, and restores the same state after reopening. Source image
-folders may live on mounted hard drives and are referenced in place; project setup does
-not copy or modify their contents, and temporarily unavailable paths remain recorded.
-
-Study blinding is durable and one-way. A blinded study stores subjects without requiring
-groups and hides group information in the UI. Explicit unblinding records reviewer and
-time; group mappings may then be saved while individual subjects remain `Unassigned`.
-Study creation/opening, subject discovery/creation/removal/restoration, input-folder
-selection, MRI import, conversion success/failure, supersession, unblinding, and group
-assignment create append-only audit events visible from the Subjects page. Subject
-removal is a reversible archive: source and managed input artifacts are retained.
-
-Selecting an MRI root now scans nested Bruker sessions from their numeric `acqp`/`method`
-scan folders and recognisable direct NIfTI inputs. It proposes subject IDs and T1
-pre/post/T2 roles, gives preference to high-resolution RARE for native T2 rather than
-T2*, and requires a confirmation table where the user can correct identities, roles,
-coronal/native storage, and X/Y/Z storage-axis flips. Confirmed inputs are converted off
-the GUI thread into versioned NIfTI/provenance directories inside the study. Source data
-remain read-only on their original drive. T2 draft-mask generation is now connected;
-T1 mask generation, registration, immutable review decisions, approved quantification,
-and robust process cancellation remain future milestones. Jobs found in `RUNNING` state
-when a study reopens are marked `INTERRUPTED` rather than assumed successful.
-
-The Subjects worklist now supports multi-selection and versioned batch axis flips. A
-single selected subject or its workspace can open any active converted T1/T2 input in
-ITK-SNAP. Subject names can be changed from the workspace without changing stable IDs or
-moving historical files; launch, rename, removal, and restoration actions are audited.
-The subject workspace now responds to the available viewport, lays out metadata in
-stacked key/value rows, and middle-elides long paths while preserving their full value
-in a tooltip. Its workflow cards and tabs contract with smaller windows, with vertical
-scrolling used when the complete page cannot fit safely.
-The Subjects table now reports T2 import/conversion in a dedicated `T2 data` column.
-The separate `T2 lesion` column reports released segmentation state: ready to run,
-generating, draft review required, or outdated. It never reports conversion state.
-The desktop package has an enforced dependency direction: shared records and errors are
-domain-owned, presenters live in `application`, persistence and external-tool adapters
-remain non-Qt infrastructure, services coordinate use cases, and Qt workers/pages stay
-under `ui`. The subject workspace is isolated from the general page module, and the Qt
-shell no longer imports the scientific backend or legacy database implementation
-directly.
-
-The persistent subject Inputs tab now provides the first post-conversion workflow step.
-It lists active T1-pre, T1-post, and T2 versions with managed/source paths, dimensions,
-spacing, axis codes, import transforms, checksums, validation state, and plain-language
-issues. Validation runs off the GUI thread, checks each managed NIfTI against its
-conversion provenance, records reviewer/time and an audit event, and survives reopening.
-A new flipped or replacement version starts at `Input review required`; successfully
-validated T1/T2 inputs become `Ready for analysis`. Replacing or flipping the T2 makes
-its previous draft lesion artifact inactive and `OUTDATED`; renaming retains the stable
-subject association, and archived subjects are excluded from cohort inference.
-
-The first real T2 service is connected without scientific processing inside Qt widgets.
-The study registers an external immutable release directory, verifies all five model
-hashes and the frozen threshold/specification, adds only the required singleton channel
-to a native 3-D scan, performs unweighted mean-probability inference, applies threshold
-0.40 with no postprocessing, and preserves the native affine. The UI can run one subject
-or all eligible active subjects in a background thread, then show the QC preview,
-provisional volume, release/device provenance, output paths, and an ITK-SNAP shortcut.
-Every generated mask is `DRAFT_REVIEW_REQUIRED`; production review/approval, approved
-results, T1 execution, and exports remain future desktop milestones.
-
-The copied inference layer is intentionally small and inference-only. Model training,
-fold selection, threshold selection, cross-validation, and locked-test evaluation remain
-in `LYS_PROJ1`. The weights and upstream RatLesNetV2 runtime remain in the installed
-release bundle and are not committed to this repository or duplicated into studies.
-
-The new runtime was checked against the prior successful MPS result for the supplied
-256 × 256 × 18 LIP scan. In a sandbox CPU run it produced the same 7,339-voxel binary
-mask and identical affine; probability differences from the MPS output were at most
-1.73 × 10⁻⁶, which is expected device-level floating-point variation.
-
-The application also has a connected design-preview mode (`lys-bbb-desktop --demo`). It
-uses immutable typed view models and explicitly synthetic subjects to render the planned
-launcher, persistent shell, Overview, Subjects, Subject Workspace, Review/QC,
-Results/Export, and Settings screens. Subject filtering, workspace navigation,
-subject-focused review routing, local preview decisions, result filtering, and preview
-export actions are connected. The preview also has a blinded-review toggle that hides
-group columns/filters, labels the subject workspace, collapses cohort plots, and warns
-that grouped exports require audited unblinding. These interactions are intentionally
-non-persistent and do not imply that production artifacts, approvals, results, jobs, or
-exports exist.
-
-## Adopted desktop MVP
-
-The 2026-07-20 MVP contract expands the desktop target from a T1/T2 folder shell into a
-subject-centred application with two workflows: T1 enhancement and T2 lesion volume.
-The authoritative product contract is `docs/desktop_application.md`.
-
-New projects now use a study root containing
-`project.sqlite`, `project.json`, imports, job workspaces, immutable outputs, reports,
-exports, and logs. Existing schema-v1 `.lysbbb` files remain a supported migration input
-and are not overwritten during migration. Schema version 6 implements the current
-study/subject/input foundation plus T2 model-release, job, and draft-artifact records.
-
-Durable study, subject, expected-workflow, group, blinding, input-folder, scan-input
-version, conversion result/failure, audit, recent-study, frozen T2 release, inference-job,
-and draft T2 artifact state is implemented. General dependencies, review decisions,
-methods, and approved results remain Phase 2 work. Converted scan inputs and generated
-draft masks are not approvals and do not create official scientific results.
-
-### Upstream repository state
-
-The local `~/Documents/LYS_PROJ1` checkout is the upstream scientific-development source.
-Its active `dl-ratlesnetv2-finetune` workflow compares Tversky and CE+Dice across five
-grouped LYS development folds, evaluates direct versus external-mouse initialization,
-then freezes five models, an OOF-selected threshold, an unweighted mean-probability
-ensemble, and `postprocessing=none` before one locked-test evaluation.
-
-The current external application bundle is
-`~/Downloads/LYS_v1_RatLesNetV2_mac_inference`. It contains the five frozen fold models,
-OOF-selected threshold record, frozen specification, checksummed manifest, and licensed
-upstream inference runtime. `LYS_PROJ2` validates and calls that bundle; it does not
-import from the live `LYS_PROJ1` checkout.
-
-## Metadata
-
-The editable study metadata table contains 35 rows. Group, lesion side, lesion-mask
-path, explicit inclusion, and review fields are currently empty. These values cannot be
-inferred safely from folder names.
-
-## Branch history
-
-The pre-cleanup branches are a single stack. Each branch is an intermediate checkpoint,
-not a maintained product line:
+After the T2 slice is complete, finish the T1 vertical slice:
 
 ```text
-7248265 main
-  └─ e560cc8 workflow-status-orchestration
-       └─ 6e89e62 candidate mask validation
-            └─ b27b16f brain-mask-model-integration
-                 └─ 08af420 study-metadata-scaffold
-                      └─ 8f58e8e mask-review-workflow
+T1 import → refined RS2 pre-label/import → mask review/approval
+→ exact reviewed post-to-pre registration → registration approval
+→ explicitly provisional enhancement method → subject result/export
 ```
 
-Their historical purposes were:
+Before T1 cohort interpretation:
 
-| Branch | Added capability |
-|---|---|
-| `main` | Initial inventory, conversion, registration, QC, and quantification |
-| `workflow-status-orchestration` | Readiness report |
-| `brain-mask-model-integration` | Candidate-mask validation and postprocessing |
-| `study-metadata-scaffold` | Editable study metadata and analysis-manifest merge |
-| `mask-review-workflow` | Explicit manual mask and registration review |
+- require explicit mask and registration approval in the analysis gate;
+- quantify the exact reviewed registration rather than recomputing it;
+- validate signal preservation for diffuse and focal enhancement;
+- treat 3-D mask regularity metrics as QC warnings, not automatic anatomical truth.
 
-The latest tip contains all earlier changes. Cleanup should be consolidated into one
-baseline rather than copied into every historical branch. Old feature branches can be
-deleted after the consolidated tip is safely published on `main`.
+## Repository direction
+
+Do not create another repository. Keep:
+
+```text
+LYS_PROJ1  model development and frozen T2 releases
+LYS_PROJ2  execution backend, desktop review, approval, results, and exports
+```
+
+After this consolidation passes local tests and CI, open one PR from
+`feat/pyside-project-foundation` to `main`, preserve the useful commits, merge it, and
+delete the long-lived feature branch. A backend/desktop repository split should be
+considered only after the backend has a small stable public API, versioned wheel,
+contract tests, and an independent release schedule.
 
 ## Generated-state warning
 
-MRI outputs and reports are ignored by Git and shared by all local branches. Several
-current dashboard/manifests were generated on 2026-07-08 or 2026-07-09, before the
-2026-07-15 mask-review commit. They must be regenerated before being used as current
-workflow evidence. Preserve manual masks and decisions while regenerating derived
-reports.
-
-## Scientific validation milestone
-
-The next milestone is complete when the same representative cases have been run through
-the selected open-weight models in Colab, outputs satisfy a common grid/provenance
-contract, reviewed references exist for quantitative comparison, and a model-selection
-report identifies failure modes and the preferred pre-label generator.
-
-## Desktop implementation milestone
-
-The implemented input slice lets a user create a study root, migrate schema-v1/v2
-state, select an external-drive MRI root, review automatically discovered subjects and
-scan roles, convert confirmed Bruker/NIfTI inputs, close and reopen the application with
-the same versioned input state, and inspect the audit history. The next state milestone
-is the canonical artifact/review/job/result layer and a real post-conversion image QC
-screen.
+`output/`, `derivatives/`, and generated `reports/` are ignored and shared across local
+branches. File presence is not proof of provenance or approval. Preserve manual masks
+and decisions before regenerating reports, and record the code/model revision for every
+scientific result.

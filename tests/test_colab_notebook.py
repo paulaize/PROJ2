@@ -115,6 +115,9 @@ def test_refinement_notebook_is_pinned_gated_and_self_contained() -> None:
     assert "rs2_marker_watershed" in source
     assert "rs2_random_walker" in source
     assert "detect_gap_volume" in source
+    assert "assess_mask_regularity" in source
+    assert "regularity_warning_count" in source
+    assert "Regularity warnings are review aids only" in source
     assert "unchanged_no_confident_correction" in source
     assert "subset_of_raw_rs2" in source
     assert "widgets.interactive_output" in source

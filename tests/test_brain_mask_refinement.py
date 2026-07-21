@@ -2,6 +2,7 @@ import numpy as np
 
 from lys_bbb.brain_mask_refinement import (
     GapRefinementConfig,
+    assess_mask_regularity,
     detect_gap_volume,
     refine_direct_seam,
     robust_normalize,
@@ -57,3 +58,61 @@ def test_no_intensity_valley_leaves_mask_unchanged() -> None:
 
     assert stats["status"] == "unchanged_no_confident_correction"
     assert np.array_equal(refined, raw)
+
+
+def synthetic_smooth_ellipsoid() -> np.ndarray:
+    coordinates = np.indices((64, 64, 25), dtype=np.float64)
+    return (
+        ((coordinates[0] - 31.5) / 23.0) ** 2
+        + ((coordinates[1] - 31.5) / 26.0) ** 2
+        + ((coordinates[2] - 12.0) / 10.0) ** 2
+        <= 1.0
+    )
+
+
+def test_mask_regularity_reports_physical_smooth_profile() -> None:
+    mask = synthetic_smooth_ellipsoid()
+
+    report = assess_mask_regularity(mask, (0.08, 0.08, 0.5))
+
+    assert report.connected_components == 1
+    assert report.internal_empty_slices == ()
+    assert report.abrupt_area_pairs == ()
+    assert report.abrupt_centroid_pairs == ()
+    assert report.one_slice_outlier_slices == ()
+    assert report.surface_area_mm2 > 0
+    assert report.volume_mm3 == np.count_nonzero(mask) * 0.08 * 0.08 * 0.5
+    assert report.warnings == ()
+
+
+def test_mask_regularity_flags_one_slice_centroid_jump() -> None:
+    mask = synthetic_smooth_ellipsoid()
+    shifted_slice = np.roll(mask[:, :, 12], shift=14, axis=0)
+    mask[:, :, 12] = shifted_slice
+
+    report = assess_mask_regularity(mask, (0.08, 0.08, 0.5))
+
+    assert report.abrupt_centroid_pairs
+    assert "abrupt_centroid_motion" in report.warnings
+
+
+def test_mask_regularity_flags_isolated_one_slice_notch() -> None:
+    mask = synthetic_smooth_ellipsoid()
+    mask[:, 30:, 12] = False
+
+    report = assess_mask_regularity(mask, (0.08, 0.08, 0.5))
+
+    assert report.one_slice_outlier_slices == (12,)
+    assert "isolated_one_slice_area_outlier" in report.warnings
+
+
+def test_mask_regularity_flags_disconnected_island_without_editing_mask() -> None:
+    mask = synthetic_smooth_ellipsoid()
+    mask[0:2, 0:2, 12] = True
+    original = mask.copy()
+
+    report = assess_mask_regularity(mask, (0.08, 0.08, 0.5))
+
+    assert report.connected_components == 2
+    assert "disconnected_components" in report.warnings
+    assert np.array_equal(mask, original)

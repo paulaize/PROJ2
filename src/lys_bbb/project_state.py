@@ -1,7 +1,9 @@
-"""Versioned SQLite state for a LYS BBB desktop project.
+"""Frozen schema-v1 ``.lysbbb`` compatibility state.
 
-This module deliberately has no Qt imports.  It owns only durable application state;
-scientific processing modules consume paths and metadata through separate services.
+Canonical studies use the schema-v6 ``StudyRepository`` in ``lys_bbb_app``. This
+module remains deliberately unchanged in scope so old single-file projects can be
+inspected and migrated without data loss. New production features must not depend on
+it. It has no Qt imports and performs no scientific processing.
 """
 
 from __future__ import annotations
@@ -15,7 +17,8 @@ from pathlib import Path
 from uuid import uuid4
 
 
-CURRENT_SCHEMA_VERSION = 1
+LEGACY_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = LEGACY_SCHEMA_VERSION  # Compatibility name for existing callers.
 PROJECT_APPLICATION_ID = 0x4C595342  # "LYSB" in a SQLite application_id.
 PROJECT_FILE_SUFFIX = ".lysbbb"
 
@@ -45,7 +48,7 @@ class InputFolderKind(str, Enum):
 
 @dataclass(frozen=True)
 class ProjectSnapshot:
-    """Small immutable view of the current project state."""
+    """Small immutable view of a legacy schema-v1 project."""
 
     database_path: Path
     project_id: str

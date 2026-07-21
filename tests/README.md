@@ -7,13 +7,13 @@ env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
   conda run -n lys-bbb python -m pytest tests -q
 ```
 
-The tests cover synthetic parsing, gating, mask workflows, registration/quantification
-logic, the Colab input packager, schema-v1 desktop project state, and connected offscreen
-desktop navigation/filter/review behavior. They do not replace visual anatomical QC or
-a real raw-data-to-report validation set.
+The tests cover scientific geometry and gates, the RS2 notebook build, frozen
+schema-v1 migration compatibility, canonical schema-v6 studies, MRI import/conversion,
+T2 release/inference persistence, and connected offscreen desktop behavior. They do not
+replace visual anatomical QC or a real raw-data-to-approved-result validation set.
 
-As the MVP grows, add domain/service coverage for state transitions, approval gates,
-artifact supersession, dependency invalidation, jobs, imports, and structured failures.
+The next tests should cover T2 review transitions, corrected-mask validation, artifact
+supersession, approved-result dependency invalidation, CSV gating, and reopening.
 Use `pytest-qt` for navigation and interaction tests; keep scientific geometry and
 measurement assertions in backend tests rather than duplicating them in UI tests.
 

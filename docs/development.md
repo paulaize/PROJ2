@@ -1,254 +1,137 @@
 # Development guide
 
-## Environment and tests
-
-Use the `lys-bbb` environment and keep raw Bruker data read-only.
+## Environment
 
 ```bash
 conda env create -f environment.yml
-env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-  conda run -n lys-bbb python -m pytest tests -q
-```
-
-Reusable scientific code belongs in `src/lys_bbb/`; all Qt application code belongs in
-`src/lys_bbb_app/`. `scripts/` contains stage-oriented CLIs and thin external-model
-adapters. Generated development outputs belong under ignored `output/`, `derivatives/`,
-or `reports/` directories.
-
-## Active entry points
-
-| Task | Command |
-|---|---|
-| Inventory raw scans | `scripts/inventory/inventory_sessions.py` |
-| Convert inventory-selected T1 pairs | `scripts/conversion/convert_inventory_t1_flash.py` |
-| Convert selected raw session folders | `scripts/conversion/convert_bruker_t1_flash.py` |
-| Package Colab benchmark inputs | `scripts/brain_extraction/prepare_colab_package.py` |
-| Run benchmark in Colab | `notebooks/brain_extraction_colab_benchmark.ipynb` |
-| Run optional control models in Colab | `notebooks/brain_extraction_colab_extra_baselines.ipynb` |
-| Compare T1-guided RS2 corrections in Colab | `notebooks/brain_extraction_rs2_refinement_colab.ipynb` |
-| Compare downloaded model masks | `scripts/brain_extraction/review_colab_results.py` |
-| Run current MBE adapter | `scripts/brain_extraction/mbe/run_one.py` or `run_batch.py` |
-| Registration QC | `scripts/qc/qc_pre_post_registration.py` |
-| Edit a selected mask in ITK-SNAP | `scripts/masks/open_manual_mask_editor.py` |
-| Build manual review dashboard | `scripts/masks/build_manual_mask_workflow.py` |
-| Clean candidate masks | `scripts/masks/postprocess_brain_masks.py` |
-| Validate candidate masks | `scripts/masks/build_brain_mask_manifest.py` |
-| Build analysis gate | `scripts/qc/build_analysis_manifest.py` |
-| Build study metadata | `scripts/qc/build_study_metadata.py` |
-| Build readiness report | `scripts/qc/build_project_status.py` |
-| Quantify one pair | `scripts/quantification/quantify_flash_pair.py` |
-| Quantify a gated cohort | `scripts/quantification/quantify_flash_cohort.py` |
-| Launch desktop application | `lys-bbb-desktop [project.lysbbb]` |
-| Launch connected design preview | `lys-bbb-desktop --demo` |
-| Run frozen T2 inference adapter | `python -m lys_bbb.t2_inference_cli --help` |
-
-Use `python <script> --help` for the complete option set. Documentation should explain
-workflow decisions, not copy every CLI flag.
-
-## Conversion
-
-The inventory-driven converter writes only the quantitative files needed downstream:
-
-```text
-output/all_mice/<case_id>/pre_coronal.nii.gz
-output/all_mice/<case_id>/post_coronal.nii.gz
-output/all_mice/<case_id>/source_metadata.json
-```
-
-The raw-session converter can additionally write QC and display files. Fiji display
-NIfTI is opt-in:
-
-```bash
-conda run -n lys-bbb python scripts/conversion/convert_bruker_t1_flash.py \
-  /path/to/raw/session \
-  -o output/selected \
-  --write-fiji-display
-```
-
-Never use a Fiji-oriented or moving-slab image for quantification.
-
-## Mask and review workflow
-
-After predictions have been imported to a model-specific folder:
-
-```bash
-conda run -n lys-bbb python scripts/qc/build_qc_manifest.py \
-  --input-root output/all_mice \
-  --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv
-
-conda run -n lys-bbb python scripts/masks/build_manual_mask_workflow.py \
-  --qc-manifest reports/qc/qc_manifest.csv \
-  --out-dir reports/qc \
-  --manual-dir derivatives/brain_seg/manual
-```
-
-Use `mask_review` and `registration_review` values `pass`, `review`, or `fail`. Rebuilds
-preserve these fields. A legacy `_done` filename is not sufficient without review pass.
-
-Candidate predictions should be postprocessed and validated before analysis gating:
-
-```bash
-conda run -n lys-bbb python scripts/masks/postprocess_brain_masks.py \
-  --input-root output/all_mice \
-  --mask-dir derivatives/brain_seg/model_predictions \
-  -o derivatives/brain_seg/model_predictions_cleaned
-
-conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
-  --input-root output/all_mice \
-  --mask-dir derivatives/brain_seg/model_predictions_cleaned \
-  --mask-source MODEL_VERSION
-```
-
-## Analysis gate and provisional cohort
-
-Merge study metadata and QC into the generated handoff:
-
-```bash
-conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py \
-  --qc-manifest reports/qc/qc_manifest.csv \
-  --metadata-manifest derivatives/manifests/study_metadata.csv \
-  -o derivatives/manifests/analysis_manifest.csv \
-  --summary reports/qc/analysis_manifest_summary.csv
-```
-
-Always dry-run before a cohort execution:
-
-```bash
-conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py \
-  output/all_mice \
-  --roi-manifest derivatives/manifests/analysis_manifest.csv \
-  -o derivatives/quantification/flash_cohort \
-  --dry-run
-```
-
-Current cohort outputs remain method-development products until masks, registrations,
-metadata, normalization, and thresholds are validated.
-
-## Desktop project foundation and next phase
-
-`environment.yml` installs the repository in editable mode and includes PySide6 and
-PyTorch for frozen T2 inference. For an
-existing environment created before the desktop milestone, refresh the install with:
-
-```bash
-conda install -n lys-bbb pyside6 pytorch
 conda run -n lys-bbb python -m pip install --no-deps -e .
 ```
 
-Launch the study launcher, open the explicitly synthetic design preview, pass a
-schema-v6 study root directly, or inspect a legacy schema-v1 project:
+Keep raw Bruker data read-only. Generated development data belongs under ignored
+`output/`, `derivatives/`, or `reports/` directories.
+
+## Tests and CI
+
+Run the same command used by CI:
 
 ```bash
-conda run -n lys-bbb lys-bbb-desktop
-conda run -n lys-bbb lys-bbb-desktop --demo
-conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
-conda run -n lys-bbb lys-bbb-desktop /path/to/study.lysbbb
+env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 QT_QPA_PLATFORM=offscreen \
+  conda run -n lys-bbb python -m pytest tests -q
 ```
 
-The preview is implemented in `src/lys_bbb_app/` and remains the place to evaluate
-the persistent shell, page layout, navigation, status semantics, review interaction,
-and results presentation. Its typed demo records are not persisted.
+Also run:
 
-Outside demo mode, the application now creates/reopens a schema-v6 study root, scans a
-selected MRI root read-only, proposes Bruker/NIfTI subject and role assignments, converts
-confirmed inputs to versioned NIfTI artifacts, and persists geometry, hashes,
-orientation operations, managed-input validation outcomes, subjects, expected
-workflows, recent studies, audit events, blinding, T2 release records, inference jobs,
-and draft lesion artifacts. Older study roots migrate
-automatically; the schema-v1 `.lysbbb` file remains a
-non-destructive explicit migration input. Persistence, discovery, and conversion live in
-non-Qt repositories and services.
+```bash
+conda run -n lys-bbb ruff check src tests
+```
 
-Keep the MRI import feature split across these boundaries:
+Tests prove software behavior; they do not replace anatomical review or a frozen
+raw-data-to-result validation set.
 
-| Layer | Module | Responsibility |
-|---|---|---|
-| Scientific backend | `lys_bbb.scan_discovery`, `lys_bbb.scan_conversion`, `lys_bbb.input_validation`, `lys_bbb.image_orientation` | Read-only discovery, conversion, input validation, and image geometry; no Qt or study database access |
-| T2 inference backend | `lys_bbb.t2_model_release`, `lys_bbb.t2_inference` | Validate the immutable release, prepare a singleton channel, execute the five-model ensemble, preserve native geometry, and build QC; no Qt or study database access |
-| Domain contracts | `lys_bbb_app.domain.scan_import` | Immutable requests, states, records, and reports; no Qt or I/O |
-| Application service | `lys_bbb_app.services.study_service` | Validate and coordinate the import use case |
-| Launcher preference service | `lys_bbb_app.services.recent_studies_service` | Expose recent studies without coupling widgets to JSON storage |
-| Persistence | `lys_bbb_app.infrastructure.scan_input_repository` | Store versioned scan inputs and provenance behind a small database-context protocol |
-| Validation persistence | `lys_bbb_app.infrastructure.input_validation_repository` | Store per-version validation outcomes and audit summaries |
-| T2 persistence | `lys_bbb_app.infrastructure.t2_inference_repository` | Store release provenance, job state, immutable draft artifacts, supersession, and audit events |
-| Background bridge | `lys_bbb_app.ui.workers` | Carry service work and structured outcomes across the Qt thread boundary; no processing logic |
-| External tool adapter | `lys_bbb_app.infrastructure.external_viewer` | Resolve and launch ITK-SNAP for a validated managed NIfTI path; no Qt dependency |
-| User interface | `lys_bbb_app.ui.scan_import_dialog`, `lys_bbb_app.ui.mri_action_dialogs`, `lys_bbb_app.ui.subject_workspace`, `lys_bbb_app.ui.main_window` | Collect explicit user choices and refresh views; no scientific processing |
+## Primary application commands
 
-Shared SQLite mechanics belong in `infrastructure.database_support`; schema creation and
-migrations belong in `infrastructure.study_schema`. Repositories must not import each
-other bidirectionally. Shared application errors and immutable records belong to the
-domain rather than a database module. Qt workers belong to the UI adapter layer, while
-external programs and SQLite remain infrastructure adapters. New workflows should
-follow the same dependency direction: UI → service → backend/repository, with domain
-contracts shared between layers. Architecture tests reject Qt imports below the UI,
-direct scientific-backend imports from UI modules, cycles, and inward-to-outward layer
-dependencies.
+```bash
+# Launcher
+conda run -n lys-bbb lys-bbb-desktop
 
-### Frozen T2 inference smoke test
+# Explicitly synthetic design fixture
+conda run -n lys-bbb lys-bbb-desktop --demo
 
-The desktop is the normal entry point. For a backend-only smoke test, arrange one or
-more inputs as `<input>/<case-id>/scan.nii.gz`, use new work and output directories, and
-run:
+# Open a canonical study root
+conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
+```
+
+The desktop normally owns T2 execution. A backend smoke test accepts inputs arranged as
+`<input>/<case-id>/scan.nii.gz` and requires new work/output directories:
 
 ```bash
 conda run -n lys-bbb python -m lys_bbb.t2_inference_cli \
-  --release /Users/paul-andreaslaize/Downloads/LYS_v1_RatLesNetV2_mac_inference \
+  --release ~/Downloads/LYS_v1_RatLesNetV2_mac_inference \
   --input /absolute/path/to/inference_input \
-  --work /absolute/path/to/new_work_directory \
-  --output /absolute/path/to/new_output_directory \
+  --work /absolute/path/to/new_work \
+  --output /absolute/path/to/new_output \
   --device auto
 ```
 
-The adapter refuses existing work/output directories. `auto` selects MPS on a supported
-Apple runtime, then CUDA, then CPU. It verifies the five weights, adds only a singleton
-channel, writes the continuous probability map and thresholded draft mask, and records
-the frozen threshold, release hashes, device, and native-geometry contract. It does not
-train, tune, postprocess, approve, or calculate an accuracy metric.
+`auto` selects MPS, then CUDA, then CPU. The adapter does not train, tune, postprocess,
+approve, or calculate an accuracy metric.
 
-New MVP studies use a study root:
+## Current source boundaries
 
-```text
-study-root/
-├── project.sqlite
-├── project.json
-├── imports/
-├── work/
-├── outputs/
-├── reports/
-├── exports/
-└── logs/
+| Layer | Location | Responsibility |
+|---|---|---|
+| Scientific backend | `src/lys_bbb/` | Image discovery, conversion, validation, inference, QC, and measurement; no Qt |
+| Domain/application | `src/lys_bbb_app/domain`, `application`, `services` | Typed state and use-case coordination |
+| Persistence/adapters | `src/lys_bbb_app/infrastructure` | SQLite, filesystem, recent studies, ITK-SNAP |
+| UI | `src/lys_bbb_app/ui` | User choices and presentation only |
+| CLIs | `scripts/` and project entry points | Thin development/reproducibility adapters |
+
+Use the dependency direction UI → service → backend/repository. Do not import scientific
+modules from widgets or Qt from domain/backend code. `tests/test_app_architecture.py`
+enforces this boundary.
+
+Current production state uses `StudyRepository` and feature-specific repositories. The
+old `lys_bbb.project_state` and `ProjectService` are frozen schema-v1 migration support;
+do not extend them.
+
+## Active scientific commands
+
+### T1 refinement and review
+
+```bash
+conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py --help
+conda run -n lys-bbb python scripts/brain_extraction/build_rs2_refinement_notebook.py
+conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py --help
+conda run -n lys-bbb python scripts/masks/open_manual_mask_editor.py --help
 ```
 
-The current slice migrates a legacy `.lysbbb` file without modifying it and connects MRI
-discovery/conversion. Bruker sources are identified from numeric scan folders containing
-`acqp` and `method`; T1 FLASH and high-resolution T2 RARE are proposals only until the
-user confirms the import table. Conversion runs through application/scientific services
-off the GUI thread. The next state milestone adds the general artifact/job/review/result
-model, process-level cancellation/recovery, and post-conversion image QC.
+The notebook builder embeds the tested `brain_mask_refinement.py` source. Rebuild and
+run notebook-structure tests after changing that algorithm.
 
-Application tests should progressively use `pytest-qt`. Domain and service tests must
-remain runnable without showing a window; scientific backend tests remain responsible
-for geometry and measurement behavior.
+### Transitional T1 backend
 
-## Sibling backend integration
+These commands remain useful for scientific validation but are not the next desktop
+milestone:
 
-The local `~/Documents/LYS_PROJ1` checkout owns T2 model development. It is useful for
-inspecting the upstream release contract during development, but it is never a
-production import path for this application.
+| Task | Entry point |
+|---|---|
+| Inventory raw scans | `scripts/inventory/inventory_sessions.py` |
+| Convert selected T1 scans | `scripts/conversion/convert_inventory_t1_flash.py` |
+| Registration QC | `scripts/qc/qc_pre_post_registration.py` |
+| Manual mask worklist | `scripts/masks/build_manual_mask_workflow.py` |
+| Candidate-mask validation | `scripts/masks/build_brain_mask_manifest.py` |
+| Analysis gate | `scripts/qc/build_analysis_manifest.py` |
+| One-pair quantification | `scripts/quantification/quantify_flash_pair.py` |
+| Dry-run cohort quantification | `scripts/quantification/quantify_flash_cohort.py` |
 
-Integrate an upstream backend only after `LYS_PROJ1` produces an immutable release with
-an ID/version, source revision, checksums, declared inputs/outputs, structured errors,
-completion manifest, method status, and validation provenance. Install or copy that
-release through an explicit application service and record it in `model_releases` or
-`methods`. Do not modify `LYS_PROJ1`, add it to `PYTHONPATH`, invoke whatever branch
-happens to be checked out, or infer success from output files alone.
+Do not interpret cohort outputs biologically until masks, exact registrations, metadata,
+normalization, and thresholds pass their documented gates.
 
-## Branches and generated outputs
+## Legacy project compatibility
 
-Start new work from the consolidated latest tip. Use short-lived branches and do not
-revive the old linear feature checkpoints as independent code lines.
+`.lysbbb` is the frozen single-file schema-v1 prototype. It may be inspected or migrated
+through the launcher, but new studies never use it. Migration creates a new study root
+and leaves the original file unchanged.
 
-Ignored outputs are not reset by branch switching. Before trusting a generated report,
-record or inspect the generating code revision, timestamp, inputs, and model version.
-Preserve manual masks and review decisions when refreshing reports.
+Do not use `ProjectService` in new production code. Its tests exist to guarantee recovery
+of old user projects.
+
+## Generated outputs
+
+- Raw data and manual masks are never cleanup targets.
+- Automatic, editable, reviewed, approved, superseded, and outdated artifacts are
+  separate products.
+- Generated paths can be stale after a branch switch.
+- New scientific outputs record code/model revisions and checksums.
+- `frontend_inspo/` is local design reference material and is ignored by Git.
+
+## Branch workflow
+
+After this consolidation passes tests and CI:
+
+1. open one PR from `feat/pyside-project-foundation` to `main`;
+2. preserve the useful commits rather than rebuilding the application elsewhere;
+3. merge and delete the long-lived feature branch; and
+4. create the narrow `feat/t2-reviewed-result` branch.
+
+Do not tag, merge, or delete remote branches as part of an unrelated code change.
