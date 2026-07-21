@@ -41,13 +41,22 @@ from lys_bbb_app.domain.study import (
     LegacyProjectRecord,
     StudySnapshot,
 )
-from lys_bbb_app.domain.t2_lesion import T2ArtifactDraft, T2InferenceReadiness
+from lys_bbb_app.domain.t2_lesion import (
+    ReviewDecision,
+    T2ArtifactDraft,
+    T2InferenceReadiness,
+)
 from lys_bbb_app.infrastructure.study_database import StudyRepository
 from lys_bbb_app.infrastructure.external_viewer import (
     ExternalViewerError,
     ViewerLaunch,
     launch_itksnap,
 )
+from lys_bbb_app.services.t2_export_service import (
+    ApprovedT2Export,
+    export_approved_t2_results,
+)
+from lys_bbb_app.services.t2_review_service import T2ReviewService
 
 
 ScanConverter = Callable[..., ScanConversionResult]
@@ -553,47 +562,84 @@ class StudyService:
         actor: str,
         viewer_path: Path | str | None = None,
     ) -> ViewerLaunch:
-        repository = self._require_repository()
-        snapshot = repository.snapshot()
-        artifact = next(
-            (
-                item
-                for item in snapshot.t2_artifacts_for_subject(subject_id)
-                if item.id == artifact_id
-            ),
-            None,
-        )
-        if artifact is None:
-            raise StudyStateError("The selected T2 lesion artifact is unavailable.")
-        scan = next(
-            (
-                record
-                for record in snapshot.inputs_for_subject(subject_id)
-                if record.id == artifact.source_scan_input_id
-            ),
-            None,
-        )
-        if scan is None or scan.output_path is None:
-            raise StudyStateError("The native T2 input for this artifact is unavailable.")
-        try:
-            launch = self._viewer_launcher(
-                scan.output_path,
-                viewer_path,
-                segmentation_path=artifact.mask_path,
-            )
-        except ExternalViewerError as exc:
-            raise StudyStateError(str(exc)) from exc
-        repository.record_audit_event(
-            "T2_DRAFT_OPENED_IN_ITKSNAP",
+        return self._t2_review_service().open_editable_copy_in_itksnap(
+            subject_id,
+            artifact_id,
             actor=actor,
-            subject_id=subject_id,
+            viewer_path=viewer_path,
+        )
+
+    def import_corrected_t2_mask(
+        self,
+        subject_id: str,
+        source_artifact_id: str,
+        corrected_path: Path | str,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        self._t2_review_service().import_corrected_mask(
+            subject_id,
+            source_artifact_id,
+            corrected_path,
+            actor=actor,
+        )
+        return self._require_repository().snapshot()
+
+    def approve_t2_mask(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        reviewer: str,
+        notes: str | None = None,
+    ) -> StudySnapshot:
+        self._t2_review_service().review_mask(
+            subject_id,
+            artifact_id,
+            ReviewDecision.APPROVED,
+            reviewer=reviewer,
+            notes=notes,
+        )
+        return self._require_repository().snapshot()
+
+    def reject_t2_mask(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        reviewer: str,
+        issue_code: str,
+        notes: str,
+    ) -> StudySnapshot:
+        self._t2_review_service().review_mask(
+            subject_id,
+            artifact_id,
+            ReviewDecision.REJECTED,
+            reviewer=reviewer,
+            issue_code=issue_code,
+            notes=notes,
+        )
+        return self._require_repository().snapshot()
+
+    def export_approved_t2_results_csv(
+        self,
+        destination: Path | str,
+        *,
+        actor: str,
+    ) -> ApprovedT2Export:
+        repository = self._require_repository()
+        exported = export_approved_t2_results(repository.snapshot(), destination)
+        repository.record_audit_event(
+            "APPROVED_T2_RESULTS_EXPORTED",
+            actor=actor,
             details={
-                "artifact_id": artifact.id,
-                "image_path": str(scan.output_path),
-                "mask_path": str(artifact.mask_path),
+                "path": str(exported.path),
+                "row_count": exported.row_count,
+                "blinded": exported.blinded,
+                "approved_only": True,
             },
         )
-        return launch
+        return exported
 
     def plan_bulk_flip(
         self,
@@ -760,6 +806,13 @@ class StudyService:
         if self._repository is None:
             raise StudyStateError("Create or open a study before changing study state.")
         return self._repository
+
+    def _t2_review_service(self) -> T2ReviewService:
+        return T2ReviewService(
+            self._require_repository(),
+            viewer_launcher=self._viewer_launcher,
+            qc_builder=self._t2_qc_builder,
+        )
 
 
 def _identifier_from_name(name: str) -> str:

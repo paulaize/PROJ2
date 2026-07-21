@@ -1,6 +1,6 @@
 """Frozen service for opening and migrating schema-v1 ``.lysbbb`` projects.
 
-New studies use ``lys_bbb_app.services.StudyService`` and the schema-v6
+New studies use ``lys_bbb_app.services.StudyService`` and the schema-v7
 ``StudyRepository``. Keep this adapter only for backward compatibility and do not add
 new application or scientific behavior here.
 """

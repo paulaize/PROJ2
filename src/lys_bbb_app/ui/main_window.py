@@ -54,6 +54,7 @@ from lys_bbb_app.ui.pages import (
 )
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog
 from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage
+from lys_bbb_app.ui.t2_review_dialogs import T2RejectionDialog
 from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
 from lys_bbb_app.ui.workers import (
     InputValidationThread,
@@ -230,8 +231,16 @@ class MainWindow(QMainWindow):
         self.workspace_page.t2_open_artifact_requested.connect(
             self.open_t2_draft_in_itksnap
         )
+        self.workspace_page.t2_import_correction_requested.connect(
+            self.import_corrected_t2_mask
+        )
+        self.workspace_page.t2_approve_requested.connect(self.approve_t2_mask)
+        self.workspace_page.t2_reject_requested.connect(self.reject_t2_mask)
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
         self.results_page.preview_action.connect(self._show_preview_message)
+        self.results_page.approved_csv_requested.connect(
+            self.export_approved_t2_results_csv
+        )
         self.settings_page.preview_action.connect(self._show_preview_message)
         self.settings_page.blinding_changed.connect(self._handle_blinding_toggle)
         self.settings_page.input_folder_requested.connect(self.select_input_folder)
@@ -894,8 +903,139 @@ class MainWindow(QMainWindow):
             else "draft mask"
         )
         self.statusBar().showMessage(
-            f"Opened {launch.image_path.name} with {mask_name}.",
-            8000,
+            f"Opened {launch.image_path.name} with editable copy {mask_name}. "
+            "Save it, then use Import corrected mask in the app.",
+            12000,
+        )
+
+    def import_corrected_t2_mask(
+        self,
+        subject_id: str,
+        source_artifact_id: str,
+    ) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "Open a persistent study to import a corrected T2 lesion mask."
+            )
+            return
+        selected, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Import ITK-SNAP-corrected T2 lesion mask",
+            str(self.current_study.root_path / "work" / "t2_lesion"),
+            "NIfTI images (*.nii *.nii.gz)",
+        )
+        if not selected:
+            return
+        try:
+            snapshot = self.study_service.import_corrected_t2_mask(
+                subject_id,
+                source_artifact_id,
+                selected,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The corrected T2 lesion mask could not be imported.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self.statusBar().showMessage(
+            "The corrected mask was stored as a new immutable artifact and now awaits review.",
+            12000,
+        )
+
+    def approve_t2_mask(self, subject_id: str, artifact_id: str) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "Open a persistent study to approve a real T2 lesion mask."
+            )
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Approve T2 lesion mask?",
+            "Approve this exact mask and create the official native-space lesion "
+            "volume?\n\nThe review decision is immutable. Any later replacement "
+            "will create a new artifact and mark this result outdated.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            snapshot = self.study_service.approve_t2_mask(
+                subject_id,
+                artifact_id,
+                reviewer=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The T2 lesion mask could not be approved.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self.statusBar().showMessage(
+            "T2 lesion mask approved; the official native-space volume is available.",
+            12000,
+        )
+
+    def reject_t2_mask(self, subject_id: str, artifact_id: str) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "Open a persistent study to reject a real T2 lesion mask."
+            )
+            return
+        dialog = T2RejectionDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            snapshot = self.study_service.reject_t2_mask(
+                subject_id,
+                artifact_id,
+                reviewer=self._reviewer_identity(),
+                issue_code=dialog.issue_code(),
+                notes=dialog.notes_text(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The T2 lesion mask could not be rejected.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self.statusBar().showMessage(
+            "The rejection was recorded. Re-run inference or import a new correction.",
+            10000,
+        )
+
+    def export_approved_t2_results_csv(self) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "Open a persistent study with approved T2 results to create this export."
+            )
+            return
+        root = self.current_study.root_path
+        default_path = root / "exports" / "approved_t2_lesion_results.csv"
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Export approved T2 lesion results",
+            str(default_path),
+            "CSV files (*.csv)",
+        )
+        if not selected:
+            return
+        destination = Path(selected)
+        if destination.suffix.casefold() != ".csv":
+            destination = destination.with_suffix(".csv")
+        try:
+            exported = self.study_service.export_approved_t2_results_csv(
+                destination,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The approved T2 results could not be exported.", exc)
+            return
+        self.statusBar().showMessage(
+            f"Exported {exported.row_count} approved T2 result(s) to {exported.path}.",
+            12000,
         )
 
     def bulk_flip_subjects(self, subject_ids: tuple[str, ...]) -> None:

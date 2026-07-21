@@ -11,7 +11,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 6:
+    if schema_version != 7:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -143,7 +143,10 @@ def create_schema(
             subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
             artifact_type TEXT NOT NULL,
             state TEXT NOT NULL CHECK (
-                state IN ('DRAFT_REVIEW_REQUIRED', 'OUTDATED')
+                state IN (
+                    'DRAFT_REVIEW_REQUIRED', 'CORRECTED_REVIEW_REQUIRED',
+                    'APPROVED', 'REJECTED', 'OUTDATED'
+                )
             ),
             version INTEGER NOT NULL CHECK (version > 0),
             active INTEGER NOT NULL CHECK (active IN (0, 1)),
@@ -157,6 +160,49 @@ def create_schema(
             created_by TEXT NOT NULL,
             superseded_by TEXT REFERENCES artifacts(id),
             UNIQUE(subject_id, artifact_type, version)
+        );
+        CREATE TABLE reviews (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
+            decision TEXT NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
+            reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+            study_blinding_state TEXT NOT NULL CHECK (
+                study_blinding_state IN ('BLINDED', 'UNBLINDED')
+            ),
+            issue_code TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL,
+            CHECK (decision != 'REJECTED' OR (
+                issue_code IS NOT NULL AND length(trim(issue_code)) > 0
+                AND notes IS NOT NULL AND length(trim(notes)) > 0
+            ))
+        );
+        CREATE TABLE results (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            result_type TEXT NOT NULL,
+            version INTEGER NOT NULL CHECK (version > 0),
+            state TEXT NOT NULL CHECK (state IN ('APPROVED', 'OUTDATED')),
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            value REAL NOT NULL CHECK (value >= 0),
+            unit TEXT NOT NULL,
+            lesion_voxel_count INTEGER CHECK (lesion_voxel_count >= 0),
+            method_version TEXT NOT NULL,
+            source_artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+            source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+            model_release_id TEXT NOT NULL REFERENCES model_releases(id),
+            mask_sha256 TEXT NOT NULL,
+            reviewer TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            approved_at TEXT NOT NULL,
+            outdated_at TEXT,
+            outdated_reason TEXT,
+            superseded_by TEXT REFERENCES results(id),
+            UNIQUE(subject_id, result_type, version)
         );
         CREATE TABLE audit_events (
             id TEXT PRIMARY KEY,
@@ -182,6 +228,13 @@ def create_schema(
         CREATE INDEX idx_artifacts_state ON artifacts(study_id, state);
         CREATE UNIQUE INDEX idx_artifacts_active_type
             ON artifacts(subject_id, artifact_type) WHERE active = 1;
+        CREATE INDEX idx_reviews_subject_time
+            ON reviews(subject_id, created_at DESC);
+        CREATE INDEX idx_results_subject_type
+            ON results(subject_id, result_type, version DESC);
+        CREATE INDEX idx_results_state ON results(study_id, state);
+        CREATE UNIQUE INDEX idx_results_active_type
+            ON results(subject_id, result_type) WHERE active = 1;
         CREATE INDEX idx_audit_events_study_time ON audit_events(study_id, created_at DESC);
         """
     )
@@ -370,6 +423,111 @@ def migrate_schema(
             """
         )
         version = 6
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 6:
+        connection.executescript(
+            """
+            ALTER TABLE artifacts RENAME TO artifacts_v6;
+            CREATE TABLE artifacts (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_type TEXT NOT NULL,
+                state TEXT NOT NULL CHECK (
+                    state IN (
+                        'DRAFT_REVIEW_REQUIRED', 'CORRECTED_REVIEW_REQUIRED',
+                        'APPROVED', 'REJECTED', 'OUTDATED'
+                    )
+                ),
+                version INTEGER NOT NULL CHECK (version > 0),
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                path TEXT NOT NULL,
+                file_hash TEXT NOT NULL,
+                source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                model_release_id TEXT NOT NULL REFERENCES model_releases(id),
+                job_id TEXT NOT NULL REFERENCES jobs(id),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                superseded_by TEXT REFERENCES artifacts(id),
+                UNIQUE(subject_id, artifact_type, version)
+            );
+            INSERT INTO artifacts(
+                id, study_id, subject_id, artifact_type, state, version, active,
+                path, file_hash, source_scan_input_id, model_release_id, job_id,
+                metadata_json, created_at, created_by, superseded_by
+            )
+            SELECT
+                id, study_id, subject_id, artifact_type, state, version, active,
+                path, file_hash, source_scan_input_id, model_release_id, job_id,
+                metadata_json, created_at, created_by, superseded_by
+            FROM artifacts_v6;
+            UPDATE artifacts
+            SET artifact_type = 'T2_LESION_MASK'
+            WHERE artifact_type = 'T2_LESION_MASK_DRAFT';
+            DROP TABLE artifacts_v6;
+            CREATE INDEX idx_artifacts_subject_type
+                ON artifacts(subject_id, artifact_type, version DESC);
+            CREATE INDEX idx_artifacts_state ON artifacts(study_id, state);
+            CREATE UNIQUE INDEX idx_artifacts_active_type
+                ON artifacts(subject_id, artifact_type) WHERE active = 1;
+            CREATE TABLE reviews (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
+                decision TEXT NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
+                reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+                study_blinding_state TEXT NOT NULL CHECK (
+                    study_blinding_state IN ('BLINDED', 'UNBLINDED')
+                ),
+                issue_code TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                CHECK (decision != 'REJECTED' OR (
+                    issue_code IS NOT NULL AND length(trim(issue_code)) > 0
+                    AND notes IS NOT NULL AND length(trim(notes)) > 0
+                ))
+            );
+            CREATE TABLE results (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                result_type TEXT NOT NULL,
+                version INTEGER NOT NULL CHECK (version > 0),
+                state TEXT NOT NULL CHECK (state IN ('APPROVED', 'OUTDATED')),
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                value REAL NOT NULL CHECK (value >= 0),
+                unit TEXT NOT NULL,
+                lesion_voxel_count INTEGER CHECK (lesion_voxel_count >= 0),
+                method_version TEXT NOT NULL,
+                source_artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+                source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                model_release_id TEXT NOT NULL REFERENCES model_releases(id),
+                mask_sha256 TEXT NOT NULL,
+                reviewer TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                approved_at TEXT NOT NULL,
+                outdated_at TEXT,
+                outdated_reason TEXT,
+                superseded_by TEXT REFERENCES results(id),
+                UNIQUE(subject_id, result_type, version)
+            );
+            CREATE INDEX idx_reviews_subject_time
+                ON reviews(subject_id, created_at DESC);
+            CREATE INDEX idx_results_subject_type
+                ON results(subject_id, result_type, version DESC);
+            CREATE INDEX idx_results_state ON results(study_id, state);
+            CREATE UNIQUE INDEX idx_results_active_type
+                ON results(subject_id, result_type) WHERE active = 1;
+            """
+        )
+        version = 7
         connection.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

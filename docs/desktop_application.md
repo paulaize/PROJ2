@@ -108,7 +108,7 @@ study-root/
 - The SQLite study should live on a reliable local or locally mounted filesystem.
 - Multi-machine concurrent editing and remote clusters are outside the MVP.
 
-Schema-v6 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
+Schema-v7 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
 legacy inputs supported only for non-destructive inspection and migration.
 
 ## Current application shell
@@ -129,7 +129,7 @@ consistent with production behavior.
 
 ### Launcher
 
-Create a study, open a schema-v6 study root, resume a recent study, or migrate a legacy
+Create a study, open a schema-v7 study root, resume a recent study, or migrate a legacy
 `.lysbbb` file. Creation must refuse an existing target directory and leave source MRI
 untouched.
 
@@ -238,7 +238,7 @@ presence alone never proves success.
 
 ## Development order
 
-1. Finish T2 review, correction, approved volume, invalidation, export, and reopening.
+1. Smoke-test the completed T2 review-to-export slice on a real unseen case.
 2. Finish T1 mask and exact-registration review, then provisional enhancement.
 3. Connect combined results and reproducibility exports.
 4. Package the application for non-developer users.

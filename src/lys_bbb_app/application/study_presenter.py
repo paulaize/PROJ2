@@ -11,12 +11,17 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
 )
 from lys_bbb_app.domain.study import LegacyProjectRecord, StudySnapshot, SubjectRecord
-from lys_bbb_app.domain.t2_lesion import ArtifactState, ProcessingJobState
+from lys_bbb_app.domain.t2_lesion import (
+    ArtifactState,
+    ProcessingJobState,
+    ResultState,
+)
 from lys_bbb_app.domain.view_models import (
     InputIssueViewModel,
     InputScanViewModel,
     MetricViewModel,
     PriorityActionViewModel,
+    ResultViewModel,
     StatusValue,
     StudyViewModel,
     SubjectViewModel,
@@ -68,6 +73,11 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         )
         for subject in study.subjects
     )
+    results = tuple(
+        _present_result(subject, study)
+        for subject in study.subjects
+        if study.t2_results_for_subject(subject.id)
+    )
     archived_subjects = tuple(
         _present_subject(subject, (), (), study) for subject in study.archived_subjects
     )
@@ -93,6 +103,16 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
     t2_input_reviews = sum(subject.t2_data.kind == "review" for subject in subjects)
     t2_validated = sum(subject.t2_data.kind == "ready" for subject in subjects)
     t2_drafts = sum(subject.t2_lesion.kind == "review" for subject in subjects)
+    t2_approved = sum(subject.t2_lesion.kind == "approved" for subject in subjects)
+    t2_outdated_results = sum(
+        any(
+            result.state is ResultState.OUTDATED
+            for result in study.t2_results_for_subject(subject.id)
+        )
+        and study.active_t2_result_for_subject(subject.id) is None
+        for subject in study.subjects
+    )
+    complete_subjects = sum(subject.overall.label == "Complete" for subject in subjects)
     t2_eligible = sum(
         subject.can_run_t2_inference
         and (
@@ -152,7 +172,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     ("Expected subjects", str(t2_expected)),
                     ("T2 scans converted", str(converted_t2)),
                     ("Input reviews", str(t2_input_reviews)),
-                    ("Draft masks", str(t2_drafts)),
+                    ("Approved results", str(t2_approved)),
                 ),
                 "View subjects",
                 "subjects",
@@ -161,12 +181,16 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 "combined",
                 "Combined MRI Results",
                 "Approved subject-level T1 and T2 measurements.",
-                StatusValue("No results yet", "unavailable"),
+                (
+                    StatusValue(f"{t2_approved} approved T2 results", "approved")
+                    if t2_approved
+                    else StatusValue("No approved results yet", "unavailable")
+                ),
                 (
                     ("Subjects", str(len(subjects))),
-                    ("Complete", "0"),
-                    ("Outdated results", "0"),
-                    ("Export eligible", "0"),
+                    ("Complete", str(complete_subjects)),
+                    ("Outdated results", str(t2_outdated_results)),
+                    ("Export eligible", str(t2_approved)),
                 ),
                 "View results",
                 "results",
@@ -209,7 +233,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
             priority_actions = (
                 PriorityActionViewModel(
                     f"{t2_drafts} draft T2 lesion masks require human review",
-                    "Drafts remain provisional until the review service is connected",
+                    "Approve, reject, or import an ITK-SNAP correction",
                     "review",
                     "subjects",
                 ),
@@ -255,13 +279,18 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 "review",
             ),
             MetricViewModel("Blocked", str(failed_inputs), "Input conversion failures", "failed"),
-            MetricViewModel("Complete", "0", "No approved results", "approved"),
+            MetricViewModel(
+                "Complete",
+                str(complete_subjects),
+                "All expected workflows are complete",
+                "approved",
+            ),
         ),
         workflows=workflows,
         priority_actions=priority_actions,
         subjects=subjects,
         reviews=(),
-        results=(),
+        results=results,
         mri_input_folder=study.mri_input_folder,
         t1_input_folder=study.t1_input_folder,
         t2_input_folder=study.t2_input_folder,
@@ -298,6 +327,7 @@ def _present_subject(
         None,
     )
     latest_t2_artifact = active_t2_artifact or next(iter(artifacts), None)
+    active_t2_result = study.active_t2_result_for_subject(subject.id)
     t2_job_running = any(
         job.job_type == "T2_LESION_INFERENCE"
         and job.state is ProcessingJobState.RUNNING
@@ -307,8 +337,17 @@ def _present_subject(
     t2_lesion = (
         StatusValue("Generating draft mask", "processing")
         if t2_job_running
-        else StatusValue("Draft mask · review required", "review")
+        else StatusValue("Approved lesion volume", "approved")
+        if active_t2_result is not None
+        else StatusValue("Mask · human review required", "review")
         if active_t2_artifact is not None
+        and active_t2_artifact.state in {
+            ArtifactState.DRAFT_REVIEW_REQUIRED,
+            ArtifactState.CORRECTED_REVIEW_REQUIRED,
+        }
+        else StatusValue("Mask rejected", "failed")
+        if latest_t2_artifact is not None
+        and latest_t2_artifact.state is ArtifactState.REJECTED
         else StatusValue("Result outdated", "outdated")
         if latest_t2_artifact is not None
         and latest_t2_artifact.state is ArtifactState.OUTDATED
@@ -368,6 +407,12 @@ def _present_subject(
         for artifact in artifacts
     )
     history.extend(
+        f"T2 lesion result v{result.version}: "
+        f"{result.state.value.replace('_', ' ').title()} · "
+        f"{result.lesion_volume_mm3:.3f} mm³"
+        for result in study.t2_results_for_subject(subject.id)
+    )
+    history.extend(
         f"{record.role.value} v{record.version}: "
         f"{record.validation_state.value.replace('_', ' ').title()}"
         for record in scan_inputs
@@ -386,6 +431,10 @@ def _present_subject(
         overall=(
             StatusValue("Blocked", "failed")
             if failed
+            else StatusValue("Complete", "approved")
+            if active_t2_result is not None and not subject.expected_t1
+            else StatusValue("T2 complete · T1 pending", "ready")
+            if active_t2_result is not None
             else StatusValue("Review required", "review")
             if needs_artifact_review
             else StatusValue("Ready for analysis", "ready")
@@ -424,14 +473,32 @@ def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactView
         (item for item in study.model_releases if item.id == artifact.model_release_id),
         None,
     )
+    review = study.review_for_artifact(artifact.id)
+    result = next(
+        (
+            item
+            for item in study.t2_results_for_subject(artifact.subject_id)
+            if item.source_artifact_id == artifact.id
+        ),
+        None,
+    )
+    state = {
+        ArtifactState.DRAFT_REVIEW_REQUIRED: StatusValue(
+            "Draft · human review required",
+            "review",
+        ),
+        ArtifactState.CORRECTED_REVIEW_REQUIRED: StatusValue(
+            "Corrected mask · review required",
+            "review",
+        ),
+        ArtifactState.APPROVED: StatusValue("Human approved", "approved"),
+        ArtifactState.REJECTED: StatusValue("Rejected", "failed"),
+        ArtifactState.OUTDATED: StatusValue("Outdated", "outdated"),
+    }[artifact.state]
     return T2LesionArtifactViewModel(
         artifact_id=artifact.id,
         version=artifact.version,
-        state=(
-            StatusValue("Draft · human review required", "review")
-            if artifact.state is ArtifactState.DRAFT_REVIEW_REQUIRED
-            else StatusValue("Outdated", "outdated")
-        ),
+        state=state,
         mask_path=artifact.mask_path,
         probability_path=artifact.probability_path,
         qc_preview_path=artifact.qc_preview_path,
@@ -442,6 +509,53 @@ def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactView
         device=artifact.device,
         created_at=_format_timestamp(artifact.created_at),
         source_scan_input_id=artifact.source_scan_input_id,
+        origin_label=(
+            "ITK-SNAP correction"
+            if artifact.origin == "CORRECTED"
+            else "RatLesNetV2 automatic draft"
+        ),
+        can_correct=artifact.active
+        and artifact.state
+        in {
+            ArtifactState.DRAFT_REVIEW_REQUIRED,
+            ArtifactState.CORRECTED_REVIEW_REQUIRED,
+            ArtifactState.APPROVED,
+        },
+        can_review=artifact.active
+        and artifact.state
+        in {
+            ArtifactState.DRAFT_REVIEW_REQUIRED,
+            ArtifactState.CORRECTED_REVIEW_REQUIRED,
+        },
+        official_volume_text=(
+            f"{result.lesion_volume_mm3:.3f} mm³"
+            if result is not None and result.state is ResultState.APPROVED
+            else None
+        ),
+        reviewer=review.reviewer if review is not None else None,
+        reviewed_at=(
+            _format_timestamp(review.created_at) if review is not None else None
+        ),
+    )
+
+
+def _present_result(subject: SubjectRecord, study: StudySnapshot) -> ResultViewModel:
+    result = next(iter(study.t2_results_for_subject(subject.id)), None)
+    if result is None:
+        raise RuntimeError("A result view was requested for a subject without results.")
+    state = (
+        StatusValue("Human approved", "approved")
+        if result.state is ResultState.APPROVED and result.active
+        else StatusValue("Outdated", "outdated")
+    )
+    return ResultViewModel(
+        subject_id=subject.subject_code,
+        group=subject.group_name,
+        t1_value="Not available",
+        t1_state=StatusValue("Not available", "unavailable"),
+        t2_value=f"{result.lesion_volume_mm3:.3f} mm³",
+        t2_state=state,
+        method_version=result.method_version,
     )
 
 

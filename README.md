@@ -49,13 +49,15 @@ an immutable checksummed release. The current T2 release remains external at
 
 ## Current checkpoint
 
-- Canonical schema-v6 study roots and stable subject IDs.
+- Canonical schema-v7 study roots and stable subject IDs.
 - Read-only Bruker/NIfTI discovery and reviewed scan-role assignment.
 - Versioned NIfTI conversion, storage-axis flips, validation, and ITK-SNAP viewing.
 - Reversible subject archiving, renaming, blinding, groups, and audit history.
 - Frozen five-model RatLesNetV2 validation and single/cohort T2 inference.
 - Persistent probability maps, draft masks, QC previews, provisional volumes, jobs,
   checksums, and release provenance.
+- Safe ITK-SNAP correction copies, immutable corrected-mask artifacts, explicit
+  approval/rejection, official native-space lesion volume, and approved-only T2 CSV.
 - T1 backend utilities for conversion, registration, mask review, and provisional
   enhancement; none are connected end-to-end in the desktop application.
 

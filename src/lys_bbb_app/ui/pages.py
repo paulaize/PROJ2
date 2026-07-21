@@ -826,12 +826,14 @@ class ReviewsPage(QWidget):
 
 class ResultsPage(QScrollArea):
     preview_action = Signal(str)
+    approved_csv_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self.blinded_review = False
         self.is_demo = False
         self.has_results = False
+        self.has_approved_results = False
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -960,18 +962,18 @@ class ResultsPage(QScrollArea):
         export_caption.setObjectName("metadata")
         export_caption.setWordWrap(True)
         export_layout.addWidget(export_caption)
-        self.export_buttons: list[QPushButton] = []
-        for text in (
-            "Approved results CSV",
-            "QC report · HTML/PDF",
-            "Reproducibility bundle",
-        ):
+        self.approved_csv = secondary_button("Approved T2 results CSV")
+        self.approved_csv.clicked.connect(self.approved_csv_requested.emit)
+        export_layout.addWidget(self.approved_csv)
+        self.preview_export_buttons: list[QPushButton] = []
+        for text in ("QC report · HTML/PDF", "Reproducibility bundle"):
             button = secondary_button(text)
             button.clicked.connect(
                 lambda _checked=False, name=text: self._preview_export(name)
             )
             export_layout.addWidget(button)
-            self.export_buttons.append(button)
+            self.preview_export_buttons.append(button)
+        self.export_buttons = [self.approved_csv, *self.preview_export_buttons]
         export_layout.addStretch()
         safeguard = QLabel("Missing values are never converted to zero.")
         safeguard.setObjectName("infoBanner")
@@ -985,6 +987,9 @@ class ResultsPage(QScrollArea):
     def set_study(self, study: StudyViewModel) -> None:
         self.is_demo = study.is_demo
         self.has_results = bool(study.results)
+        self.has_approved_results = any(
+            result.t2_state.kind == "approved" for result in study.results
+        )
         self.model.set_results(study.results)
         has_preview_results = study.is_demo and self.has_results
         self.provisional_warning.setVisible(has_preview_results)
@@ -997,7 +1002,15 @@ class ResultsPage(QScrollArea):
         self.plot_caption.setVisible(has_preview_results)
         self.approved_only.setEnabled(self.has_results)
         self.provenance_button.setEnabled(has_preview_results)
-        for button in self.export_buttons:
+        self.approved_csv.setEnabled(
+            self.has_approved_results and not study.is_demo
+        )
+        self.approved_csv.setToolTip(
+            ""
+            if self.approved_csv.isEnabled()
+            else "Available when this persistent study has an approved T2 lesion result."
+        )
+        for button in self.preview_export_buttons:
             button.setEnabled(has_preview_results)
             button.setToolTip(
                 "Available only when the study contains exportable results."

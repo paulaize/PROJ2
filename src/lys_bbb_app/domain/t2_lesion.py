@@ -1,4 +1,4 @@
-"""Qt-free records for frozen T2 inference jobs and draft lesion artifacts."""
+"""Qt-free records for T2 inference, artifact review, and approved results."""
 
 from __future__ import annotations
 
@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+
+T2_LESION_MASK_ARTIFACT_TYPE = "T2_LESION_MASK"
+T2_LESION_VOLUME_RESULT_TYPE = "T2_LESION_VOLUME"
+T2_NATIVE_VOLUME_METHOD_VERSION = "native_binary_mask_volume_v1"
 
 
 class ProcessingJobState(str, Enum):
@@ -18,6 +23,19 @@ class ProcessingJobState(str, Enum):
 
 class ArtifactState(str, Enum):
     DRAFT_REVIEW_REQUIRED = "DRAFT_REVIEW_REQUIRED"
+    CORRECTED_REVIEW_REQUIRED = "CORRECTED_REVIEW_REQUIRED"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    OUTDATED = "OUTDATED"
+
+
+class ReviewDecision(str, Enum):
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class ResultState(str, Enum):
+    APPROVED = "APPROVED"
     OUTDATED = "OUTDATED"
 
 
@@ -65,6 +83,7 @@ class T2LesionArtifactRecord:
     id: str
     subject_id: str
     artifact_type: str
+    origin: str
     state: ArtifactState
     version: int
     active: bool
@@ -87,6 +106,43 @@ class T2LesionArtifactRecord:
 
 
 @dataclass(frozen=True)
+class T2ReviewDecisionRecord:
+    id: str
+    subject_id: str
+    artifact_id: str
+    decision: ReviewDecision
+    reviewer: str
+    study_blinding_state: str
+    issue_code: str | None
+    notes: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
+class T2LesionResultRecord:
+    id: str
+    subject_id: str
+    version: int
+    state: ResultState
+    active: bool
+    lesion_voxel_count: int
+    lesion_volume_mm3: float
+    unit: str
+    method_version: str
+    source_artifact_id: str
+    source_scan_input_id: str
+    model_release_id: str
+    mask_sha256: str
+    reviewer: str
+    created_at: str
+    approved_at: str
+    outdated_at: str | None
+    outdated_reason: str | None
+    superseded_by: str | None
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class T2ArtifactDraft:
     subject_id: str
     source_scan_input_id: str
@@ -99,6 +155,19 @@ class T2ArtifactDraft:
     provisional_volume_mm3: float
     threshold: float
     device: str
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class T2CorrectedArtifactDraft:
+    subject_id: str
+    source_artifact_id: str
+    mask_path: Path
+    mask_sha256: str
+    qc_preview_path: Path | None
+    lesion_voxel_count: int
+    provisional_volume_mm3: float
+    imported_from: Path
     metadata: dict[str, Any]
 
 

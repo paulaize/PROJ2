@@ -51,6 +51,9 @@ def _demo_t2_artifact(subject_code: str) -> T2LesionArtifactViewModel:
         device="mps",
         created_at="Today, 14:42",
         source_scan_input_id=f"synthetic-{subject_code}-T2",
+        origin_label="RatLesNetV2 automatic draft",
+        can_correct=True,
+        can_review=True,
     )
 
 

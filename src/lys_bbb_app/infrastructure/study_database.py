@@ -26,7 +26,11 @@ from lys_bbb_app.domain.study import (
     SubjectRecord,
 )
 from lys_bbb.t2_model_release import FrozenT2ModelRelease
-from lys_bbb_app.domain.t2_lesion import T2ArtifactDraft
+from lys_bbb_app.domain.t2_lesion import (
+    ReviewDecision,
+    T2ArtifactDraft,
+    T2CorrectedArtifactDraft,
+)
 from lys_bbb_app.infrastructure.database_support import (
     connect as _connect,
     insert_audit as _insert_audit,
@@ -61,9 +65,16 @@ from lys_bbb_app.infrastructure.t2_inference_repository import (
     start_job as _start_t2_job,
     update_job_progress as _update_t2_job_progress,
 )
+from lys_bbb_app.infrastructure.t2_review_repository import (
+    create_corrected_t2_artifact as _create_corrected_t2_artifact,
+    record_t2_review as _record_t2_review,
+    result_from_row as _t2_result_from_row,
+    review_from_row as _t2_review_from_row,
+)
+from lys_bbb.t2_review import T2MaskMeasurement
 
 
-STUDY_SCHEMA_VERSION = 6
+STUDY_SCHEMA_VERSION = 7
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -360,6 +371,28 @@ class StudyRepository:
                         (study["id"],),
                     ).fetchall()
                 )
+                reviews = tuple(
+                    _t2_review_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM reviews
+                        WHERE study_id = ?
+                        ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                results = tuple(
+                    _t2_result_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM results
+                        WHERE study_id = ?
+                        ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
         except StudyStateError:
             raise
         except (sqlite3.Error, json.JSONDecodeError) as exc:
@@ -384,6 +417,8 @@ class StudyRepository:
             model_releases=model_releases,
             processing_jobs=processing_jobs,
             artifacts=artifacts,
+            reviews=reviews,
+            results=results,
             archived_subjects=archived_subjects,
             mri_input_folder=folders.get("mri"),
             t1_input_folder=folders.get("t1"),
@@ -858,6 +893,34 @@ class StudyRepository:
             release_id=release_id,
             output_path=output_path,
             actor=actor,
+        )
+
+    def create_corrected_t2_artifact(
+        self,
+        draft: T2CorrectedArtifactDraft,
+        *,
+        actor: str,
+    ) -> str:
+        return _create_corrected_t2_artifact(self, draft, actor=actor)
+
+    def record_t2_review(
+        self,
+        artifact_id: str,
+        decision: ReviewDecision,
+        *,
+        reviewer: str,
+        issue_code: str | None = None,
+        notes: str | None = None,
+        measurement: T2MaskMeasurement | None = None,
+    ) -> None:
+        _record_t2_review(
+            self,
+            artifact_id,
+            decision,
+            reviewer=reviewer,
+            issue_code=issue_code,
+            notes=notes,
+            measurement=measurement,
         )
 
     def record_audit_event(

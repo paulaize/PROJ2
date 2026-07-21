@@ -18,6 +18,7 @@ from lys_bbb_app.domain.t2_lesion import (
     T2ArtifactDraft,
     T2LesionArtifactRecord,
     T2ModelReleaseRecord,
+    T2_LESION_MASK_ARTIFACT_TYPE,
 )
 from lys_bbb_app.infrastructure.database_support import (
     connect,
@@ -27,9 +28,10 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study,
     utc_now,
 )
+from lys_bbb_app.infrastructure.t2_review_repository import invalidate_t2_results
 
 
-ARTIFACT_TYPE = "T2_LESION_MASK_DRAFT"
+ARTIFACT_TYPE = T2_LESION_MASK_ARTIFACT_TYPE
 
 
 class StudyDatabaseContext(Protocol):
@@ -99,6 +101,13 @@ def register_t2_model_release(
                         reviewer,
                     ),
                 )
+                invalidated = invalidate_t2_results(
+                    connection,
+                    study_id=study["id"],
+                    excluding_release_id=release.id,
+                    reason="The active frozen T2 model release changed.",
+                    changed_at=now,
+                )
                 touch_study(connection, study["id"], now)
                 insert_audit(
                     connection,
@@ -111,6 +120,7 @@ def register_t2_model_release(
                         "root_path": str(release.root_path),
                         "threshold": release.threshold,
                         "model_sha256": list(release.model_sha256),
+                        "results_invalidated": invalidated,
                     },
                     created_at=now,
                 )
@@ -303,6 +313,7 @@ def complete_job(
                     metadata = dict(draft.metadata)
                     metadata.update(
                         {
+                            "origin": "AUTOMATIC",
                             "probability_path": _relative_to_root(
                                 repository, draft.probability_path
                             ).as_posix(),
@@ -350,6 +361,12 @@ def complete_job(
                             "UPDATE artifacts SET superseded_by = ? WHERE id = ?",
                             (artifact_id, previous["id"]),
                         )
+                    invalidated_results = invalidate_t2_results(
+                        connection,
+                        subject_id=draft.subject_id,
+                        reason="A new automatic T2 lesion mask was generated.",
+                        changed_at=now,
+                    )
                     connection.execute(
                         "UPDATE subjects SET updated_at = ? WHERE id = ?",
                         (now, draft.subject_id),
@@ -368,6 +385,7 @@ def complete_job(
                             "source_scan_input_id": draft.source_scan_input_id,
                             "mask_sha256": draft.mask_sha256,
                             "human_review_required": True,
+                            "results_invalidated": invalidated_results,
                         },
                         created_at=now,
                     )
@@ -476,6 +494,7 @@ def artifact_from_row(row: sqlite3.Row, root_path: Path) -> T2LesionArtifactReco
         id=row["id"],
         subject_id=row["subject_id"],
         artifact_type=row["artifact_type"],
+        origin=str(metadata.get("origin", "AUTOMATIC")),
         state=ArtifactState(row["state"]),
         version=int(row["version"]),
         active=bool(row["active"]),

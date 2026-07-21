@@ -1,4 +1,4 @@
-"""Subject-owned T2 lesion inference and draft-result panel."""
+"""Subject-owned T2 lesion inference, correction, and review panel."""
 
 from __future__ import annotations
 
@@ -30,6 +30,9 @@ class T2LesionPanel(QScrollArea):
     run_subject_requested = Signal(str)
     run_study_requested = Signal()
     open_artifact_requested = Signal(str, str)
+    import_correction_requested = Signal(str, str)
+    approve_requested = Signal(str, str)
+    reject_requested = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -106,15 +109,31 @@ class T2LesionPanel(QScrollArea):
         artifact_header.addLayout(self.artifact_status_container)
         artifact_layout.addLayout(artifact_header)
 
+        actions = QHBoxLayout()
+        self.open_artifact = QPushButton("Correct a copy in ITK-SNAP")
+        self.open_artifact.clicked.connect(self._open_artifact)
+        self.import_correction = secondary_button("Import corrected mask…")
+        self.import_correction.clicked.connect(self._import_correction)
+        self.reject = secondary_button("Reject…")
+        self.reject.clicked.connect(self._reject)
+        self.approve = QPushButton("Approve mask")
+        self.approve.clicked.connect(self._approve)
+        actions.addWidget(self.open_artifact)
+        actions.addWidget(self.import_correction)
+        actions.addStretch()
+        actions.addWidget(self.reject)
+        actions.addWidget(self.approve)
+        artifact_layout.addLayout(actions)
+
         self.viewer_stack = QStackedWidget()
-        self.viewer_stack.setMinimumHeight(245)
-        self.viewer_stack.setMaximumHeight(340)
+        self.viewer_stack.setMinimumHeight(190)
+        self.viewer_stack.setMaximumHeight(230)
         self.qc_image = QLabel()
         self.qc_image.setAlignment(Qt.AlignCenter)
         self.qc_image.setStyleSheet("background: #101b2b; border-radius: 8px;")
         self.qc_image.setScaledContents(False)
         self.synthetic_viewer = SyntheticSliceViewer()
-        self.synthetic_viewer.setMinimumSize(420, 245)
+        self.synthetic_viewer.setMinimumSize(420, 190)
         self.empty_viewer = QLabel(
             "QC preview is unavailable. Open the mask in ITK-SNAP."
         )
@@ -135,25 +154,14 @@ class T2LesionPanel(QScrollArea):
         paths = QGridLayout()
         self.mask_path = ElidedLabel()
         self.probability_path = ElidedLabel()
-        paths.addWidget(QLabel("Draft mask"), 0, 0)
+        self.mask_path_label = QLabel("Current mask")
+        paths.addWidget(self.mask_path_label, 0, 0)
         paths.addWidget(self.mask_path, 0, 1)
         paths.addWidget(QLabel("Probability map"), 1, 0)
         paths.addWidget(self.probability_path, 1, 1)
         paths.setColumnStretch(1, 1)
         artifact_layout.addLayout(paths)
 
-        actions = QHBoxLayout()
-        self.open_artifact = QPushButton("Open MRI + draft mask in ITK-SNAP")
-        self.open_artifact.clicked.connect(self._open_artifact)
-        review = secondary_button("Review and approve")
-        review.setEnabled(False)
-        review.setToolTip(
-            "The immutable approval/rejection service is the next T2 milestone."
-        )
-        actions.addWidget(self.open_artifact)
-        actions.addWidget(review)
-        actions.addStretch()
-        artifact_layout.addLayout(actions)
         self.layout.addWidget(self.artifact_card)
         self.layout.addStretch()
 
@@ -185,18 +193,29 @@ class T2LesionPanel(QScrollArea):
         if artifact is None:
             return
         self.artifact_title.setText(
-            f"RatLesNetV2 draft lesion mask · version {artifact.version}"
+            f"{artifact.origin_label} · version {artifact.version}"
         )
         _clear_layout(self.artifact_status_container)
         self.artifact_status_container.addWidget(StatusBadge(artifact.state))
         _clear_layout(self.stats_layout)
+        volume_label = (
+            "Official volume" if artifact.official_volume_text else "Provisional volume"
+        )
+        volume_value = artifact.official_volume_text or artifact.provisional_volume_text
         stats = (
-            ("Provisional volume", artifact.provisional_volume_text),
+            (volume_label, volume_value),
             ("Lesion voxels", f"{artifact.lesion_voxel_count:,}"),
             ("Threshold", artifact.threshold_text),
             ("Device", artifact.device.upper()),
             ("Release", artifact.release_label),
-            ("Created", artifact.created_at),
+            (
+                "Reviewed by" if artifact.reviewer else "Created",
+                (
+                    f"{artifact.reviewer} · {artifact.reviewed_at}"
+                    if artifact.reviewer and artifact.reviewed_at
+                    else artifact.reviewer or artifact.created_at
+                ),
+            ),
         )
         for index, (label, value) in enumerate(stats):
             row, column = divmod(index, 3)
@@ -214,14 +233,36 @@ class T2LesionPanel(QScrollArea):
         if preview is not None and preview.is_file():
             pixmap = QPixmap(str(preview))
             self.qc_image.setPixmap(
-                pixmap.scaled(850, 315, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap.scaled(850, 215, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
             self.viewer_stack.setCurrentWidget(self.qc_image)
         elif str(artifact.mask_path).startswith("/synthetic-preview/"):
             self.viewer_stack.setCurrentWidget(self.synthetic_viewer)
         else:
             self.viewer_stack.setCurrentWidget(self.empty_viewer)
-        self.open_artifact.setEnabled(True)
+        self.mask_path_label.setText(
+            "Approved mask"
+            if artifact.official_volume_text
+            else "Corrected mask"
+            if "correction" in artifact.origin_label.casefold()
+            else "Draft mask"
+        )
+        review_tooltip = (
+            ""
+            if artifact.can_review
+            else "This artifact already has a decision or is no longer current."
+        )
+        correction_tooltip = (
+            ""
+            if artifact.can_correct
+            else "Only the current mask can be opened or replaced."
+        )
+        for button in (self.open_artifact, self.import_correction):
+            button.setEnabled(artifact.can_correct)
+            button.setToolTip(correction_tooltip)
+        for button in (self.approve, self.reject):
+            button.setEnabled(artifact.can_review)
+            button.setToolTip(review_tooltip)
 
     def _run_subject(self) -> None:
         if self.current_subject is not None:
@@ -233,6 +274,36 @@ class T2LesionPanel(QScrollArea):
             and self.current_subject.t2_artifact is not None
         ):
             self.open_artifact_requested.emit(
+                self.current_subject.subject_id,
+                self.current_subject.t2_artifact.artifact_id,
+            )
+
+    def _import_correction(self) -> None:
+        if (
+            self.current_subject is not None
+            and self.current_subject.t2_artifact is not None
+        ):
+            self.import_correction_requested.emit(
+                self.current_subject.subject_id,
+                self.current_subject.t2_artifact.artifact_id,
+            )
+
+    def _approve(self) -> None:
+        if (
+            self.current_subject is not None
+            and self.current_subject.t2_artifact is not None
+        ):
+            self.approve_requested.emit(
+                self.current_subject.subject_id,
+                self.current_subject.t2_artifact.artifact_id,
+            )
+
+    def _reject(self) -> None:
+        if (
+            self.current_subject is not None
+            and self.current_subject.t2_artifact is not None
+        ):
+            self.reject_requested.emit(
                 self.current_subject.subject_id,
                 self.current_subject.t2_artifact.artifact_id,
             )

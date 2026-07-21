@@ -35,6 +35,9 @@ class SubjectWorkspacePage(QScrollArea):
     t2_run_subject_requested = Signal(str)
     t2_run_study_requested = Signal()
     t2_open_artifact_requested = Signal(str, str)
+    t2_import_correction_requested = Signal(str, str)
+    t2_approve_requested = Signal(str, str)
+    t2_reject_requested = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -114,6 +117,11 @@ class SubjectWorkspacePage(QScrollArea):
         self.t2_panel.open_artifact_requested.connect(
             self.t2_open_artifact_requested.emit
         )
+        self.t2_panel.import_correction_requested.connect(
+            self.t2_import_correction_requested.emit
+        )
+        self.t2_panel.approve_requested.connect(self.t2_approve_requested.emit)
+        self.t2_panel.reject_requested.connect(self.t2_reject_requested.emit)
         self.history_list = QListWidget()
         self.tabs.addTab(self.summary_tab, "Summary")
         self.tabs.addTab(self.inputs_panel, "Inputs")
@@ -189,8 +197,9 @@ class SubjectWorkspacePage(QScrollArea):
         self.summary_tab.setText(
             "This workspace keeps every workflow under one stable subject identity. "
             "Use Inputs to verify the managed MRI, then open T2 Lesion to run or inspect "
-            "the frozen ensemble. T1 processing and immutable T2 approval remain "
-            "disabled until their service contracts are implemented."
+            "the frozen ensemble. In T2 Lesion you can inspect a draft, correct a safe "
+            "copy in ITK-SNAP, import that correction, and record an approval or "
+            "rejection. T1 processing remains outside this milestone."
         )
         self.history_list.clear()
         self.history_list.addItems(subject.history or ("No history recorded.",))

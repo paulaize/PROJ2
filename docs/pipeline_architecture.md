@@ -67,13 +67,14 @@ vertical slice reveals a real responsibility boundary.
 |---|---|---|
 | Inventory and Bruker/NIfTI conversion | `lys_bbb` | Implemented |
 | Input geometry/checksum validation | `lys_bbb` + study service | Implemented |
-| Canonical study/subjects/inputs/audit | schema-v6 repositories | Implemented |
+| Canonical study/subjects/inputs/audit | schema-v7 repositories | Implemented |
 | T2 release validation and inference | `lys_bbb.t2_*` | Implemented |
 | T2 release/job/draft persistence | feature repository | Implemented |
-| T2 immutable review and approved result | next vertical slice | Missing |
+| T2 correction, immutable review, approved result | review repository/service | Implemented |
 | T1 brain-mask generation/review in app | later vertical slice | Missing |
 | T1 registration/quantification backend | `lys_bbb` | Implemented but provisional/review-incomplete |
-| Production exports | later slice | Missing |
+| Approved-only T2 CSV | export service | Implemented |
+| QC/reproducibility exports | later slice | Missing |
 
 ## State semantics
 
@@ -111,10 +112,12 @@ Each scientific artifact/result should record:
 
 ## Canonical and transitional state
 
-Schema-v6 `StudyRepository` state is canonical for new desktop studies. It currently
-owns studies, subjects, input versions, validation, T2 model releases, T2 jobs, T2 draft
-artifacts, blinding/groups, and audit events. Reviews, method records, dependencies, and
-approved results are the next additions required by the T2 slice.
+Schema-v7 `StudyRepository` state is canonical for new desktop studies. It owns studies,
+subjects, input versions, validation, T2 model releases, T2 jobs, versioned lesion-mask
+artifacts, immutable reviews, approved/outdated T2 results, blinding/groups, and audit
+events. General method records and dependency tables remain deferred until another
+vertical workflow needs them; the T2 result already stores its exact input, mask,
+release, method version, and checksums explicitly.
 
 The old `lys_bbb.project_state` and `ProjectService` implement a single-file schema-v1
 prototype. They are frozen compatibility code used only to inspect and migrate `.lysbbb`

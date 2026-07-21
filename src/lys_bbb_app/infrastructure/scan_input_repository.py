@@ -30,6 +30,8 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study as _touch_study,
     utc_now as _utc_now,
 )
+from lys_bbb_app.domain.t2_lesion import T2_LESION_MASK_ARTIFACT_TYPE
+from lys_bbb_app.infrastructure.t2_review_repository import invalidate_t2_results
 
 
 class StudyDatabaseContext(Protocol):
@@ -267,16 +269,27 @@ def complete_scan_import(
                     (record_id,),
                 )
                 invalidated_artifacts = 0
+                invalidated_results = 0
                 if row["role"] == ScanRole.T2.value:
                     invalidated_artifacts = connection.execute(
                         """
                         UPDATE artifacts
                         SET active = 0, state = 'OUTDATED'
-                        WHERE subject_id = ? AND artifact_type = 'T2_LESION_MASK_DRAFT'
+                        WHERE subject_id = ? AND artifact_type = ?
                           AND active = 1 AND source_scan_input_id != ?
                         """,
-                        (row["subject_id"], record_id),
+                        (
+                            row["subject_id"],
+                            T2_LESION_MASK_ARTIFACT_TYPE,
+                            record_id,
+                        ),
                     ).rowcount
+                    invalidated_results = invalidate_t2_results(
+                        connection,
+                        subject_id=row["subject_id"],
+                        reason="The active native T2 input changed.",
+                        changed_at=now,
+                    )
                 _touch_study(connection, study["id"], now)
                 _insert_audit(
                     connection,
@@ -290,6 +303,7 @@ def complete_scan_import(
                         "output_path": relative_output.as_posix(),
                         "output_sha256": result.output_sha256,
                         "t2_artifacts_invalidated": invalidated_artifacts,
+                        "t2_results_invalidated": invalidated_results,
                     },
                     created_at=now,
                 )

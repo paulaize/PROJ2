@@ -536,6 +536,8 @@ def test_opening_schema_v2_study_migrates_scan_input_state_and_manifest(tmp_path
     with sqlite3.connect(repository.database_path) as connection:
         connection.executescript(
             """
+            DROP TABLE reviews;
+            DROP TABLE results;
             DROP TABLE artifacts;
             DROP TABLE jobs;
             DROP TABLE model_releases;

@@ -8,12 +8,14 @@ env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 ```
 
 The tests cover scientific geometry and gates, the RS2 notebook build, frozen
-schema-v1 migration compatibility, canonical schema-v6 studies, MRI import/conversion,
-T2 release/inference persistence, and connected offscreen desktop behavior. They do not
+schema-v1 migration compatibility, canonical schema-v7 studies, MRI import/conversion,
+T2 release/inference persistence, immutable review, approved results/CSV, and connected
+offscreen desktop behavior. They do not
 replace visual anatomical QC or a real raw-data-to-approved-result validation set.
 
-The next tests should cover T2 review transitions, corrected-mask validation, artifact
-supersession, approved-result dependency invalidation, CSV gating, and reopening.
+`test_t2_review.py` covers T2 review transitions, corrected-mask validation, artifact
+supersession, approved-result dependency invalidation, CSV gating, reopening, and the
+schema-v6 draft migration.
 Use `pytest-qt` for navigation and interaction tests; keep scientific geometry and
 measurement assertions in backend tests rather than duplicating them in UI tests.
 

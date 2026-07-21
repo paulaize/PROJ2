@@ -74,6 +74,11 @@ Current production state uses `StudyRepository` and feature-specific repositorie
 old `lys_bbb.project_state` and `ProjectService` are frozen schema-v1 migration support;
 do not extend them.
 
+The T2 review slice is divided into `lys_bbb.t2_review` for native-grid binary-mask
+validation and measurement, `T2ReviewService` for correction/review coordination, a
+feature repository for immutable decisions/results, and `t2_export_service` for the
+approved-only CSV. Keep new image logic in the backend and new use cases out of widgets.
+
 ## Active scientific commands
 
 ### T1 refinement and review
@@ -132,6 +137,6 @@ After this consolidation passes tests and CI:
 1. open one PR from `feat/pyside-project-foundation` to `main`;
 2. preserve the useful commits rather than rebuilding the application elsewhere;
 3. merge and delete the long-lived feature branch; and
-4. create the narrow `feat/t2-reviewed-result` branch.
+4. use a narrow branch for the next vertical workflow.
 
 Do not tag, merge, or delete remote branches as part of an unrelated code change.

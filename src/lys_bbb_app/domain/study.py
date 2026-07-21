@@ -11,7 +11,9 @@ from lys_bbb_app.domain.scan_import import ScanInputRecord
 from lys_bbb_app.domain.t2_lesion import (
     ProcessingJobRecord,
     T2LesionArtifactRecord,
+    T2LesionResultRecord,
     T2ModelReleaseRecord,
+    T2ReviewDecisionRecord,
 )
 
 
@@ -86,6 +88,8 @@ class StudySnapshot:
     model_releases: tuple[T2ModelReleaseRecord, ...] = ()
     processing_jobs: tuple[ProcessingJobRecord, ...] = ()
     artifacts: tuple[T2LesionArtifactRecord, ...] = ()
+    reviews: tuple[T2ReviewDecisionRecord, ...] = ()
+    results: tuple[T2LesionResultRecord, ...] = ()
     archived_subjects: tuple[SubjectRecord, ...] = ()
     mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
@@ -112,6 +116,41 @@ class StudySnapshot:
     ) -> tuple[T2LesionArtifactRecord, ...]:
         return tuple(
             artifact for artifact in self.artifacts if artifact.subject_id == subject_id
+        )
+
+    def t2_reviews_for_subject(
+        self,
+        subject_id: str,
+    ) -> tuple[T2ReviewDecisionRecord, ...]:
+        return tuple(
+            review for review in self.reviews if review.subject_id == subject_id
+        )
+
+    def t2_results_for_subject(
+        self,
+        subject_id: str,
+    ) -> tuple[T2LesionResultRecord, ...]:
+        return tuple(
+            result for result in self.results if result.subject_id == subject_id
+        )
+
+    def review_for_artifact(self, artifact_id: str) -> T2ReviewDecisionRecord | None:
+        return next(
+            (review for review in self.reviews if review.artifact_id == artifact_id),
+            None,
+        )
+
+    def active_t2_result_for_subject(
+        self,
+        subject_id: str,
+    ) -> T2LesionResultRecord | None:
+        return next(
+            (
+                result
+                for result in self.results
+                if result.subject_id == subject_id and result.active
+            ),
+            None,
         )
 
     @property

@@ -83,6 +83,12 @@ class T2LesionArtifactViewModel:
     device: str
     created_at: str
     source_scan_input_id: str
+    origin_label: str
+    can_correct: bool
+    can_review: bool
+    official_volume_text: str | None = None
+    reviewer: str | None = None
+    reviewed_at: str | None = None
 
 
 @dataclass(frozen=True)

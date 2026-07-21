@@ -1,6 +1,6 @@
 """Frozen schema-v1 ``.lysbbb`` compatibility state.
 
-Canonical studies use the schema-v6 ``StudyRepository`` in ``lys_bbb_app``. This
+Canonical studies use the schema-v7 ``StudyRepository`` in ``lys_bbb_app``. This
 module remains deliberately unchanged in scope so old single-file projects can be
 inspected and migrated without data loss. New production features must not depend on
 it. It has no Qt imports and performs no scientific processing.

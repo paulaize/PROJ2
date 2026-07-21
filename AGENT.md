@@ -58,10 +58,12 @@ atlas work, synthetic-preview features, schema revisions, or generic job abstrac
 
 ## Current truth
 
-- Schema-v6 studies, MRI import/conversion/validation, subjects, audit, blinding/groups,
-  ITK-SNAP launch, and T2 inference are production-connected.
+- Schema-v7 studies, MRI import/conversion/validation, subjects, audit, blinding/groups,
+  ITK-SNAP launch, T2 inference, correction, review, official volume, and approved-only
+  CSV export are production-connected.
 - T2 inference creates persistent probability maps, draft masks, QC previews, jobs,
-  provenance, and provisional volumes. T2 review and official results are missing.
+  provenance, and provisional volumes; only an immutable human approval creates an
+  official result.
 - Zero T1 cases currently pass the final scientific analysis gate.
 - The T1-guided RS2 refinement notebook is the strongest current T1 brain-mask pre-label
   approach by visual inspection. It remains unapproved; three-dimensional regularity is
@@ -78,7 +80,7 @@ feature-specific repositories/services.
 
 `lys_bbb.project_state` and `lys_bbb.project_service.ProjectService` are frozen legacy
 schema-v1 compatibility code. They exist only to inspect and migrate old `.lysbbb`
-files. Do not add new features to them and do not use them for schema-v6 studies.
+files. Do not add new features to them and do not use them for schema-v7 studies.
 
 ## Documentation authority
 

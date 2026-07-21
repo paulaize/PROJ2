@@ -7,28 +7,28 @@ milestone only. Historical plans belong in Git history.
 
 The repository is technically coherent and should not be replaced or split now. The
 current branch is a consolidation candidate for `main`: it has a sensible internal
-boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v6 studies, real MRI
-import, and real frozen-model T2 inference.
+boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v7 studies, real MRI
+import, frozen-model T2 inference, immutable review, and approved T2 results.
 
 The reason progress feels incomplete is that development moved horizontally across the
 application foundation without completing one reviewed scientific workflow vertically.
 
-At this audit, Ruff and all 139 tests pass locally. GitHub Actions now runs the same
-style check and offscreen test suite on pushes and pull requests.
+At this checkpoint, Ruff and all 149 tests pass locally. GitHub Actions runs the same
+style check and offscreen suite on pushes and pull requests.
 
 ```text
-Closest workflow today
+First complete vertical workflow
 
-T2 input → validation → inference → draft mask → provisional volume
-                                      ↑
-                         review and approval missing
+T2 input → validation → inference → draft/corrected mask → human decision
+→ approved native-space volume → approved-only CSV → reopen unchanged
 ```
 
 ## Implemented now
 
 ### Desktop and study state
 
-- Create, open, and reopen schema-v6 study roots.
+- Create, open, and reopen schema-v7 study roots; schema-v2 through v6 roots migrate
+  non-destructively when opened.
 - Reference read-only Bruker/NIfTI source folders on mounted drives.
 - Discover scans and let users correct subject IDs, T1/T2 roles, and orientation actions.
 - Convert confirmed inputs to versioned managed NIfTI files with provenance.
@@ -45,8 +45,15 @@ T2 input → validation → inference → draft mask → provisional volume
   no postprocessing.
 - Persist probability maps, immutable draft masks, QC previews, provisional voxel count
   and volume, jobs, release provenance, and audit events.
-- Mark a draft outdated when its source T2 is replaced or flipped.
-- Reopen the study with the same release, job, and draft-artifact state.
+- Create a safe editable copy for ITK-SNAP without exposing the registered mask to
+  in-place modification.
+- Validate and import an ITK-SNAP correction as a new immutable artifact version.
+- Record one immutable approval or rejection per exact artifact; rejection requires an
+  issue and notes.
+- Calculate an official voxel count and native-space mm³ volume only after approval.
+- Mark masks and official results outdated when their T2, release, or active mask changes.
+- Export active approved T2 results to CSV; blinded exports omit the group column.
+- Reopen the study with releases, jobs, artifacts, decisions, results, and audit intact.
 
 The supplied unseen T2 smoke case reproduced the prior result exactly at the binary-mask
 level: 7,339 voxels and identical affine. CPU/MPS probability differences were at most
@@ -74,15 +81,15 @@ formally approved winner, and no output is ground truth.
 - `C23S3`: both `D1` and `D1_bis`; one must be selected for a unique longitudinal pair.
 - Treatment groups remain blinded.
 
-## Immediate milestone: T2 reviewed result
+## Completed vertical milestone: T2 reviewed result
 
-The next development branch should be narrowly scoped to this user story:
+The current implementation covers this user story:
 
 > A researcher imports and validates T2, runs the frozen model, reviews or corrects the
 > draft mask, approves it, receives an official native-space lesion volume, exports one
 > CSV, and reopens the study with the complete state intact.
 
-Acceptance criteria:
+Implemented acceptance criteria:
 
 1. A draft mask can be accepted, rejected, or replaced by an ITK-SNAP-corrected mask.
 2. A correction is a new immutable artifact version; the automatic prediction remains.
@@ -95,24 +102,24 @@ Acceptance criteria:
 8. One approved-results CSV includes subject ID, optional group, value, unit, method,
    mask checksum, release ID, reviewer, approval time, and result state.
 9. Closing and reopening preserves artifacts, decisions, dependencies, result, and audit.
-10. Tests cover allowed and blocked transitions, correction validation, invalidation,
-    export gating, and reopening.
+10. Focused tests cover allowed and blocked transitions, correction validation,
+    invalidation, export gating, reopening, and migration of an existing schema-v6 draft.
 
 Use ITK-SNAP for correction. Do not build an embedded segmentation editor.
 
-## Explicitly frozen until the milestone passes
+## Still explicitly frozen
 
 - Additional application pages or synthetic-preview features.
 - More responsive-layout polishing.
 - Atlas or T2-to-T1 integration.
 - New modalities or models.
 - General-purpose plugin/job/workflow frameworks.
-- New schema revisions unless the T2 review/result data genuinely requires one.
+- New schema revisions without a concrete vertical-workflow requirement.
 - Cohort charts beyond the single approved-results CSV.
 
 ## What follows
 
-After the T2 slice is complete, finish the T1 vertical slice:
+After a real-case desktop smoke test of the T2 slice, finish the T1 vertical slice:
 
 ```text
 T1 import → refined RS2 pre-label/import → mask review/approval

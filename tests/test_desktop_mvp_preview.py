@@ -182,10 +182,22 @@ def test_subject_workspace_exposes_t2_inference_and_draft_result_preview(
     study_runs: list[bool] = []
     subject_runs: list[str] = []
     opened: list[tuple[str, str]] = []
+    corrections: list[tuple[str, str]] = []
+    approvals: list[tuple[str, str]] = []
+    rejections: list[tuple[str, str]] = []
     page.t2_run_study_requested.connect(lambda: study_runs.append(True))
     page.t2_run_subject_requested.connect(subject_runs.append)
     page.t2_open_artifact_requested.connect(
         lambda subject_id, artifact_id: opened.append((subject_id, artifact_id))
+    )
+    page.t2_import_correction_requested.connect(
+        lambda subject_id, artifact_id: corrections.append((subject_id, artifact_id))
+    )
+    page.t2_approve_requested.connect(
+        lambda subject_id, artifact_id: approvals.append((subject_id, artifact_id))
+    )
+    page.t2_reject_requested.connect(
+        lambda subject_id, artifact_id: rejections.append((subject_id, artifact_id))
     )
 
     page.set_subject(draft_subject)
@@ -200,9 +212,15 @@ def test_subject_workspace_exposes_t2_inference_and_draft_result_preview(
     }
     assert not page.t2_panel.run_subject.isEnabled()
     page.t2_panel.open_artifact.click()
+    page.t2_panel.import_correction.click()
+    page.t2_panel.approve.click()
+    page.t2_panel.reject.click()
     assert opened == [
         (draft_subject.subject_id, draft_subject.t2_artifact.artifact_id)
     ]
+    assert corrections == opened
+    assert approvals == opened
+    assert rejections == opened
 
     page.set_subject(ready_subject)
     assert page.t2_panel.run_subject.isEnabled()

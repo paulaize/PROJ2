@@ -71,18 +71,16 @@ volume, and artifact version. File presence alone never proves success.
 The supplied unseen smoke case matched the previous MPS mask voxel-for-voxel: 7,339
 voxels and identical affine. Maximum CPU/MPS probability difference was 1.73 × 10⁻⁶.
 
-## Current stopping point
+## Connected review-to-result workflow
 
 ```text
-validated T2 → inference → immutable draft mask → provisional volume
-                                      ↑
-                             implemented to here
+validated T2 → inference → immutable draft mask → review/correction
+→ approved mask → official native-space volume → approved-only CSV
 ```
 
-The mask is always `DRAFT_REVIEW_REQUIRED`. The displayed volume is provisional and
-must not be exported as an approved measurement.
-
-## Next review-to-result contract
+An automatic mask starts as `DRAFT_REVIEW_REQUIRED`; an imported correction starts as
+`CORRECTED_REVIEW_REQUIRED`. Their displayed volumes remain provisional. Only approval
+creates an active official result.
 
 ### Review actions
 
@@ -122,4 +120,5 @@ value by default and requires audited unblinding before adding group columns.
 - Import of externally released masks unless it is required after the reviewed-result
   slice is complete.
 
-The immediate acceptance criteria are listed in `current_state.md`.
+The implemented acceptance criteria are listed in `current_state.md` and exercised by
+`tests/test_t2_review.py`.

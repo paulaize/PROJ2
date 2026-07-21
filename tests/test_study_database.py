@@ -1,4 +1,4 @@
-"""Focused tests for canonical schema-v6 study-root persistence and migration."""
+"""Focused tests for canonical schema-v7 study-root persistence and migration."""
 
 from __future__ import annotations
 
