@@ -23,6 +23,7 @@ from lys_bbb_app.domain.scan_import import (
 )
 from lys_bbb_app.domain.study import CreateStudyRequest
 from lys_bbb_app.domain.t2_lesion import ArtifactState, ResultState, ReviewDecision
+from lys_bbb_app.application.study_presenter import present_study
 from lys_bbb_app.infrastructure.external_viewer import ViewerLaunch
 from lys_bbb_app.infrastructure.study_database import StudyRepository
 from lys_bbb_app.services.study_service import StudyService
@@ -221,6 +222,35 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
     reopened = service.open_study(approved.root_path)
     assert reopened.review_for_artifact(artifact_id).reviewer == "Reviewer A"
     assert reopened.active_t2_result_for_subject(subject_id).source_artifact_id == artifact_id
+
+
+def test_persistent_t2_draft_is_presented_in_general_review_queue(
+    tmp_path: Path,
+) -> None:
+    service, subject_id, artifact_id, _reference = _build_service_with_draft(tmp_path)
+
+    presented = present_study(service.current_study)
+
+    assert len(presented.reviews) == 1
+    review = presented.reviews[0]
+    assert review.subject_id == subject_id
+    assert review.subject_label == "Mouse-01"
+    assert review.artifact_id == artifact_id
+    assert review.category == "T2 lesion masks"
+    assert review.status.kind == "review"
+    assert "Provisional volume" in review.automatic_qc
+    assert next(
+        workflow for workflow in presented.workflows if workflow.key == "t2"
+    ).target_page == "reviews"
+    assert any(
+        action.target_page == "reviews"
+        for action in presented.priority_actions
+        if "require human review" in action.label
+    )
+
+    service.approve_t2_mask(subject_id, artifact_id, reviewer="Reviewer A")
+
+    assert present_study(service.current_study).reviews == ()
 
 
 def test_correction_is_new_artifact_and_approval_uses_corrected_mask(

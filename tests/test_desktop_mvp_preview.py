@@ -41,9 +41,9 @@ from lys_bbb_app.ui.dialogs import (  # noqa: E402
 )
 from lys_bbb_app.ui.main_window import MainWindow  # noqa: E402
 from lys_bbb_app.ui.pages import (  # noqa: E402
-    ReviewsPage,
     SubjectsPage,
 )
+from lys_bbb_app.ui.reviews import ReviewsPage  # noqa: E402
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog  # noqa: E402
 from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage  # noqa: E402
 from lys_bbb_app.ui.widgets import ElidedLabel  # noqa: E402
@@ -417,6 +417,75 @@ def test_review_decisions_are_local_and_rejection_requires_reason(
 
     page._approve()
     assert page.decisions[review_id].label == "Human approved · preview"
+    page.close()
+
+
+def test_persistent_review_queue_emits_connected_t2_actions(
+    qt_app: QApplication,
+) -> None:
+    demo = demo_study()
+    review = replace(
+        demo.reviews[2],
+        subject_id="stable-subject-id",
+        subject_label="Mouse-001",
+        artifact_id="artifact-t2-v1",
+        qc_preview_path=None,
+    )
+    page = ReviewsPage()
+    page.set_study(replace(demo, is_demo=False, reviews=(review,)))
+    approvals: list[tuple[str, str, str]] = []
+    rejections: list[tuple[str, str, str, str]] = []
+    corrections: list[tuple[str, str]] = []
+    imports: list[tuple[str, str]] = []
+    subjects: list[str] = []
+    page.approve_requested.connect(
+        lambda subject_id, artifact_id, notes: approvals.append(
+            (subject_id, artifact_id, notes)
+        )
+    )
+    page.reject_requested.connect(
+        lambda subject_id, artifact_id, issue, notes: rejections.append(
+            (subject_id, artifact_id, issue, notes)
+        )
+    )
+    page.correction_requested.connect(
+        lambda subject_id, artifact_id: corrections.append((subject_id, artifact_id))
+    )
+    page.import_correction_requested.connect(
+        lambda subject_id, artifact_id: imports.append((subject_id, artifact_id))
+    )
+    page.subject_requested.connect(subjects.append)
+
+    assert page.queue_list.count() == 1
+    assert "Mouse-001" in page.queue_list.item(0).text()
+    assert page.current_item is not None
+    assert page.approve.isEnabled()
+    assert page.previous_slice.isHidden()
+
+    page.notes.setPlainText("Looks anatomically consistent.")
+    page.approve.click()
+    page.issue.setCurrentText("False positive")
+    page.notes.setPlainText("Superior skull inclusion remains.")
+    page.reject.click()
+    page.correction.click()
+    page.import_correction.click()
+    page.open_subject.click()
+    qt_app.processEvents()
+
+    assert approvals == [
+        ("stable-subject-id", "artifact-t2-v1", "Looks anatomically consistent.")
+    ]
+    assert rejections == [
+        (
+            "stable-subject-id",
+            "artifact-t2-v1",
+            "FALSE_POSITIVE",
+            "Superior skull inclusion remains.",
+        )
+    ]
+    assert corrections == [("stable-subject-id", "artifact-t2-v1")]
+    assert imports == [("stable-subject-id", "artifact-t2-v1")]
+    assert subjects == ["stable-subject-id"]
     page.close()
 
 

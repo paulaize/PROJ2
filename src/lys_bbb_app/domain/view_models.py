@@ -129,6 +129,9 @@ class ReviewItemViewModel:
     automatic_qc: str
     status: StatusValue
     slice_count: int = 30
+    subject_label: str | None = None
+    artifact_id: str | None = None
+    qc_preview_path: Path | None = None
 
 
 @dataclass(frozen=True)

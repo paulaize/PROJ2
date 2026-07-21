@@ -11,6 +11,15 @@ from typing import Any
 T2_LESION_MASK_ARTIFACT_TYPE = "T2_LESION_MASK"
 T2_LESION_VOLUME_RESULT_TYPE = "T2_LESION_VOLUME"
 T2_NATIVE_VOLUME_METHOD_VERSION = "native_binary_mask_volume_v1"
+T2_REJECTION_ISSUES = (
+    ("Missing lesion region", "MISSING_REGION"),
+    ("False positive", "FALSE_POSITIVE"),
+    ("Inaccurate boundary", "INACCURATE_BOUNDARY"),
+    ("Severe image artifact", "SEVERE_ARTIFACT"),
+    ("Wrong subject", "WRONG_SUBJECT"),
+    ("Wrong orientation", "WRONG_ORIENTATION"),
+    ("Other", "OTHER"),
+)
 
 
 class ProcessingJobState(str, Enum):

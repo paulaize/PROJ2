@@ -21,6 +21,7 @@ from lys_bbb_app.domain.view_models import (
     InputScanViewModel,
     MetricViewModel,
     PriorityActionViewModel,
+    ReviewItemViewModel,
     ResultViewModel,
     StatusValue,
     StudyViewModel,
@@ -77,6 +78,17 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         _present_result(subject, study)
         for subject in study.subjects
         if study.t2_results_for_subject(subject.id)
+    )
+    reviews = tuple(
+        _present_t2_review_item(subject, artifact, study)
+        for subject in study.subjects
+        for artifact in study.t2_artifacts_for_subject(subject.id)
+        if artifact.active
+        and artifact.state
+        in {
+            ArtifactState.DRAFT_REVIEW_REQUIRED,
+            ArtifactState.CORRECTED_REVIEW_REQUIRED,
+        }
     )
     archived_subjects = tuple(
         _present_subject(subject, (), (), study) for subject in study.archived_subjects
@@ -174,8 +186,8 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     ("Input reviews", str(t2_input_reviews)),
                     ("Approved results", str(t2_approved)),
                 ),
-                "View subjects",
-                "subjects",
+                "Review T2 masks" if t2_drafts else "View subjects",
+                "reviews" if t2_drafts else "subjects",
             ),
             WorkflowSummaryViewModel(
                 "combined",
@@ -235,7 +247,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     f"{t2_drafts} draft T2 lesion masks require human review",
                     "Approve, reject, or import an ITK-SNAP correction",
                     "review",
-                    "subjects",
+                    "reviews",
                 ),
             ) + priority_actions
         if not study.is_blinded and unassigned:
@@ -289,7 +301,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         workflows=workflows,
         priority_actions=priority_actions,
         subjects=subjects,
-        reviews=(),
+        reviews=reviews,
         results=results,
         mri_input_folder=study.mri_input_folder,
         t1_input_folder=study.t1_input_folder,
@@ -465,6 +477,55 @@ def _present_subject(
             if active_release is not None
             else None
         ),
+    )
+
+
+def _present_t2_review_item(
+    subject: SubjectRecord,
+    artifact,
+    study: StudySnapshot,
+) -> ReviewItemViewModel:
+    """Build one actionable queue item for the current unreviewed T2 mask."""
+
+    presented = _present_t2_artifact(artifact, study)
+    source = next(
+        (
+            item
+            for item in study.inputs_for_subject(subject.id)
+            if item.id == artifact.source_scan_input_id
+        ),
+        None,
+    )
+    slice_count = (
+        int(source.output_shape[-1])
+        if source is not None and source.output_shape
+        else 1
+    )
+    corrected = artifact.state is ArtifactState.CORRECTED_REVIEW_REQUIRED
+    return ReviewItemViewModel(
+        review_id=artifact.id,
+        subject_id=subject.id,
+        category="T2 lesion masks",
+        artifact_name=(
+            f"ITK-SNAP corrected lesion mask · v{artifact.version}"
+            if corrected
+            else f"RatLesNetV2 draft lesion mask · v{artifact.version}"
+        ),
+        reason=(
+            "The imported correction requires an explicit decision before measurement."
+            if corrected
+            else "The automatic prediction requires explicit human review."
+        ),
+        automatic_qc=(
+            f"Provisional volume {artifact.provisional_volume_mm3:.3f} mm³ · "
+            f"{artifact.lesion_voxel_count:,} lesion voxels · threshold "
+            f"{artifact.threshold:.2f} · {presented.release_label}"
+        ),
+        status=presented.state,
+        slice_count=slice_count,
+        subject_label=subject.subject_code,
+        artifact_id=artifact.id,
+        qc_preview_path=artifact.qc_preview_path,
     )
 
 

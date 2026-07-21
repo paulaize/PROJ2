@@ -80,7 +80,8 @@ validated T2 → inference → immutable draft mask → review/correction
 
 An automatic mask starts as `DRAFT_REVIEW_REQUIRED`; an imported correction starts as
 `CORRECTED_REVIEW_REQUIRED`. Their displayed volumes remain provisional. Only approval
-creates an active official result.
+creates an active official result. Both states appear in the study-level Reviews queue;
+the subject workspace exposes the same service actions for detailed context.
 
 ### Review actions
 

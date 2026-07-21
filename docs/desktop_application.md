@@ -155,6 +155,11 @@ results. Mask correction routes through ITK-SNAP:
 5. register the correction as a new immutable artifact;
 6. record accept/reject decision against the exact version.
 
+The study-level Reviews page is the primary work queue. Subject workspaces may expose
+the same actions for context, but must not become a separate review system. The current
+persistent queue contains T2 lesion-mask drafts and corrections; later T1 artifacts
+must use the same queue and service-backed decisions.
+
 Approval records reviewer, time, decision, and study blinding state. Rejection also
 requires an issue code and notes. Bulk approval is prohibited.
 

@@ -37,10 +37,11 @@ T2 input → validation → inference → draft/corrected mask → human decisio
 - Preserve blinded review, optional groups, reviewer identity, and audit history.
 - Open active MRI inputs in ITK-SNAP.
 
-The persistent T2 review controls live in each subject's `T2 Lesion` tab. The global
-`Reviews` page, cohort chart, QC/reproducibility export buttons, and most settings remain
-explicitly labelled design fixtures; they do not save scientific state. `--demo` is
-entirely synthetic.
+Persistent draft and corrected T2 masks populate the study-level `Reviews` queue, where
+the user can approve, reject, open an editable ITK-SNAP copy, or import a correction.
+The subject's `T2 Lesion` tab mirrors the same actions as a detailed alternate entry
+point. Brain-mask and registration queues, cohort charts, QC/reproducibility export
+buttons, and most settings remain design fixtures. `--demo` is entirely synthetic.
 
 ### T2 lesion workflow
 
@@ -90,7 +91,8 @@ The current implementation covers this user story:
 
 Implemented acceptance criteria:
 
-1. A draft mask can be accepted, rejected, or replaced by an ITK-SNAP-corrected mask.
+1. A draft mask appears in the general Reviews queue and can be accepted, rejected, or
+   replaced by an ITK-SNAP-corrected mask.
 2. A correction is a new immutable artifact version; the automatic prediction remains.
 3. Reviewer identity, timestamp, decision, notes, issue code, and blinding state persist.
 4. Rejection requires a reason; approval does not require a note.

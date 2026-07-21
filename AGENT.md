@@ -40,6 +40,8 @@ abstractions.
 - Use `conda run -n lys-bbb python ...` unless instructed otherwise.
 - Never modify raw Bruker data or overwrite immutable artifacts.
 - Keep scientific processing outside Qt widgets: UI → service → backend/repository.
+- Put study-wide review work in the general Reviews queue; subject pages may mirror the
+  same service actions but must not create a second decision path.
 - Automatic masks are drafts, never ground truth.
 - Human approval requires reviewer identity and time. Rejection requires a reason.
 - Job success, artifact approval, method approval, and result approval are independent.

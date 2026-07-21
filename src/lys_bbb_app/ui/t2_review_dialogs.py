@@ -14,19 +14,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lys_bbb_app.domain.t2_lesion import T2_REJECTION_ISSUES
+
 
 class T2RejectionDialog(QDialog):
     """Collect the mandatory reason and notes for one immutable rejection."""
 
-    ISSUES = (
-        ("Missing lesion region", "MISSING_REGION"),
-        ("False positive", "FALSE_POSITIVE"),
-        ("Inaccurate boundary", "INACCURATE_BOUNDARY"),
-        ("Severe image artifact", "SEVERE_ARTIFACT"),
-        ("Wrong subject", "WRONG_SUBJECT"),
-        ("Wrong orientation", "WRONG_ORIENTATION"),
-        ("Other", "OTHER"),
-    )
+    ISSUES = T2_REJECTION_ISSUES
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

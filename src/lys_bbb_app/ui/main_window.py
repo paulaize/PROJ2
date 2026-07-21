@@ -47,11 +47,11 @@ from lys_bbb_app.ui.mri_action_dialogs import (
 from lys_bbb_app.ui.pages import (
     OverviewPage,
     ResultsPage,
-    ReviewsPage,
     SettingsPage,
     StudyLauncherPage,
     SubjectsPage,
 )
+from lys_bbb_app.ui.reviews import ReviewsPage
 from lys_bbb_app.ui.scan_import_dialog import ScanImportReviewDialog
 from lys_bbb_app.ui.subject_workspace import SubjectWorkspacePage
 from lys_bbb_app.ui.t2_review_dialogs import T2RejectionDialog
@@ -237,6 +237,28 @@ class MainWindow(QMainWindow):
         self.workspace_page.t2_approve_requested.connect(self.approve_t2_mask)
         self.workspace_page.t2_reject_requested.connect(self.reject_t2_mask)
         self.reviews_page.decision_recorded.connect(self._show_preview_message)
+        self.reviews_page.approve_requested.connect(
+            lambda subject_id, artifact_id, notes: self.approve_t2_mask(
+                subject_id,
+                artifact_id,
+                notes=notes or None,
+                return_page="reviews",
+            )
+        )
+        self.reviews_page.reject_requested.connect(
+            self.reject_t2_mask_from_queue
+        )
+        self.reviews_page.correction_requested.connect(
+            self.open_t2_draft_in_itksnap
+        )
+        self.reviews_page.import_correction_requested.connect(
+            lambda subject_id, artifact_id: self.import_corrected_t2_mask(
+                subject_id,
+                artifact_id,
+                return_page="reviews",
+            )
+        )
+        self.reviews_page.subject_requested.connect(self.open_subject)
         self.results_page.preview_action.connect(self._show_preview_message)
         self.results_page.approved_csv_requested.connect(
             self.export_approved_t2_results_csv
@@ -856,10 +878,9 @@ class MainWindow(QMainWindow):
 
     def _t2_inference_completed(self, snapshot: StudySnapshot) -> None:
         targets = self._t2_target_subject_ids or ()
-        self._set_study(present_study(snapshot), page_key="subjects")
-        if len(targets) == 1:
-            self.open_subject(targets[0])
-            self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self._set_study(present_study(snapshot), page_key="reviews")
+        if targets:
+            self.reviews_page.focus_subject(targets[0])
         self.statusBar().showMessage(
             f"T2 inference created {len(targets)} draft lesion mask(s). "
             "Human review is required.",
@@ -913,6 +934,8 @@ class MainWindow(QMainWindow):
         self,
         subject_id: str,
         source_artifact_id: str,
+        *,
+        return_page: str = "workspace",
     ) -> None:
         if self.current_study is None or self.current_study.is_demo:
             self._show_preview_message(
@@ -937,15 +960,20 @@ class MainWindow(QMainWindow):
         except StudyStateError as exc:
             self._show_error("The corrected T2 lesion mask could not be imported.", exc)
             return
-        self._set_study(present_study(snapshot), page_key="subjects")
-        self.open_subject(subject_id)
-        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self._refresh_after_t2_review(snapshot, subject_id, return_page=return_page)
         self.statusBar().showMessage(
             "The corrected mask was stored as a new immutable artifact and now awaits review.",
             12000,
         )
 
-    def approve_t2_mask(self, subject_id: str, artifact_id: str) -> None:
+    def approve_t2_mask(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        notes: str | None = None,
+        return_page: str = "workspace",
+    ) -> None:
         if self.current_study is None or self.current_study.is_demo:
             self._show_preview_message(
                 "Open a persistent study to approve a real T2 lesion mask."
@@ -967,13 +995,12 @@ class MainWindow(QMainWindow):
                 subject_id,
                 artifact_id,
                 reviewer=self._reviewer_identity(),
+                notes=notes,
             )
         except StudyStateError as exc:
             self._show_error("The T2 lesion mask could not be approved.", exc)
             return
-        self._set_study(present_study(snapshot), page_key="subjects")
-        self.open_subject(subject_id)
-        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self._refresh_after_t2_review(snapshot, subject_id, return_page=return_page)
         self.statusBar().showMessage(
             "T2 lesion mask approved; the official native-space volume is available.",
             12000,
@@ -988,24 +1015,76 @@ class MainWindow(QMainWindow):
         dialog = T2RejectionDialog(self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
+        self._record_t2_rejection(
+            subject_id,
+            artifact_id,
+            issue_code=dialog.issue_code(),
+            notes=dialog.notes_text(),
+            return_page="workspace",
+        )
+
+    def reject_t2_mask_from_queue(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        issue_code: str,
+        notes: str,
+    ) -> None:
+        """Record the reason already collected by the general review panel."""
+
+        self._record_t2_rejection(
+            subject_id,
+            artifact_id,
+            issue_code=issue_code,
+            notes=notes,
+            return_page="reviews",
+        )
+
+    def _record_t2_rejection(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        issue_code: str,
+        notes: str,
+        return_page: str,
+    ) -> None:
+        if self.current_study is None or self.current_study.is_demo:
+            self._show_preview_message(
+                "Open a persistent study to reject a real T2 lesion mask."
+            )
+            return
         try:
             snapshot = self.study_service.reject_t2_mask(
                 subject_id,
                 artifact_id,
                 reviewer=self._reviewer_identity(),
-                issue_code=dialog.issue_code(),
-                notes=dialog.notes_text(),
+                issue_code=issue_code,
+                notes=notes,
             )
         except StudyStateError as exc:
             self._show_error("The T2 lesion mask could not be rejected.", exc)
             return
-        self._set_study(present_study(snapshot), page_key="subjects")
-        self.open_subject(subject_id)
-        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        self._refresh_after_t2_review(snapshot, subject_id, return_page=return_page)
         self.statusBar().showMessage(
             "The rejection was recorded. Re-run inference or import a new correction.",
             10000,
         )
+
+    def _refresh_after_t2_review(
+        self,
+        snapshot: StudySnapshot,
+        subject_id: str,
+        *,
+        return_page: str,
+    ) -> None:
+        if return_page == "reviews":
+            self._set_study(present_study(snapshot), page_key="reviews")
+            self.reviews_page.focus_subject(subject_id)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
 
     def export_approved_t2_results_csv(self) -> None:
         if self.current_study is None or self.current_study.is_demo:
