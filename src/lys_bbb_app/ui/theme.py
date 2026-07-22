@@ -1,4 +1,4 @@
-"""Application-wide visual theme for the MVP design preview."""
+"""Application-wide visual theme for the desktop application."""
 
 from __future__ import annotations
 
@@ -26,6 +26,11 @@ QFrame#recentCard, QFrame#readinessCard {
 }
 QFrame#workflowCard { border-color: #d6e1e9; }
 QFrame#readinessCard { border-color: #d3e0e8; }
+QFrame#subtleCard {
+    background: #f6f9fb;
+    border: 1px solid #e0e8ee;
+    border-radius: 8px;
+}
 QFrame#embeddedEmptyState { background: transparent; border: 0; }
 QFrame#softDivider { color: #dbe4ea; }
 QLabel#appWordmark { color: #ffffff; font-size: 18px; font-weight: 700; }
@@ -39,7 +44,7 @@ QLabel#readinessTitle { color: #092346; font-size: 17px; font-weight: 700; }
 QLabel#readinessValue { color: #071b3b; font-size: 24px; font-weight: 700; }
 QLabel#readinessLabel { color: #52657e; font-size: 12px; }
 QLabel#workflowFact { color: #0b294d; font-size: 16px; font-weight: 700; }
-QLabel#previewBanner {
+QLabel#warningBanner {
     background: #fff6e4;
     color: #86570a;
     border: 1px solid #efd49d;
@@ -97,6 +102,14 @@ QPushButton[kind="secondary"]:disabled {
     color: #8996a2;
     border-color: #d4dce3;
 }
+QToolButton[kind="disclosure"] {
+    background: transparent;
+    color: #36516c;
+    border: 0;
+    padding: 4px 2px;
+    font-weight: 600;
+}
+QToolButton[kind="disclosure"]:hover { color: #087b85; }
 QPushButton[kind="danger"] { background: #b94040; }
 QPushButton[kind="danger"]:hover { background: #9e3030; }
 QPushButton[kind="nav"] {
@@ -112,6 +125,31 @@ QPushButton[kind="nav"]:checked {
     background: #0b6d86;
     color: white;
     border-left: 3px solid #45d1cc;
+}
+QPushButton[kind="reviewFilter"] {
+    background: #ffffff;
+    color: #0a315e;
+    border: 1px solid #b8c8d5;
+    text-align: left;
+    padding: 10px 12px;
+}
+QPushButton[kind="reviewFilter"]:checked {
+    background: #dceff1;
+    color: #075269;
+    border: 1px solid #4d9aa4;
+}
+QPushButton[kind="reviewItem"] {
+    background: #f7fafc;
+    color: #163653;
+    border: 1px solid #d5e0e8;
+    text-align: left;
+    padding: 11px 12px;
+}
+QPushButton[kind="reviewItem"]:hover { background: #edf5f8; }
+QPushButton[kind="reviewItem"]:checked {
+    background: #d8eef1;
+    color: #073f56;
+    border: 1px solid #51a0a8;
 }
 QLineEdit, QComboBox, QSpinBox, QTextEdit, QPlainTextEdit {
     background: #ffffff;

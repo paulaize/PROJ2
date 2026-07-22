@@ -10,19 +10,23 @@ T2: native T2 → frozen-model draft mask → human review → lesion volume
 
 The repository is a working development checkpoint, not a finished scientific product.
 The desktop application completes the reviewed T2 path through an approved native-space
-lesion volume and CSV export. The selected T1 mask generator runs locally, but T1
-artifacts, registration review, and enhancement are not yet connected to study state.
+lesion volume and CSV export. T1 mask review is connected to the desktop study. T1
+registration and provisional enhancement now have typed backends, persistent jobs,
+exact dependency records, approval/invalidation state, and subject-result presentation;
+their run/review controls and scientific validation are still incomplete.
 
 ## Immediate goal
 
-Development is frozen horizontally. The active milestone is the first persistent T1
-vertical slice:
+Development is frozen horizontally. The next goal is to smoke-test the T1 mask path on
+a real case, then expose the existing registration and provisional-enhancement service
+actions inside the current workspace and Reviews page:
 
-> Generate or import a pre-Gd brain-mask draft, review or correct it, record an immutable
-> decision, approve the exact mask artifact, and recover the same state after reopening.
+> Approve the exact native pre-Gd brain mask, review and approve the durable post-to-pre
+> registration, calculate provisional enhancement from that exact artifact, and recover
+> the same dependency state after reopening.
 
-Do not add pages, modalities, models, atlas features, or general-purpose framework code
-until this user story passes its tests.
+Do not add unrelated pages, modalities, models, atlas features, or general-purpose
+framework code before that smoke test passes.
 
 ## Repository ownership
 
@@ -56,12 +60,6 @@ changing inventory.
 conda env create -f environment.yml
 conda run -n lys-bbb python -m pip install --no-deps -e .
 conda run -n lys-bbb lys-bbb-desktop
-```
-
-Open the explicitly synthetic UI preview with:
-
-```bash
-conda run -n lys-bbb lys-bbb-desktop --demo
 ```
 
 Run the complete test suite with:
@@ -98,4 +96,4 @@ documents rather than duplicate them.
 - Static pre/post scans support semi-quantitative T1-weighted gadolinium enhancement,
   not absolute T1, `Ktrans`, `Ki`, DCE, or absolute permeability.
 - Generated files in `output/`, `derivatives/`, and `reports/` may be older than the
-  checked-out code. Preserve manual masks and decisions and record provenance.
+  checked-out code. Preserve manual masks and approvals and record provenance.

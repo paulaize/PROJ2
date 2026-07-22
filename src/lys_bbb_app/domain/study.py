@@ -8,12 +8,27 @@ from pathlib import Path
 from typing import Any
 
 from lys_bbb_app.domain.scan_import import ScanInputRecord
+from lys_bbb_app.domain.t1_brain_mask import (
+    T1BrainMaskApprovalRecord,
+    T1BrainMaskArtifactRecord,
+    T1BrainMaskJobRecord,
+    T1BrainMaskReleaseRecord,
+)
+from lys_bbb_app.domain.t1_analysis import (
+    T1EnhancementJobRecord,
+    T1EnhancementMethodRecord,
+    T1EnhancementResultRecord,
+    T1RegistrationApprovalRecord,
+    T1RegistrationArtifactRecord,
+    T1RegistrationJobRecord,
+    T1RegistrationMethodRecord,
+)
 from lys_bbb_app.domain.t2_lesion import (
     ProcessingJobRecord,
     T2LesionArtifactRecord,
     T2LesionResultRecord,
     T2ModelReleaseRecord,
-    T2ReviewDecisionRecord,
+    T2ApprovalRecord,
 )
 
 
@@ -88,8 +103,19 @@ class StudySnapshot:
     model_releases: tuple[T2ModelReleaseRecord, ...] = ()
     processing_jobs: tuple[ProcessingJobRecord, ...] = ()
     artifacts: tuple[T2LesionArtifactRecord, ...] = ()
-    reviews: tuple[T2ReviewDecisionRecord, ...] = ()
+    reviews: tuple[T2ApprovalRecord, ...] = ()
     results: tuple[T2LesionResultRecord, ...] = ()
+    t1_brain_mask_releases: tuple[T1BrainMaskReleaseRecord, ...] = ()
+    t1_brain_mask_jobs: tuple[T1BrainMaskJobRecord, ...] = ()
+    t1_brain_mask_artifacts: tuple[T1BrainMaskArtifactRecord, ...] = ()
+    t1_brain_mask_approvals: tuple[T1BrainMaskApprovalRecord, ...] = ()
+    t1_registration_methods: tuple[T1RegistrationMethodRecord, ...] = ()
+    t1_registration_jobs: tuple[T1RegistrationJobRecord, ...] = ()
+    t1_registration_artifacts: tuple[T1RegistrationArtifactRecord, ...] = ()
+    t1_registration_approvals: tuple[T1RegistrationApprovalRecord, ...] = ()
+    t1_enhancement_methods: tuple[T1EnhancementMethodRecord, ...] = ()
+    t1_enhancement_jobs: tuple[T1EnhancementJobRecord, ...] = ()
+    t1_enhancement_results: tuple[T1EnhancementResultRecord, ...] = ()
     archived_subjects: tuple[SubjectRecord, ...] = ()
     mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
@@ -118,10 +144,79 @@ class StudySnapshot:
             artifact for artifact in self.artifacts if artifact.subject_id == subject_id
         )
 
+    def t1_brain_masks_for_subject(
+        self,
+        subject_id: str,
+    ) -> tuple[T1BrainMaskArtifactRecord, ...]:
+        return tuple(
+            artifact
+            for artifact in self.t1_brain_mask_artifacts
+            if artifact.subject_id == subject_id
+        )
+
+    def t1_brain_mask_approval_for_artifact(
+        self,
+        artifact_id: str,
+    ) -> T1BrainMaskApprovalRecord | None:
+        return next(
+            (
+                approval
+                for approval in self.t1_brain_mask_approvals
+                if approval.artifact_id == artifact_id
+            ),
+            None,
+        )
+
+    def t1_registrations_for_subject(
+        self,
+        subject_id: str,
+    ) -> tuple[T1RegistrationArtifactRecord, ...]:
+        return tuple(
+            artifact
+            for artifact in self.t1_registration_artifacts
+            if artifact.subject_id == subject_id
+        )
+
+    def t1_registration_approval_for_artifact(
+        self,
+        artifact_id: str,
+    ) -> T1RegistrationApprovalRecord | None:
+        return next(
+            (
+                approval
+                for approval in self.t1_registration_approvals
+                if approval.artifact_id == artifact_id
+            ),
+            None,
+        )
+
+    def t1_enhancement_results_for_subject(
+        self,
+        subject_id: str,
+    ) -> tuple[T1EnhancementResultRecord, ...]:
+        return tuple(
+            result
+            for result in self.t1_enhancement_results
+            if result.subject_id == subject_id
+        )
+
+    def active_t1_enhancement_result_for_subject(
+        self,
+        subject_id: str,
+    ) -> T1EnhancementResultRecord | None:
+        return next(
+            (
+                result
+                for result in self.t1_enhancement_results
+                if result.subject_id == subject_id and result.active
+            ),
+            None,
+        )
+
     def t2_reviews_for_subject(
         self,
         subject_id: str,
-    ) -> tuple[T2ReviewDecisionRecord, ...]:
+    ) -> tuple[T2ApprovalRecord, ...]:
         return tuple(
             review for review in self.reviews if review.subject_id == subject_id
         )
@@ -134,7 +229,7 @@ class StudySnapshot:
             result for result in self.results if result.subject_id == subject_id
         )
 
-    def review_for_artifact(self, artifact_id: str) -> T2ReviewDecisionRecord | None:
+    def review_for_artifact(self, artifact_id: str) -> T2ApprovalRecord | None:
         return next(
             (review for review in self.reviews if review.artifact_id == artifact_id),
             None,
@@ -156,6 +251,27 @@ class StudySnapshot:
     @property
     def active_t2_model_release(self) -> T2ModelReleaseRecord | None:
         return next((release for release in self.model_releases if release.active), None)
+
+    @property
+    def active_t1_brain_mask_release(self) -> T1BrainMaskReleaseRecord | None:
+        return next(
+            (release for release in self.t1_brain_mask_releases if release.active),
+            None,
+        )
+
+    @property
+    def active_t1_registration_method(self) -> T1RegistrationMethodRecord | None:
+        return next(
+            (method for method in self.t1_registration_methods if method.active),
+            None,
+        )
+
+    @property
+    def active_t1_enhancement_method(self) -> T1EnhancementMethodRecord | None:
+        return next(
+            (method for method in self.t1_enhancement_methods if method.active),
+            None,
+        )
 
 
 @dataclass(frozen=True)

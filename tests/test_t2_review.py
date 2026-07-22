@@ -22,10 +22,10 @@ from lys_bbb_app.domain.scan_import import (
     SourceFormat,
 )
 from lys_bbb_app.domain.study import CreateStudyRequest
-from lys_bbb_app.domain.t2_lesion import ArtifactState, ResultState, ReviewDecision
+from lys_bbb_app.domain.t2_lesion import ArtifactState, ResultState
 from lys_bbb_app.application.study_presenter import present_study
 from lys_bbb_app.infrastructure.external_viewer import ViewerLaunch
-from lys_bbb_app.infrastructure.study_database import StudyRepository
+from lys_bbb_app.infrastructure.study_database import STUDY_SCHEMA_VERSION, StudyRepository
 from lys_bbb_app.services.study_service import StudyService
 
 
@@ -185,7 +185,6 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
     assert result.source_artifact_id == artifact_id
     review = approved.review_for_artifact(artifact_id)
     assert review is not None
-    assert review.decision is ReviewDecision.APPROVED
     assert review.reviewer == "Reviewer A"
     assert review.study_blinding_state == "BLINDED"
 
@@ -258,25 +257,24 @@ def test_correction_is_new_artifact_and_approval_uses_corrected_mask(
 ) -> None:
     service, subject_id, artifact_id, reference_path = _build_service_with_draft(tmp_path)
     registered_mask = service.current_study.t2_artifacts_for_subject(subject_id)[0].mask_path
-    launch = service.open_t2_draft_in_itksnap(
+    session = service.start_t2_manual_edit(
         subject_id,
         artifact_id,
         actor="Reviewer A",
     )
-    assert launch.segmentation_path is not None
-    assert launch.segmentation_path != registered_mask
-    assert sha256_file(launch.segmentation_path) == sha256_file(registered_mask)
+    assert session.launch.segmentation_path == session.editable_mask_path
+    assert session.editable_mask_path != registered_mask
+    assert sha256_file(session.editable_mask_path) == sha256_file(registered_mask)
     reference = nib.load(reference_path)
-    corrected_path = tmp_path / "itksnap" / "corrected_mask.nii.gz"
-    corrected_path.parent.mkdir()
     corrected = np.zeros(reference.shape, dtype=np.uint8)
     corrected[0, 0, :2] = 1
-    nib.save(nib.Nifti1Image(corrected, reference.affine), corrected_path)
+    nib.save(
+        nib.Nifti1Image(corrected, reference.affine),
+        session.editable_mask_path,
+    )
 
-    imported = service.import_corrected_t2_mask(
-        subject_id,
-        artifact_id,
-        corrected_path,
+    imported = service.finish_t2_manual_edit(
+        session,
         actor="Reviewer A",
     )
 
@@ -294,7 +292,7 @@ def test_correction_is_new_artifact_and_approval_uses_corrected_mask(
     assert current.origin == "CORRECTED"
     assert current.version == 2
     assert current.state is ArtifactState.CORRECTED_REVIEW_REQUIRED
-    assert current.mask_path != corrected_path
+    assert current.mask_path != session.editable_mask_path
     assert current.mask_path.is_file()
     assert original.state is ArtifactState.OUTDATED
     assert original.superseded_by == current.id
@@ -309,14 +307,19 @@ def test_correction_is_new_artifact_and_approval_uses_corrected_mask(
     assert result.source_artifact_id == current.id
     assert result.lesion_voxel_count == 2
 
-    revised_path = tmp_path / "itksnap" / "revised_after_approval.nii.gz"
-    revised = np.zeros(reference.shape, dtype=np.uint8)
-    revised[0, 0, 0] = 1
-    nib.save(nib.Nifti1Image(revised, reference.affine), revised_path)
-    revised_study = service.import_corrected_t2_mask(
+    revised_session = service.start_t2_manual_edit(
         subject_id,
         current.id,
-        revised_path,
+        actor="Reviewer A",
+    )
+    revised = np.zeros(reference.shape, dtype=np.uint8)
+    revised[0, 0, 0] = 1
+    nib.save(
+        nib.Nifti1Image(revised, reference.affine),
+        revised_session.editable_mask_path,
+    )
+    revised_study = service.finish_t2_manual_edit(
+        revised_session,
         actor="Reviewer A",
     )
     assert revised_study.active_t2_result_for_subject(subject_id) is None
@@ -330,30 +333,24 @@ def test_correction_is_new_artifact_and_approval_uses_corrected_mask(
     assert revised_artifact.state is ArtifactState.CORRECTED_REVIEW_REQUIRED
 
 
-def test_invalid_correction_and_incomplete_rejection_do_not_change_state(
+def test_invalid_managed_edit_does_not_change_state(
     tmp_path: Path,
 ) -> None:
     service, subject_id, artifact_id, reference_path = _build_service_with_draft(tmp_path)
     reference = nib.load(reference_path)
-    invalid_path = tmp_path / "invalid-mask.nii.gz"
+    session = service.start_t2_manual_edit(
+        subject_id,
+        artifact_id,
+        actor="Reviewer A",
+    )
     invalid = np.zeros(reference.shape, dtype=np.uint8)
     invalid[0, 0, 0] = 2
-    nib.save(nib.Nifti1Image(invalid, reference.affine), invalid_path)
+    nib.save(nib.Nifti1Image(invalid, reference.affine), session.editable_mask_path)
 
     with pytest.raises(StudyStateError, match="must be binary"):
-        service.import_corrected_t2_mask(
-            subject_id,
-            artifact_id,
-            invalid_path,
+        service.finish_t2_manual_edit(
+            session,
             actor="Reviewer A",
-        )
-    with pytest.raises(StudyStateError, match="requires an issue and notes"):
-        service.reject_t2_mask(
-            subject_id,
-            artifact_id,
-            reviewer="Reviewer A",
-            issue_code="",
-            notes="",
         )
     unchanged = service.current_study
     assert unchanged is not None
@@ -364,17 +361,6 @@ def test_invalid_correction_and_incomplete_rejection_do_not_change_state(
             unchanged.root_path / "exports" / "must-not-exist.csv",
             actor="Reviewer A",
         )
-
-    rejected = service.reject_t2_mask(
-        subject_id,
-        artifact_id,
-        reviewer="Reviewer A",
-        issue_code="INACCURATE_BOUNDARY",
-        notes="The lateral boundary includes non-lesion tissue.",
-    )
-    assert rejected.review_for_artifact(artifact_id).decision is ReviewDecision.REJECTED
-    assert rejected.t2_artifacts_for_subject(subject_id)[0].state is ArtifactState.REJECTED
-    assert rejected.active_t2_result_for_subject(subject_id) is None
 
 
 def test_registered_mask_change_blocks_approval_without_creating_a_decision(
@@ -407,15 +393,17 @@ def test_empty_native_grid_correction_is_a_valid_approved_zero_volume(
 ) -> None:
     service, subject_id, artifact_id, reference_path = _build_service_with_draft(tmp_path)
     reference = nib.load(reference_path)
-    empty_path = tmp_path / "empty-corrected-mask.nii.gz"
-    nib.save(
-        nib.Nifti1Image(np.zeros(reference.shape, dtype=np.uint8), reference.affine),
-        empty_path,
-    )
-    corrected = service.import_corrected_t2_mask(
+    session = service.start_t2_manual_edit(
         subject_id,
         artifact_id,
-        empty_path,
+        actor="Reviewer A",
+    )
+    nib.save(
+        nib.Nifti1Image(np.zeros(reference.shape, dtype=np.uint8), reference.affine),
+        session.editable_mask_path,
+    )
+    corrected = service.finish_t2_manual_edit(
+        session,
         actor="Reviewer A",
     )
     current = next(
@@ -439,36 +427,34 @@ def test_empty_native_grid_correction_is_a_valid_approved_zero_volume(
 def test_corrected_mask_must_preserve_native_shape_and_affine(tmp_path: Path) -> None:
     service, subject_id, artifact_id, reference_path = _build_service_with_draft(tmp_path)
     reference = nib.load(reference_path)
-    wrong_shape = tmp_path / "wrong-shape.nii.gz"
+    shape_session = service.start_t2_manual_edit(
+        subject_id,
+        artifact_id,
+        actor="Reviewer A",
+    )
     nib.save(
         nib.Nifti1Image(
             np.zeros((reference.shape[0] - 1, *reference.shape[1:]), dtype=np.uint8),
             reference.affine,
         ),
-        wrong_shape,
+        shape_session.editable_mask_path,
     )
     with pytest.raises(StudyStateError, match="dimensions do not match"):
-        service.import_corrected_t2_mask(
-            subject_id,
-            artifact_id,
-            wrong_shape,
-            actor="Reviewer A",
-        )
+        service.finish_t2_manual_edit(shape_session, actor="Reviewer A")
 
-    wrong_affine = tmp_path / "wrong-affine.nii.gz"
+    affine_session = service.start_t2_manual_edit(
+        subject_id,
+        artifact_id,
+        actor="Reviewer A",
+    )
     affine = reference.affine.copy()
     affine[0, 3] += 1
     nib.save(
         nib.Nifti1Image(np.zeros(reference.shape, dtype=np.uint8), affine),
-        wrong_affine,
+        affine_session.editable_mask_path,
     )
     with pytest.raises(StudyStateError, match="affine does not match"):
-        service.import_corrected_t2_mask(
-            subject_id,
-            artifact_id,
-            wrong_affine,
-            actor="Reviewer A",
-        )
+        service.finish_t2_manual_edit(affine_session, actor="Reviewer A")
 
 
 def test_new_inference_marks_an_approved_result_outdated(tmp_path: Path) -> None:
@@ -622,13 +608,89 @@ def test_schema_six_draft_migrates_non_destructively_to_review_schema(
 
     migrated = service.open_study(study.root_path)
 
-    assert migrated.schema_version == 7
+    assert migrated.schema_version == STUDY_SCHEMA_VERSION
     artifact = migrated.t2_artifacts_for_subject(subject_id)[0]
     assert artifact.id == artifact_id
     assert artifact.artifact_type == "T2_LESION_MASK"
     assert artifact.mask_path.is_file()
     with sqlite3.connect(migrated.database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert (
+            connection.execute("PRAGMA user_version").fetchone()[0]
+            == STUDY_SCHEMA_VERSION
+        )
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(6,), (7,)]
+        ).fetchall() == [(6,), (8,), (9,), (10,)]
+
+
+def test_schema_seven_review_migrates_to_approval_without_notes_or_issue_type(
+    tmp_path: Path,
+) -> None:
+    service, subject_id, artifact_id, _reference = _build_service_with_draft(tmp_path)
+    approved = service.approve_t2_mask(
+        subject_id,
+        artifact_id,
+        reviewer="Reviewer A",
+    )
+    service.close_study()
+    with sqlite3.connect(approved.database_path) as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.executescript(
+            """
+            ALTER TABLE reviews RENAME TO reviews_v8;
+            CREATE TABLE reviews (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
+                decision TEXT NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
+                reviewer TEXT NOT NULL,
+                study_blinding_state TEXT NOT NULL,
+                issue_code TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO reviews(
+                id, study_id, subject_id, artifact_id, decision, reviewer,
+                study_blinding_state, issue_code, notes, created_at
+            )
+            SELECT
+                id, study_id, subject_id, artifact_id, 'APPROVED', reviewer,
+                study_blinding_state, 'LEGACY_ISSUE', 'legacy review note', created_at
+            FROM reviews_v8;
+            DROP TABLE reviews_v8;
+            CREATE INDEX idx_reviews_subject_time
+                ON reviews(subject_id, created_at DESC);
+            UPDATE audit_events
+            SET details_json = '{"issue_code":"LEGACY_ISSUE","notes":"legacy review note"}'
+            WHERE event_type = 'T2_LESION_MASK_APPROVED';
+            DELETE FROM schema_migrations;
+            INSERT INTO schema_migrations(version, applied_at)
+            VALUES (7, '2026-01-01T00:00:00+00:00');
+            PRAGMA user_version = 7;
+            """
+        )
+    manifest_path = approved.root_path / "project.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 7
+    manifest_path.write_text(json.dumps(manifest))
+
+    migrated = service.open_study(approved.root_path)
+
+    review = migrated.review_for_artifact(artifact_id)
+    assert review is not None
+    assert review.reviewer == "Reviewer A"
+    assert migrated.active_t2_result_for_subject(subject_id) is not None
+    with sqlite3.connect(migrated.database_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(reviews)")
+        }
+        assert "decision" not in columns
+        assert "issue_code" not in columns
+        assert "notes" not in columns
+        audit_json = connection.execute(
+            "SELECT details_json FROM audit_events "
+            "WHERE event_type = 'T2_LESION_MASK_APPROVED'"
+        ).fetchone()[0]
+        assert "LEGACY_ISSUE" not in audit_json
+        assert "legacy review note" not in audit_json

@@ -23,6 +23,7 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study as _touch_study,
     utc_now as _utc_now,
 )
+from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_analysis
 
 
 class StudyDatabaseContext(Protocol):
@@ -69,6 +70,9 @@ def record_input_validations(
                     )
                 roles = {row["id"]: row["role"] for row in records}
                 invalidated_artifacts = 0
+                invalidated_t1_brain_masks = 0
+                invalidated_t1_registrations = 0
+                invalidated_t1_results = 0
                 for outcome in outcomes:
                     issues = [
                         {
@@ -106,6 +110,32 @@ def record_input_validations(
                             """,
                             (outcome.scan_input_id,),
                         ).rowcount
+                    if (
+                        roles[outcome.scan_input_id] == ScanRole.T1_PRE.value
+                        and outcome.state is InputValidationState.INVALID
+                    ):
+                        invalidated_t1_brain_masks += connection.execute(
+                            """
+                            UPDATE t1_brain_mask_artifacts
+                            SET active = 0, state = 'OUTDATED'
+                            WHERE source_scan_input_id = ? AND active = 1
+                            """,
+                            (outcome.scan_input_id,),
+                        ).rowcount
+                    if (
+                        roles[outcome.scan_input_id]
+                        in {ScanRole.T1_PRE.value, ScanRole.T1_POST.value}
+                        and outcome.state is InputValidationState.INVALID
+                    ):
+                        registration_count, result_count = invalidate_t1_analysis(
+                            connection,
+                            subject_id=subject_id,
+                            reason="A required T1 input failed validation.",
+                            changed_at=now,
+                            invalidate_registration=True,
+                        )
+                        invalidated_t1_registrations += registration_count
+                        invalidated_t1_results += result_count
                 connection.execute(
                     "UPDATE subjects SET updated_at = ? WHERE id = ?",
                     (now, subject_id),
@@ -133,6 +163,9 @@ def record_input_validations(
                             }
                         ),
                         "t2_artifacts_invalidated": invalidated_artifacts,
+                        "t1_brain_masks_invalidated": invalidated_t1_brain_masks,
+                        "t1_registrations_invalidated": invalidated_t1_registrations,
+                        "t1_enhancement_results_invalidated": invalidated_t1_results,
                     },
                     created_at=now,
                 )

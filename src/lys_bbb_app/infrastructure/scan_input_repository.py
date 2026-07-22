@@ -32,6 +32,7 @@ from lys_bbb_app.infrastructure.database_support import (
 )
 from lys_bbb_app.domain.t2_lesion import T2_LESION_MASK_ARTIFACT_TYPE
 from lys_bbb_app.infrastructure.t2_review_repository import invalidate_t2_results
+from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_analysis
 
 
 class StudyDatabaseContext(Protocol):
@@ -270,6 +271,9 @@ def complete_scan_import(
                 )
                 invalidated_artifacts = 0
                 invalidated_results = 0
+                invalidated_t1_brain_masks = 0
+                invalidated_t1_registrations = 0
+                invalidated_t1_results = 0
                 if row["role"] == ScanRole.T2.value:
                     invalidated_artifacts = connection.execute(
                         """
@@ -290,6 +294,37 @@ def complete_scan_import(
                         reason="The active native T2 input changed.",
                         changed_at=now,
                     )
+                elif row["role"] == ScanRole.T1_PRE.value:
+                    invalidated_t1_brain_masks = connection.execute(
+                        """
+                        UPDATE t1_brain_mask_artifacts
+                        SET active = 0, state = 'OUTDATED'
+                        WHERE subject_id = ? AND active = 1
+                          AND source_scan_input_id != ?
+                        """,
+                        (row["subject_id"], record_id),
+                    ).rowcount
+                    (
+                        invalidated_t1_registrations,
+                        invalidated_t1_results,
+                    ) = invalidate_t1_analysis(
+                        connection,
+                        subject_id=row["subject_id"],
+                        reason="The active native pre-Gd T1 input changed.",
+                        changed_at=now,
+                        invalidate_registration=True,
+                    )
+                elif row["role"] == ScanRole.T1_POST.value:
+                    (
+                        invalidated_t1_registrations,
+                        invalidated_t1_results,
+                    ) = invalidate_t1_analysis(
+                        connection,
+                        subject_id=row["subject_id"],
+                        reason="The active post-Gd T1 input changed.",
+                        changed_at=now,
+                        invalidate_registration=True,
+                    )
                 _touch_study(connection, study["id"], now)
                 _insert_audit(
                     connection,
@@ -304,6 +339,9 @@ def complete_scan_import(
                         "output_sha256": result.output_sha256,
                         "t2_artifacts_invalidated": invalidated_artifacts,
                         "t2_results_invalidated": invalidated_results,
+                        "t1_brain_masks_invalidated": invalidated_t1_brain_masks,
+                        "t1_registrations_invalidated": invalidated_t1_registrations,
+                        "t1_enhancement_results_invalidated": invalidated_t1_results,
                     },
                     created_at=now,
                 )

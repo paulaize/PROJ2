@@ -42,13 +42,20 @@ These raw formulas remain sensitive to scanner gain, coil loading, bias field, m
 injection dose, and time after injection. Acquisition metadata must be retained with
 every result.
 
-## Current implementation warning
+## Current implementation and warning
 
-The current pair code independently estimates a smooth correction field and a masked
+The typed application path requires an already approved registered post-Gd image and
+the exact approved pre-space mask. It verifies their checksums and disables the legacy
+pair code's registration step, so quantification cannot silently produce a different
+transform. The resulting map, summary, QC, and metadata are stored with exact dependency
+IDs and are explicitly marked `PROVISIONAL`.
+
+The calculation still independently estimates a smooth correction field and a masked
 median scale for pre and post images. This can make regional contrast easier to compare,
 but it may remove diffuse or whole-brain enhancement. Therefore current
 `percent_enhancement` outputs are provisional relative-enhancement engineering outputs,
-not a validated primary endpoint.
+not a validated primary endpoint. The exploratory CLI retains compatibility behavior;
+it is not the app's approval path.
 
 Do not silently rename them as quantitative percent signal change. Before production,
 the code should emit explicitly differentiated maps such as:

@@ -10,16 +10,11 @@ from lys_bbb_app.ui.widgets import STATUS_COLOURS
 
 
 SUBJECT_COLUMNS = (
-    "Subject ID",
-    "Group",
-    "T1 data",
-    "Brain mask",
-    "Registration",
-    "T1 result",
-    "T2 data",
-    "T2 lesion",
+    "Subject",
+    "Next action",
+    "T1 workflow",
+    "T2 workflow",
     "Overall",
-    "Updated",
 )
 
 
@@ -45,20 +40,13 @@ class SubjectTableModel(QAbstractTableModel):
         subject = self.subjects[index.row()]
         values = (
             subject.label,
-            subject.group,
-            subject.t1_data,
-            subject.brain_mask,
-            subject.registration,
-            subject.t1_result,
-            subject.t2_data,
-            subject.t2_lesion,
+            subject.next_action,
+            subject.t1_workflow_status,
+            subject.t2_workflow_status,
             subject.overall,
-            subject.updated,
         )
         value = values[index.column()]
         if role == Qt.DisplayRole:
-            if index.column() == 1 and value is None:
-                return "Unassigned"
             return value.label if isinstance(value, StatusValue) else value
         if isinstance(value, StatusValue):
             background, foreground, _border = STATUS_COLOURS.get(
@@ -118,17 +106,26 @@ class SubjectFilterProxyModel(QSortFilterProxyModel):
         if self.group_name != "All groups" and subject.group != self.group_name:
             return False
         if self.state_name != "All states":
-            state = self.state_name.lower()
-            labels = {
-                subject.overall.label.lower(),
-                subject.t1_data.label.lower(),
-                subject.brain_mask.label.lower(),
-                subject.registration.label.lower(),
-                subject.t1_result.label.lower(),
-                subject.t2_data.label.lower(),
-                subject.t2_lesion.label.lower(),
+            statuses = (
+                subject.overall,
+                subject.t1_data,
+                subject.brain_mask,
+                subject.registration,
+                subject.t1_result,
+                subject.t2_data,
+                subject.t2_lesion,
+            )
+            matches = {
+                "Needs validation": subject.needs_input_validation,
+                "Needs review": any(status.kind == "review" for status in statuses),
+                "Ready": subject.next_action.kind == "ready",
+                "Processing": any(
+                    status.kind == "processing" for status in statuses
+                ),
+                "Complete": subject.overall.kind == "approved",
+                "Blocked": any(status.kind == "failed" for status in statuses),
             }
-            if state not in labels:
+            if not matches.get(self.state_name, False):
                 return False
         return True
 

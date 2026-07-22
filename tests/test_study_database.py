@@ -1,8 +1,9 @@
-"""Focused tests for canonical schema-v7 study-root persistence and migration."""
+"""Focused tests for canonical study-root persistence and migration."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import sqlite3
 from pathlib import Path
 
@@ -59,6 +60,25 @@ def test_create_study_root_writes_manifest_database_and_managed_directories(
         assert connection.execute(
             "SELECT version FROM schema_migrations"
         ).fetchall() == [(STUDY_SCHEMA_VERSION,)]
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert {
+            "t1_brain_mask_releases",
+            "t1_brain_mask_jobs",
+            "t1_brain_mask_artifacts",
+            "t1_brain_mask_reviews",
+            "t1_registration_methods",
+            "t1_registration_jobs",
+            "t1_registration_artifacts",
+            "t1_registration_reviews",
+            "t1_enhancement_methods",
+            "t1_enhancement_jobs",
+            "t1_enhancement_results",
+        } <= tables
 
 
 def test_study_creation_never_reuses_an_existing_directory(tmp_path: Path) -> None:
@@ -73,6 +93,47 @@ def test_study_creation_never_reuses_an_existing_directory(tmp_path: Path) -> No
         )
 
     assert marker.read_text() == "do not overwrite"
+
+
+def test_schema_nine_study_migrates_to_t1_analysis_contract(tmp_path: Path) -> None:
+    repository = _create_study(tmp_path)
+    snapshot = repository.snapshot()
+    with sqlite3.connect(snapshot.database_path) as connection:
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.executescript(
+            """
+            DROP TABLE t1_enhancement_results;
+            DROP TABLE t1_enhancement_jobs;
+            DROP TABLE t1_enhancement_methods;
+            DROP TABLE t1_registration_reviews;
+            DROP TABLE t1_registration_artifacts;
+            DROP TABLE t1_registration_jobs;
+            DROP TABLE t1_registration_methods;
+            DELETE FROM schema_migrations WHERE version = 10;
+            PRAGMA user_version = 9;
+            """
+        )
+    manifest_path = snapshot.root_path / STUDY_MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 9
+    manifest_path.write_text(json.dumps(manifest))
+
+    migrated = StudyRepository.open(snapshot.root_path).snapshot()
+
+    assert migrated.schema_version == STUDY_SCHEMA_VERSION
+    with sqlite3.connect(migrated.database_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert {
+            "t1_registration_artifacts",
+            "t1_registration_reviews",
+            "t1_enhancement_methods",
+            "t1_enhancement_results",
+        } <= tables
 
 
 def test_subjects_reopen_with_expected_workflows_and_no_invented_group(

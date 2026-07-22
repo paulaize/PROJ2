@@ -22,15 +22,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         help="optional study directory/project.json or legacy .lysbbb project to open",
     )
-    parser.add_argument(
-        "--demo",
-        action="store_true",
-        help="open the connected MVP design preview with synthetic subjects",
-    )
-    args = parser.parse_args(argv)
-    if args.demo and args.project is not None:
-        parser.error("a project path and --demo cannot be used together")
-    return args
+    return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,9 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     apply_theme(app)
 
     window = MainWindow()
-    if args.demo:
-        window.open_design_preview()
-    elif args.project is not None:
+    if args.project is not None:
         window.open_project_path(args.project)
     window.show()
     return app.exec()

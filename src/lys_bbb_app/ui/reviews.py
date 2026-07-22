@@ -1,64 +1,51 @@
-"""General review queue for synthetic fixtures and persistent T2 artifacts."""
+"""General review queue for persistent scientific artifacts."""
 
 from __future__ import annotations
 
-from collections import Counter
-
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
+    QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
-    QSlider,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from lys_bbb_app.domain.t2_lesion import T2_REJECTION_ISSUES
 from lys_bbb_app.domain.view_models import (
     ReviewItemViewModel,
-    StatusValue,
     StudyViewModel,
 )
 from lys_bbb_app.ui.layout_helpers import clear_layout, page_heading
-from lys_bbb_app.ui.widgets import StatusBadge, SyntheticSliceViewer, secondary_button
+from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
 
 
 class ReviewsPage(QWidget):
     """Display actionable study-level review work without owning scientific state."""
 
-    decision_recorded = Signal(str)
-    approve_requested = Signal(str, str, str)
-    reject_requested = Signal(str, str, str, str)
-    correction_requested = Signal(str, str)
-    import_correction_requested = Signal(str, str)
+    approve_requested = Signal(str, str)
+    manual_edit_requested = Signal(str, str)
     subject_requested = Signal(str)
+    qc_slices_requested = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
-        self.is_demo = False
         self.reviews: tuple[ReviewItemViewModel, ...] = ()
         self.filtered: list[ReviewItemViewModel] = []
         self.current_item: ReviewItemViewModel | None = None
+        self.current_row = -1
         self.current_slice = 1
-        self.decisions: dict[str, StatusValue] = {}
+        self.requested_qc_artifacts: set[str] = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(14)
-        heading, _heading_layout = page_heading(
-            "Review and QC",
-            "Study-level work queue for masks and other review-gated artifacts.",
-        )
+        heading, _heading_layout = page_heading("Review and QC")
         layout.addWidget(heading)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -77,11 +64,23 @@ class ReviewsPage(QWidget):
         layout.setContentsMargins(12, 14, 12, 14)
         title = QLabel("Queues")
         title.setObjectName("cardTitle")
-        self.category_list = QListWidget()
-        self.category_list.setObjectName("reviewCategories")
-        self.category_list.currentTextChanged.connect(self._category_changed)
         layout.addWidget(title)
-        layout.addWidget(self.category_list)
+        self.modality_group = QButtonGroup(self)
+        self.modality_group.setExclusive(True)
+        self.modality_buttons: dict[str, QPushButton] = {}
+        for modality in ("T1", "T2"):
+            button = QPushButton(modality)
+            button.setCheckable(True)
+            button.setProperty("kind", "reviewFilter")
+            button.clicked.connect(
+                lambda checked, selected=modality: self._modality_changed(selected)
+                if checked
+                else None
+            )
+            self.modality_group.addButton(button)
+            self.modality_buttons[modality] = button
+            layout.addWidget(button)
+        layout.addStretch()
         return panel
 
     def _build_queue(self) -> QWidget:
@@ -91,11 +90,19 @@ class ReviewsPage(QWidget):
         layout.setContentsMargins(12, 14, 12, 14)
         title = QLabel("Awaiting review")
         title.setObjectName("cardTitle")
-        self.queue_list = QListWidget()
-        self.queue_list.setObjectName("reviewQueue")
-        self.queue_list.currentRowChanged.connect(self._select_review)
         layout.addWidget(title)
-        layout.addWidget(self.queue_list)
+        self.queue_scroll = QScrollArea()
+        self.queue_scroll.setWidgetResizable(True)
+        self.queue_scroll.setFrameShape(QFrame.NoFrame)
+        self.queue_container = QWidget()
+        self.queue_layout = QVBoxLayout(self.queue_container)
+        self.queue_layout.setContentsMargins(0, 2, 0, 2)
+        self.queue_layout.setSpacing(8)
+        self.queue_scroll.setWidget(self.queue_container)
+        self.queue_group = QButtonGroup(self)
+        self.queue_group.setExclusive(True)
+        self.queue_buttons: list[QPushButton] = []
+        layout.addWidget(self.queue_scroll)
         return panel
 
     def _build_viewer(self) -> QWidget:
@@ -105,7 +112,6 @@ class ReviewsPage(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
 
         self.viewer_stack = QStackedWidget()
-        self.synthetic_viewer = SyntheticSliceViewer()
         self.qc_image = QLabel()
         self.qc_image.setAlignment(Qt.AlignCenter)
         self.qc_image.setStyleSheet("background: #101b2b; border-radius: 8px;")
@@ -115,7 +121,6 @@ class ReviewsPage(QWidget):
         self.empty_viewer.setAlignment(Qt.AlignCenter)
         self.empty_viewer.setWordWrap(True)
         self.empty_viewer.setObjectName("muted")
-        self.viewer_stack.addWidget(self.synthetic_viewer)
         self.viewer_stack.addWidget(self.qc_image)
         self.viewer_stack.addWidget(self.empty_viewer)
         layout.addWidget(self.viewer_stack, 1)
@@ -138,26 +143,6 @@ class ReviewsPage(QWidget):
         controls.addWidget(self.next_slice)
         layout.addLayout(controls)
 
-        self.overlay_controls = QWidget()
-        overlay = QHBoxLayout(self.overlay_controls)
-        overlay.setContentsMargins(0, 0, 0, 0)
-        visible = QCheckBox("Mask overlay")
-        visible.setChecked(True)
-        visible.toggled.connect(
-            lambda enabled: self.synthetic_viewer.set_overlay_opacity(
-                self.opacity.value() / 100 if enabled else 0.0
-            )
-        )
-        self.opacity = QSlider(Qt.Horizontal)
-        self.opacity.setRange(0, 100)
-        self.opacity.setValue(55)
-        self.opacity.valueChanged.connect(
-            lambda value: self.synthetic_viewer.set_overlay_opacity(value / 100)
-        )
-        overlay.addWidget(visible)
-        overlay.addWidget(QLabel("Opacity"))
-        overlay.addWidget(self.opacity)
-        layout.addWidget(self.overlay_controls)
         return panel
 
     def _build_review_panel(self) -> QWidget:
@@ -178,27 +163,11 @@ class ReviewsPage(QWidget):
         self.review_qc.setMaximumHeight(90)
         self.review_status_holder = QHBoxLayout()
 
-        self.issue = QComboBox()
-        self.issue.addItem("Select issue type…", None)
-        for label, code in T2_REJECTION_ISSUES:
-            self.issue.addItem(label, code)
-        self.notes = QTextEdit()
-        self.notes.setPlaceholderText(
-            "Optional approval note; rejection requires a reason…"
-        )
-        self.notes.setMaximumHeight(100)
-
-        self.approve = QPushButton("Approve")
+        self.approve = QPushButton("Approve current mask")
         self.approve.setObjectName("approveReviewButton")
         self.approve.clicked.connect(self._approve)
-        self.reject = QPushButton("Reject")
-        self.reject.setObjectName("rejectReviewButton")
-        self.reject.setProperty("kind", "danger")
-        self.reject.clicked.connect(self._reject)
-        self.correction = secondary_button("Correct a copy in ITK-SNAP")
-        self.correction.clicked.connect(self._open_correction)
-        self.import_correction = secondary_button("Import corrected mask…")
-        self.import_correction.clicked.connect(self._import_correction)
+        self.manual_edit = secondary_button("Manually edit in ITK-SNAP…")
+        self.manual_edit.clicked.connect(self._manual_edit)
         self.open_subject = secondary_button("Open subject details")
         self.open_subject.clicked.connect(self._open_subject)
 
@@ -207,68 +176,64 @@ class ReviewsPage(QWidget):
         layout.addWidget(self.review_reason)
         layout.addWidget(self.review_qc)
         layout.addLayout(self.review_status_holder)
-        layout.addSpacing(8)
-        layout.addWidget(QLabel("Issue type"))
-        layout.addWidget(self.issue)
-        layout.addWidget(QLabel("Reviewer notes"))
-        layout.addWidget(self.notes)
         layout.addStretch()
         layout.addWidget(self.approve)
-        layout.addWidget(self.reject)
-        layout.addWidget(self.correction)
-        layout.addWidget(self.import_correction)
+        layout.addWidget(self.manual_edit)
         layout.addWidget(self.open_subject)
         self._set_actions_enabled(False)
         return panel
 
     def set_study(self, study: StudyViewModel) -> None:
-        self.is_demo = study.is_demo
         self.reviews = study.reviews
-        self.decisions.clear()
-        counts = Counter(item.category for item in self.reviews)
-        categories = ["All reviews", *sorted(counts)]
-        self.category_list.blockSignals(True)
-        self.category_list.clear()
-        for category in categories:
-            count = len(self.reviews) if category == "All reviews" else counts[category]
-            item = QListWidgetItem(f"{category}  {count}")
-            item.setData(Qt.UserRole, category)
-            self.category_list.addItem(item)
-        self.category_list.blockSignals(False)
-        self.category_list.setCurrentRow(0)
-        self._populate_queue("All reviews")
+        default_modality = "T2" if any(
+            _review_modality(item) == "T2" for item in self.reviews
+        ) else "T1"
+        self.modality_buttons[default_modality].setChecked(True)
+        self._populate_queue(default_modality)
 
     def focus_subject(self, subject_id: str) -> None:
-        self.category_list.setCurrentRow(0)
-        for index, review in enumerate(self.filtered):
-            if review.subject_id == subject_id:
-                self.queue_list.setCurrentRow(index)
+        review = next(
+            (item for item in self.reviews if item.subject_id == subject_id),
+            None,
+        )
+        if review is None:
+            return
+        modality = _review_modality(review)
+        self.modality_buttons[modality].setChecked(True)
+        self._populate_queue(modality)
+        for index, item in enumerate(self.filtered):
+            if item.subject_id == subject_id:
+                self._select_review(index)
                 break
 
-    def _category_changed(self, _display_text: str) -> None:
-        item = self.category_list.currentItem()
-        category = item.data(Qt.UserRole) if item is not None else "All reviews"
-        self._populate_queue(category)
+    def _modality_changed(self, modality: str) -> None:
+        self._populate_queue(modality)
 
-    def _populate_queue(self, category: str) -> None:
+    def _populate_queue(self, modality: str) -> None:
         self.filtered = [
             review
             for review in self.reviews
-            if category == "All reviews" or review.category == category
+            if _review_modality(review) == modality
         ]
-        self.queue_list.blockSignals(True)
-        self.queue_list.clear()
-        for review in self.filtered:
-            decision = self.decisions.get(review.review_id, review.status)
+        for button in self.queue_buttons:
+            self.queue_group.removeButton(button)
+        self.queue_buttons.clear()
+        clear_layout(self.queue_layout)
+        for index, review in enumerate(self.filtered):
             subject = review.subject_label or review.subject_id
-            self.queue_list.addItem(
-                QListWidgetItem(
-                    f"{subject}\n{review.artifact_name}\n{decision.label}"
-                )
+            button = QPushButton(f"{subject} — {_review_workflow_label(review)}")
+            button.setCheckable(True)
+            button.setProperty("kind", "reviewItem")
+            button.clicked.connect(
+                lambda checked, row=index: self._select_review(row)
+                if checked
+                else None
             )
-        self.queue_list.blockSignals(False)
+            self.queue_group.addButton(button)
+            self.queue_buttons.append(button)
+            self.queue_layout.addWidget(button)
+        self.queue_layout.addStretch()
         if self.filtered:
-            self.queue_list.setCurrentRow(0)
             self._select_review(0)
         else:
             self._clear_selection()
@@ -278,33 +243,30 @@ class ReviewsPage(QWidget):
             self._clear_selection()
             return
         self.current_item = self.filtered[row]
+        self.current_row = row
+        self.queue_buttons[row].setChecked(True)
         review = self.current_item
         subject = review.subject_label or review.subject_id
-        self.current_slice = max(1, review.slice_count // 2)
+        available_slices = len(review.qc_slice_paths) or review.slice_count
+        self.current_slice = max(1, (available_slices + 1) // 2)
         self.review_subject.setText(f"{subject} · {review.category}")
         self.review_artifact.setText(review.artifact_name)
         self.review_reason.setText(review.reason)
         self.review_qc.setText(review.automatic_qc)
         clear_layout(self.review_status_holder)
-        status = self.decisions.get(review.review_id, review.status)
-        self.review_status_holder.addWidget(StatusBadge(status))
+        self.review_status_holder.addWidget(StatusBadge(review.status))
         self.review_status_holder.addStretch()
-        self.issue.setCurrentIndex(0)
-        self.notes.clear()
         self._show_review_image(review)
         self._set_actions_enabled(True)
 
     def _show_review_image(self, review: ReviewItemViewModel) -> None:
-        self.previous_slice.setVisible(self.is_demo)
-        self.next_slice.setVisible(self.is_demo)
-        self.slice_label.setVisible(self.is_demo)
-        self.overlay_controls.setVisible(self.is_demo)
-        if self.is_demo:
-            self.synthetic_viewer.set_context(self.current_slice, review.slice_count)
-            self.slice_label.setText(
-                f"Slice {self.current_slice} / {review.slice_count}"
-            )
-            self.viewer_stack.setCurrentWidget(self.synthetic_viewer)
+        has_real_slices = bool(review.qc_slice_paths)
+        can_browse_slices = has_real_slices
+        self.previous_slice.setVisible(can_browse_slices)
+        self.next_slice.setVisible(can_browse_slices)
+        self.slice_label.setVisible(can_browse_slices)
+        if has_real_slices:
+            self._show_real_qc_slice(review)
             return
         preview = review.qc_preview_path
         if preview is not None and preview.is_file():
@@ -314,15 +276,29 @@ class ReviewsPage(QWidget):
                     pixmap.scaled(820, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
                 self.viewer_stack.setCurrentWidget(self.qc_image)
+                if (
+                    review.artifact_id is not None
+                    and review.artifact_id not in self.requested_qc_artifacts
+                ):
+                    self.requested_qc_artifacts.add(review.artifact_id)
+                    QTimer.singleShot(
+                        0,
+                        lambda subject_id=review.subject_id,
+                        artifact_id=review.artifact_id: self.qc_slices_requested.emit(
+                            subject_id,
+                            artifact_id,
+                        ),
+                    )
                 return
         self.viewer_stack.setCurrentWidget(self.empty_viewer)
 
     def _clear_selection(self) -> None:
         self.current_item = None
+        self.current_row = -1
         self.review_subject.setText("No artifacts are awaiting review")
         self.review_artifact.clear()
         self.review_reason.setText(
-            "Run an eligible workflow or import a corrected mask to create a review item."
+            "Run an eligible workflow to create a review item for this modality."
         )
         self.review_qc.clear()
         clear_layout(self.review_status_holder)
@@ -330,137 +306,91 @@ class ReviewsPage(QWidget):
         self.previous_slice.hide()
         self.next_slice.hide()
         self.slice_label.hide()
-        self.overlay_controls.hide()
         self._set_actions_enabled(False)
 
     def _set_actions_enabled(self, selected: bool) -> None:
-        actionable = selected and (
-            self.is_demo
-            or (
-                self.current_item is not None
-                and self.current_item.artifact_id is not None
-            )
+        actionable = (
+            selected
+            and self.current_item is not None
+            and self.current_item.artifact_id is not None
         )
         self.approve.setEnabled(actionable)
-        self.reject.setEnabled(actionable)
-        self.correction.setEnabled(actionable)
-        self.import_correction.setEnabled(actionable)
+        self.manual_edit.setEnabled(actionable)
         self.open_subject.setEnabled(selected)
-        self.issue.setEnabled(actionable)
-        self.notes.setEnabled(actionable)
 
     def _move_slice(self, delta: int) -> None:
-        if self.current_item is None or not self.is_demo:
+        if self.current_item is None:
+            return
+        slice_count = len(self.current_item.qc_slice_paths)
+        if slice_count < 1:
             return
         self.current_slice = max(
             1,
-            min(self.current_slice + delta, self.current_item.slice_count),
+            min(self.current_slice + delta, slice_count),
         )
-        self.synthetic_viewer.set_context(
-            self.current_slice,
-            self.current_item.slice_count,
+        self._show_real_qc_slice(self.current_item)
+
+    def _show_real_qc_slice(self, review: ReviewItemViewModel) -> None:
+        slice_count = len(review.qc_slice_paths)
+        if not 1 <= self.current_slice <= slice_count:
+            self.viewer_stack.setCurrentWidget(self.empty_viewer)
+            return
+        pixmap = QPixmap(str(review.qc_slice_paths[self.current_slice - 1]))
+        if pixmap.isNull():
+            self.viewer_stack.setCurrentWidget(self.empty_viewer)
+            return
+        self.qc_image.setPixmap(
+            pixmap.scaled(820, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         )
-        self.slice_label.setText(
-            f"Slice {self.current_slice} / {self.current_item.slice_count}"
-        )
+        self.slice_label.setText(f"Slice {self.current_slice} / {slice_count}")
+        self.viewer_stack.setCurrentWidget(self.qc_image)
 
     def _previous_item(self) -> None:
-        if self.queue_list.count():
-            self.queue_list.setCurrentRow(max(0, self.queue_list.currentRow() - 1))
+        if self.filtered:
+            self._select_review(max(0, self.current_row - 1))
 
     def _next_item(self) -> None:
-        if self.queue_list.count():
-            self.queue_list.setCurrentRow(
-                min(self.queue_list.count() - 1, self.queue_list.currentRow() + 1)
-            )
+        if self.filtered:
+            self._select_review(min(len(self.filtered) - 1, self.current_row + 1))
 
     def _approve(self) -> None:
         review = self.current_item
         if review is None:
             return
-        if self.is_demo:
-            self.decisions[review.review_id] = StatusValue(
-                "Human approved · preview",
-                "approved",
-            )
-            self._refresh_preview_decision(
-                f"Preview: approved {review.artifact_name} for "
-                f"{review.subject_label or review.subject_id}."
-            )
-            return
         if review.artifact_id is not None:
             self.approve_requested.emit(
                 review.subject_id,
                 review.artifact_id,
-                self.notes.toPlainText().strip(),
             )
 
-    def _reject(self) -> None:
+    def _manual_edit(self) -> None:
         review = self.current_item
         if review is None:
-            return
-        issue_code = self.issue.currentData()
-        notes = self.notes.toPlainText().strip()
-        if not issue_code or not notes:
-            self.decision_recorded.emit(
-                "Choose an issue type and enter reviewer notes before rejecting."
-            )
-            return
-        if self.is_demo:
-            self.decisions[review.review_id] = StatusValue(
-                "Rejected · preview",
-                "failed",
-            )
-            self._refresh_preview_decision(
-                f"Preview: rejected {review.artifact_name} for "
-                f"{review.subject_label or review.subject_id}."
-            )
             return
         if review.artifact_id is not None:
-            self.reject_requested.emit(
-                review.subject_id,
-                review.artifact_id,
-                str(issue_code),
-                notes,
-            )
-
-    def _open_correction(self) -> None:
-        review = self.current_item
-        if review is None:
-            return
-        if self.is_demo:
-            self.decision_recorded.emit(
-                "Correction launch is a preview interaction only."
-            )
-        elif review.artifact_id is not None:
-            self.correction_requested.emit(review.subject_id, review.artifact_id)
-
-    def _import_correction(self) -> None:
-        review = self.current_item
-        if review is None:
-            return
-        if self.is_demo:
-            self.decision_recorded.emit(
-                "Correction import is a preview interaction only."
-            )
-        elif review.artifact_id is not None:
-            self.import_correction_requested.emit(
-                review.subject_id,
-                review.artifact_id,
-            )
+            self.manual_edit_requested.emit(review.subject_id, review.artifact_id)
 
     def _open_subject(self) -> None:
         if self.current_item is not None:
             self.subject_requested.emit(self.current_item.subject_id)
 
-    def _refresh_preview_decision(self, message: str) -> None:
-        row = self.queue_list.currentRow()
-        current_category = self.category_list.currentItem()
-        category = (
-            current_category.data(Qt.UserRole)
-            if current_category is not None
-            else "All reviews"
-        )
-        self._populate_queue(category)
-        self.queue_list.setCurrentRow(min(row, self.queue_list.count() - 1))
-        self.decision_recorded.emit(message + " Nothing was saved.")
+def _review_modality(review: ReviewItemViewModel) -> str:
+    if review.workflow_key:
+        return "T2" if review.workflow_key == "t2_lesion" else "T1"
+    text = f"{review.category} {review.artifact_name}".casefold()
+    return "T2" if "t2" in text or "lesion" in text else "T1"
+
+
+def _review_workflow_label(review: ReviewItemViewModel) -> str:
+    if review.workflow_key == "t2_lesion":
+        return "T2 lesion"
+    if review.workflow_key == "t1_brain_mask":
+        return "T1 brain mask"
+    text = f"{review.category} {review.artifact_name}".casefold()
+    if "t2" in text or "lesion" in text:
+        return "T2 lesion"
+    if "registration" in text:
+        return "T1 registration"
+    if "brain mask" in text or "brain masks" in text:
+        return "T1 brain mask"
+    return "T1 result"

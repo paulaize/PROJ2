@@ -14,10 +14,9 @@ from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.t2_lesion import (
     ArtifactState,
     ResultState,
-    ReviewDecision,
     T2CorrectedArtifactDraft,
+    T2ApprovalRecord,
     T2LesionResultRecord,
-    T2ReviewDecisionRecord,
     T2_LESION_MASK_ARTIFACT_TYPE,
     T2_LESION_VOLUME_RESULT_TYPE,
     T2_NATIVE_VOLUME_METHOD_VERSION,
@@ -195,28 +194,16 @@ def create_corrected_t2_artifact(
     return artifact_id
 
 
-def record_t2_review(
+def record_t2_approval(
     repository: StudyDatabaseContext,
     artifact_id: str,
-    decision: ReviewDecision,
     *,
     reviewer: str,
-    issue_code: str | None = None,
-    notes: str | None = None,
-    measurement: T2MaskMeasurement | None = None,
+    measurement: T2MaskMeasurement,
 ) -> None:
-    """Record one immutable decision and create an official result on approval."""
+    """Record one immutable approval and create its official lesion result."""
 
     normalized_reviewer = normalize_required(reviewer, "Reviewer")
-    normalized_notes = _normalize_optional(notes)
-    normalized_issue = _normalize_optional(issue_code)
-    if decision is ReviewDecision.REJECTED and (
-        normalized_issue is None or normalized_notes is None
-    ):
-        raise StudyStateError("Rejecting a T2 lesion mask requires an issue and notes.")
-    if decision is ReviewDecision.APPROVED and measurement is None:
-        raise StudyStateError("An approved T2 lesion mask requires a validated measurement.")
-
     now = utc_now()
     review_id = str(uuid4())
     try:
@@ -241,7 +228,7 @@ def record_t2_review(
                     ArtifactState.CORRECTED_REVIEW_REQUIRED.value,
                 }:
                     raise StudyStateError(
-                        "Only the active T2 lesion mask awaiting review can be decided."
+                        "Only the active T2 lesion mask awaiting review can be approved."
                     )
                 existing_review = connection.execute(
                     "SELECT id FROM reviews WHERE artifact_id = ?",
@@ -249,9 +236,9 @@ def record_t2_review(
                 ).fetchone()
                 if existing_review is not None:
                     raise StudyStateError(
-                        "This exact T2 lesion artifact already has a review decision."
+                        "This exact T2 lesion artifact is already approved."
                     )
-                if measurement is not None and measurement.mask_sha256 != artifact["file_hash"]:
+                if measurement.mask_sha256 != artifact["file_hash"]:
                     raise StudyStateError(
                         "The validated lesion mask does not match the registered artifact."
                     )
@@ -259,44 +246,33 @@ def record_t2_review(
                 connection.execute(
                     """
                     INSERT INTO reviews(
-                        id, study_id, subject_id, artifact_id, decision, reviewer,
-                        study_blinding_state, issue_code, notes, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, study_id, subject_id, artifact_id, reviewer,
+                        study_blinding_state, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         review_id,
                         study["id"],
                         artifact["subject_id"],
                         artifact_id,
-                        decision.value,
                         normalized_reviewer,
                         study["blinding_state"],
-                        normalized_issue,
-                        normalized_notes,
                         now,
                     ),
                 )
 
-                result_id: str | None = None
-                if decision is ReviewDecision.REJECTED:
-                    connection.execute(
-                        "UPDATE artifacts SET state = ?, active = 0 WHERE id = ?",
-                        (ArtifactState.REJECTED.value, artifact_id),
-                    )
-                else:
-                    assert measurement is not None
-                    connection.execute(
-                        "UPDATE artifacts SET state = ? WHERE id = ?",
-                        (ArtifactState.APPROVED.value, artifact_id),
-                    )
-                    result_id = _create_approved_result(
-                        connection,
-                        study_id=study["id"],
-                        artifact=artifact,
-                        measurement=measurement,
-                        reviewer=normalized_reviewer,
-                        timestamp=now,
-                    )
+                connection.execute(
+                    "UPDATE artifacts SET state = ? WHERE id = ?",
+                    (ArtifactState.APPROVED.value, artifact_id),
+                )
+                result_id = _create_approved_result(
+                    connection,
+                    study_id=study["id"],
+                    artifact=artifact,
+                    measurement=measurement,
+                    reviewer=normalized_reviewer,
+                    timestamp=now,
+                )
 
                 connection.execute(
                     "UPDATE subjects SET updated_at = ? WHERE id = ?",
@@ -307,14 +283,11 @@ def record_t2_review(
                     connection,
                     study_id=study["id"],
                     subject_id=artifact["subject_id"],
-                    event_type=f"T2_LESION_MASK_{decision.value}",
+                    event_type="T2_LESION_MASK_APPROVED",
                     actor=normalized_reviewer,
                     details={
                         "artifact_id": artifact_id,
                         "review_id": review_id,
-                        "decision": decision.value,
-                        "issue_code": normalized_issue,
-                        "notes": normalized_notes,
                         "study_blinding_state": study["blinding_state"],
                         "result_id": result_id,
                     },
@@ -324,7 +297,7 @@ def record_t2_review(
         raise
     except sqlite3.IntegrityError as exc:
         raise StudyStateError(
-            "This exact T2 lesion artifact already has a review decision."
+            "This exact T2 lesion artifact is already approved."
         ) from exc
     except sqlite3.Error as exc:
         raise StudyStateError(f"Could not record the T2 mask review: {exc}") from exc
@@ -369,16 +342,13 @@ def invalidate_t2_results(
     return int(cursor.rowcount)
 
 
-def review_from_row(row: sqlite3.Row) -> T2ReviewDecisionRecord:
-    return T2ReviewDecisionRecord(
+def review_from_row(row: sqlite3.Row) -> T2ApprovalRecord:
+    return T2ApprovalRecord(
         id=row["id"],
         subject_id=row["subject_id"],
         artifact_id=row["artifact_id"],
-        decision=ReviewDecision(row["decision"]),
         reviewer=row["reviewer"],
         study_blinding_state=row["study_blinding_state"],
-        issue_code=row["issue_code"],
-        notes=row["notes"],
         created_at=row["created_at"],
     )
 
@@ -503,13 +473,6 @@ def _create_approved_result(
         created_at=timestamp,
     )
     return result_id
-
-
-def _normalize_optional(value: str | None) -> str | None:
-    if value is None:
-        return None
-    normalized = value.strip()
-    return normalized or None
 
 
 def _relative_to_root(repository: StudyDatabaseContext, path: Path) -> Path:

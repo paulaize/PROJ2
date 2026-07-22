@@ -224,47 +224,17 @@ def create_t2_qc_preview(
     mask_path: Path,
     output_path: Path,
 ) -> Path:
-    """Create a non-quantitative three-slice PNG for the desktop artifact card."""
+    """Create a reflected coronal montage and one QC PNG for every native slice."""
+    from lys_bbb.mask_qc import create_native_mask_qc_preview
 
-    import matplotlib
+    return create_native_mask_qc_preview(scan_path, mask_path, output_path)
 
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
 
-    scan = np.asanyarray(nib.load(str(scan_path)).dataobj, dtype=np.float32)
-    mask = np.asanyarray(nib.load(str(mask_path)).dataobj) > 0
-    if scan.shape != mask.shape or scan.ndim != 3:
-        raise ValueError(
-            "T2 QC preview requires matching three-dimensional scan and mask."
-        )
-    areas = mask.sum(axis=(0, 1))
-    if np.any(areas):
-        centre = int(np.argmax(areas))
-    else:
-        centre = scan.shape[2] // 2
-    slices = sorted({max(0, centre - 1), centre, min(scan.shape[2] - 1, centre + 1)})
-    while len(slices) < 3:
-        slices.append(slices[-1])
-    finite = scan[np.isfinite(scan)]
-    low, high = np.percentile(finite, (1, 99)) if finite.size else (0.0, 1.0)
-    if high <= low:
-        high = low + 1.0
-    figure, axes = plt.subplots(1, 3, figsize=(8.4, 2.8), facecolor="#101b2b")
-    for axis, slice_index in zip(axes, slices, strict=True):
-        image_slice = np.rot90(scan[:, :, slice_index])
-        mask_slice = np.rot90(mask[:, :, slice_index])
-        axis.imshow(image_slice, cmap="gray", vmin=low, vmax=high)
-        if np.any(mask_slice):
-            axis.contour(mask_slice, levels=[0.5], colors=["#20d3b0"], linewidths=1.2)
-        axis.set_title(f"Slice {slice_index + 1}", color="white", fontsize=9)
-        axis.axis("off")
-    figure.tight_layout(pad=0.6)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(
-        output_path, dpi=130, bbox_inches="tight", facecolor=figure.get_facecolor()
-    )
-    plt.close(figure)
-    return output_path
+def _orient_coronal_qc_slice(array: np.ndarray) -> np.ndarray:
+    """Rotate to the established coronal view and reflect vertically (about x)."""
+    from lys_bbb.mask_qc import orient_coronal_qc_slice
+
+    return orient_coronal_qc_slice(array)
 
 
 def prepare_t2_inference_scan(

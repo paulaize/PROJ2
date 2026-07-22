@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import nibabel as nib
 import pytest
 
 from lys_bbb.flash_pair import (
@@ -11,6 +12,12 @@ from lys_bbb.flash_pair import (
     normalize_pair,
     parse_args,
 )
+from lys_bbb.t1_enhancement import (
+    T1EnhancementConfig,
+    T1EnhancementRequest,
+    run_t1_enhancement,
+)
+from lys_bbb.t1_registration import T1RegistrationConfig
 
 
 def test_median_normalization_scales_each_image_inside_mask():
@@ -57,3 +64,49 @@ def test_pair_cli_requires_pre_space_brain_mask():
             "-o",
             "out",
         ])
+
+
+def test_typed_enhancement_contract_consumes_registered_image_without_registration(
+    tmp_path,
+):
+    affine = np.diag([0.1, 0.1, 0.5, 1.0])
+    pre_data = np.full((4, 5, 6), 100.0, dtype=np.float32)
+    registered_post_data = np.full((4, 5, 6), 110.0, dtype=np.float32)
+    mask_data = np.ones((4, 5, 6), dtype=np.uint8)
+    pre = tmp_path / "pre.nii.gz"
+    registered_post = tmp_path / "post_registered.nii.gz"
+    mask = tmp_path / "mask.nii.gz"
+    nib.save(nib.Nifti1Image(pre_data, affine), pre)
+    nib.save(nib.Nifti1Image(registered_post_data, affine), registered_post)
+    nib.save(nib.Nifti1Image(mask_data, affine), mask)
+
+    output = run_t1_enhancement(
+        T1EnhancementRequest(
+            case_id="Mouse-01",
+            pre_t1_path=pre,
+            registered_post_t1_path=registered_post,
+            approved_brain_mask_path=mask,
+            output_directory=tmp_path / "out",
+            config=T1EnhancementConfig(
+                bias_method="none",
+                normalization="none",
+            ),
+        )
+    )
+
+    assert output.percent_enhancement_map.is_file()
+    assert output.metadata["registration_recomputed"] is False
+    assert output.metadata["registration"]["method"] == "none"
+    assert output.method_spec_sha256 == T1EnhancementConfig(
+        bias_method="none",
+        normalization="none",
+    ).method_spec_sha256
+
+
+def test_registration_method_spec_is_stable_and_parameter_sensitive():
+    default = T1RegistrationConfig()
+    same = T1RegistrationConfig()
+    changed = T1RegistrationConfig(iterations=151)
+
+    assert default.method_spec_sha256 == same.method_spec_sha256
+    assert default.method_spec_sha256 != changed.method_spec_sha256

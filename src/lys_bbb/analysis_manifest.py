@@ -26,7 +26,9 @@ ANALYSIS_MANIFEST_FIELDS = [
     "brain_mask_status",
     "brain_mask_qc_png",
     "manual_status",
+    "mask_review",
     "registration_status",
+    "registration_review",
     "manual_mask_qc_png",
     "registration_qc_png",
     "registration_after_xcorr",
@@ -34,6 +36,8 @@ ANALYSIS_MANIFEST_FIELDS = [
     "qc_notes",
     "review_status",
     "review_notes",
+    "mask_review",
+    "registration_review",
     "outputs_are",
     "analysis_mode",
 ]
@@ -95,7 +99,25 @@ def manual_mask_done(row: dict[str, Any]) -> bool:
     return as_bool(row.get("manual_mask_done_name"))
 
 
-def brain_mask_gate(row: dict[str, Any]) -> tuple[str, str, str]:
+def _review_passes(value: Any) -> bool:
+    return str(value or "").strip().lower() in {
+        "pass",
+        "passed",
+        "approve",
+        "approved",
+        "accept",
+        "accepted",
+        "yes",
+        "true",
+        "1",
+    }
+
+
+def brain_mask_gate(
+    row: dict[str, Any],
+    *,
+    allow_unapproved_for_testing: bool = False,
+) -> tuple[str, str, str]:
     if not as_bool(row.get("pre_exists")) or not as_bool(row.get("post_exists")):
         return "missing_conversion", "missing_conversion", "missing pre/post converted image"
     if not selected_brain_mask_path(row):
@@ -124,14 +146,31 @@ def brain_mask_gate(row: dict[str, Any]) -> tuple[str, str, str]:
         status = "needs_review"
     if status != "ready_candidate":
         return "mask_needs_review", status, "; ".join(notes)
+    if not allow_unapproved_for_testing and not _review_passes(row.get("mask_review")):
+        return (
+            "mask_approval_required",
+            status,
+            "explicit human brain-mask approval is required",
+        )
     return "mask_ready", status, ""
 
 
-def registration_gate(row: dict[str, Any]) -> tuple[str, str]:
+def registration_gate(
+    row: dict[str, Any],
+    *,
+    allow_unapproved_for_testing: bool = False,
+) -> tuple[str, str]:
     if not row.get("registration_qc_png"):
         return "missing_registration_qc", "missing registration QC"
     if row.get("registration_source_match") not in {True, "True", "true", "1", 1}:
         return "registration_source_mismatch", "registration QC source paths differ from audited pre/post paths"
+    if not allow_unapproved_for_testing and not _review_passes(
+        row.get("registration_review")
+    ):
+        return (
+            "registration_approval_required",
+            "explicit human registration approval is required",
+        )
     return "registration_ready", ""
 
 
@@ -140,8 +179,14 @@ def gate_qc_row(
     *,
     allow_review_masks_for_testing: bool = False,
 ) -> tuple[bool, str, str, str, str]:
-    manual_status, manual_review, manual_notes = brain_mask_gate(row)
-    registration_status, registration_notes = registration_gate(row)
+    manual_status, manual_review, manual_notes = brain_mask_gate(
+        row,
+        allow_unapproved_for_testing=allow_review_masks_for_testing,
+    )
+    registration_status, registration_notes = registration_gate(
+        row,
+        allow_unapproved_for_testing=allow_review_masks_for_testing,
+    )
     notes = unique_notes(manual_notes, registration_notes, row.get("qc_notes", ""))
     if manual_status == "missing_conversion":
         return False, "missing_conversion", manual_review, notes, "standard"
@@ -215,11 +260,24 @@ def build_analysis_manifest_rows(
     rows: list[dict[str, Any]] = []
     for qc_row in qc_rows:
         case_id = qc_row.get("case_id", "")
+        previous = previous_by_case.get(case_id, {})
+        metadata = metadata_by_case.get(case_id, {})
+        gated_row = dict(qc_row)
+        for review_field in ("mask_review", "registration_review"):
+            gated_row[review_field] = (
+                metadata.get(review_field)
+                or previous.get(review_field)
+                or qc_row.get(review_field)
+                or ""
+            )
         is_ready, qc_gate, manual_status, notes, analysis_mode = gate_qc_row(
-            qc_row,
+            gated_row,
             allow_review_masks_for_testing=allow_review_masks_for_testing,
         )
-        registration_status, _registration_notes = registration_gate(qc_row)
+        registration_status, _registration_notes = registration_gate(
+            gated_row,
+            allow_unapproved_for_testing=allow_review_masks_for_testing,
+        )
         row: dict[str, Any] = {
             "case_id": case_id,
             "animal_id": qc_row.get("animal_id", ""),
@@ -236,7 +294,9 @@ def build_analysis_manifest_rows(
             "brain_mask_status": selected_brain_mask_status(qc_row) or manual_status,
             "brain_mask_qc_png": selected_brain_mask_qc_png(qc_row),
             "manual_status": manual_status,
+            "mask_review": gated_row.get("mask_review", ""),
             "registration_status": registration_status,
+            "registration_review": gated_row.get("registration_review", ""),
             "manual_mask_qc_png": qc_row.get("manual_mask_qc_png", ""),
             "registration_qc_png": qc_row.get("registration_qc_png", ""),
             "registration_after_xcorr": qc_row.get("registration_after_xcorr", ""),
@@ -250,8 +310,8 @@ def build_analysis_manifest_rows(
             ),
             "analysis_mode": analysis_mode,
         }
-        row = merge_preserved_values(row, previous_by_case.get(case_id))
-        row = merge_preserved_values(row, metadata_by_case.get(case_id))
+        row = merge_preserved_values(row, previous)
+        row = merge_preserved_values(row, metadata)
         row = apply_review_gate(row)
         rows.append(row)
     return sorted(rows, key=lambda item: (item["animal_id"], item["timepoint"], item["case_id"]))

@@ -16,24 +16,27 @@ application. Do not create another repository or a second application shell.
 
 ## Current milestone
 
-The reviewed T2 vertical slice is complete. Finish the first T1 vertical step without
-expanding the application shell:
+The reviewed T2 vertical slice is complete. The T1 brain-mask step and the persistent
+registration-to-provisional-enhancement application boundary are code-complete. The
+next work is a real-case desktop smoke test and wiring the existing T1 service actions
+into the current review/workspace shell:
 
 ```text
 validated native pre-Gd T1
 → checksummed local RS2 inference
 → selected M-seam refinement and conservative continuity cleanup
 → immutable draft mask
-→ accept, reject, or import ITK-SNAP correction
+→ approve or manually edit a managed copy in ITK-SNAP
 → approved brain mask
+→ durable post-to-pre registration → explicit registration approval
+→ provisional enhancement calculated from that exact approved registration
 → reopen with state intact
 ```
 
 Acceptance criteria are authoritative in `docs/current_state.md`.
 
-Until this slice is complete, do not add more pages, layout polish, modalities, atlas
-work, synthetic-preview features, unrelated schema revisions, or generic job
-abstractions.
+Do not add more pages, layout polish, modalities, atlas work, placeholder UI features,
+unrelated schema revisions, or generic job abstractions.
 
 ## Non-negotiable rules
 
@@ -43,9 +46,10 @@ abstractions.
 - Put study-wide review work in the general Reviews queue; subject pages may mirror the
   same service actions but must not create a second decision path.
 - Automatic masks are drafts, never ground truth.
-- Human approval requires reviewer identity and time. Rejection requires a reason.
+- Human approval requires reviewer identity and time. Review notes, issue types, and
+  rejection decisions are not collected.
 - Job success, artifact approval, method approval, and result approval are independent.
-- New or corrected masks are new versions; previous files and decisions remain.
+- New or corrected masks are new versions; previous files and approvals remain.
 - Changing an approved dependency makes results outdated; it never silently replaces
   or deletes them.
 - Native pre-Gd T1 is the T1 reference. Register post-Gd to pre-Gd and use the approved
@@ -63,9 +67,12 @@ abstractions.
 
 - The reviewed T2 path through immutable approval, official native-space volume, CSV
   export, and reopening is production-connected.
-- The selected local RS2/M-seam T1 draft generator is implemented; persistent T1
-  artifact/review state is the active milestone.
-- T1 registration approval and enhancement method validation remain incomplete.
+- The selected local RS2/M-seam T1 draft generator and persistent draft/correction/
+  approval state are implemented; a real-case desktop smoke test remains required.
+- Typed T1 registration and enhancement contracts, durable jobs/artifacts, exact
+  dependency approval, invalidation, and provisional result state are implemented.
+- Registration review controls are not yet exposed in the desktop, and the provisional
+  enhancement method is not scientifically validated or approved as a primary endpoint.
 
 Exact implementation facts and acceptance criteria live only in
 `docs/current_state.md`.
@@ -77,7 +84,7 @@ feature-specific repositories/services.
 
 `lys_bbb.project_state.ProjectDatabase` is the frozen schema-v1 compatibility layer.
 Production uses it only to inspect and migrate old `.lysbbb` files; tests may create
-schema-v1 fixtures with it. Do not add features to it or use it for schema-v7 studies.
+schema-v1 fixtures with it. Do not add features to it or use it for schema-v10 studies.
 
 ## Documentation authority
 
@@ -96,7 +103,7 @@ obsolete plans inside current-state documents.
 
 ## Repository hygiene
 
-- Preserve manual masks, review decisions, and raw data.
+- Preserve manual masks, approvals, and raw data.
 - Generated outputs under `output/`, `derivatives/`, and `reports/` are ignored and can
   be stale across branches.
 - Split large modules only while implementing the next vertical slice and only along a

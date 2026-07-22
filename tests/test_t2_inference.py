@@ -12,7 +12,9 @@ import pytest
 from lys_bbb.t2_inference import (
     T2InferenceCaseOutput,
     T2InferenceOutput,
+    _orient_coronal_qc_slice,
     _prediction_to_native_shape,
+    create_t2_qc_preview,
     prepare_t2_inference_scan,
 )
 from lys_bbb.t2_model_release import (
@@ -38,6 +40,34 @@ def _write_scan(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     data = np.arange(6 * 7 * 8, dtype=np.float32).reshape(6, 7, 8)
     nib.save(nib.Nifti1Image(data, np.diag([0.07, 0.07, 0.5, 1.0])), path)
+
+
+def test_t2_qc_renders_every_slice_with_corrected_vertical_orientation(
+    tmp_path: Path,
+) -> None:
+    source = np.array([[1, 2, 3], [4, 5, 6]])
+    assert np.array_equal(
+        _orient_coronal_qc_slice(source),
+        np.array([[1, 4], [2, 5], [3, 6]]),
+    )
+
+    scan_path = tmp_path / "scan.nii.gz"
+    mask_path = tmp_path / "mask.nii.gz"
+    output_path = tmp_path / "qc_preview.png"
+    scan = np.arange(4 * 5 * 3, dtype=np.float32).reshape(4, 5, 3)
+    mask = np.zeros_like(scan, dtype=np.uint8)
+    mask[1:3, 2:4, 1] = 1
+    affine = np.diag([0.07, 0.07, 0.5, 1.0])
+    nib.save(nib.Nifti1Image(scan, affine), scan_path)
+    nib.save(nib.Nifti1Image(mask, affine), mask_path)
+
+    assert create_t2_qc_preview(scan_path, mask_path, output_path) == output_path
+    assert output_path.is_file()
+    assert [path.name for path in sorted((tmp_path / "qc_slices").glob("*.png"))] == [
+        "slice_0001.png",
+        "slice_0002.png",
+        "slice_0003.png",
+    ]
 
 
 def _write_release(root: Path) -> Path:

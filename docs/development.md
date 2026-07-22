@@ -34,9 +34,6 @@ raw-data-to-result validation set.
 # Launcher
 conda run -n lys-bbb lys-bbb-desktop
 
-# Explicitly synthetic design fixture
-conda run -n lys-bbb lys-bbb-desktop --demo
-
 # Open a canonical study root
 conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
 ```
@@ -75,8 +72,9 @@ Current production state uses `StudyRepository` and feature-specific repositorie
 Production uses it only for legacy inspection and migration; do not extend it.
 
 The T2 review slice is divided into `lys_bbb.t2_review` for native-grid binary-mask
-validation and measurement, `T2ReviewService` for correction/review coordination, a
-feature repository for immutable decisions/results, and `t2_export_service` for the
+validation and measurement, `T2ReviewService` for managed correction/approval
+coordination, a feature repository for immutable approvals/results, and
+`t2_export_service` for the
 approved-only CSV. Keep new image logic in the backend and new use cases out of widgets.
 
 ## Active scientific commands
@@ -99,6 +97,19 @@ The local setup command downloads and validates the exact RS2 source and model u
 the frozen Colab run. The mask command accepts one native pre-Gd T1, refuses to overwrite
 an output directory, and preserves raw RS2, refined draft, diagnostics, QC, checksums,
 and provenance separately. These are automatic drafts, never approvals.
+
+The desktop uses the default local release at:
+
+```text
+~/Library/Application Support/LYS BBB/models/rs2net-m-seam-v1
+```
+
+After importing and validating the native pre-Gd T1, open the subject's `T1 Brain Mask`
+tab and choose `Generate draft`. Generation runs off the GUI thread with exact TTA. A
+successful draft appears in the study-level `Reviews` queue, where it can be approved
+or corrected through a managed ITK-SNAP copy. The application records the exact release,
+method-spec hash, source input, mask checksums, run state, immutable versions, reviewer,
+approval time, and blinding state.
 
 ### Transitional T1 backend
 

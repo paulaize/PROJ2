@@ -1,4 +1,4 @@
-"""Page widgets for the connected desktop MVP design preview."""
+"""Page widgets for the connected desktop application."""
 
 from __future__ import annotations
 
@@ -19,14 +19,13 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QSpinBox,
     QStackedWidget,
     QTableView,
     QVBoxLayout,
     QWidget,
 )
 
-from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel, SubjectViewModel
+from lys_bbb_app.domain.view_models import StudyViewModel, SubjectViewModel
 from lys_bbb_app.domain.study import RecentStudy
 from lys_bbb_app.ui.models import (
     ApprovedResultsProxyModel,
@@ -39,17 +38,14 @@ from lys_bbb_app.ui.layout_helpers import (
     page_heading as _page_heading,
 )
 from lys_bbb_app.ui.widgets import (
-    CohortPlot,
     EmptyState,
     ReadinessSummary,
-    StatusBadge,
     WorkflowCard,
     secondary_button,
 )
 
 
 class StudyLauncherPage(QWidget):
-    preview_requested = Signal()
     create_requested = Signal()
     open_requested = Signal()
     migrate_requested = Signal()
@@ -71,8 +67,6 @@ class StudyLauncherPage(QWidget):
         brand.addSpacing(10)
         brand.addWidget(subtitle)
         brand.addStretch()
-        backend = StatusBadge(StatusValue("Backend ready", "ready"))
-        brand.addWidget(backend)
         outer.addLayout(brand)
 
         hero = QFrame()
@@ -94,19 +88,15 @@ class StudyLauncherPage(QWidget):
         hero_layout.addLayout(hero_text, 1)
 
         actions = QVBoxLayout()
-        preview = QPushButton("Open design preview")
-        preview.setObjectName("openDesignPreviewButton")
-        preview.setMinimumWidth(190)
-        preview.clicked.connect(self.preview_requested)
-        create = secondary_button("Create study…")
+        create = QPushButton("Create study…")
         create.setObjectName("createProjectButton")
+        create.setMinimumWidth(190)
         create.clicked.connect(self.create_requested)
         open_button = secondary_button("Open existing study…")
         open_button.setObjectName("openProjectButton")
         open_button.clicked.connect(self.open_requested)
         migrate = secondary_button("Migrate legacy .lysbbb…")
         migrate.clicked.connect(self.migrate_requested)
-        actions.addWidget(preview)
         actions.addWidget(create)
         actions.addWidget(open_button)
         actions.addWidget(migrate)
@@ -124,11 +114,10 @@ class StudyLauncherPage(QWidget):
         outer.addStretch()
 
         note = QLabel(
-            "Design-preview records are synthetic and never written to project state. "
-            "Persistent studies use a versioned study directory; source images may stay "
-            "on mounted hard drives."
+            "Studies use a versioned local directory. Source images remain read-only "
+            "and may stay on mounted hard drives."
         )
-        note.setObjectName("previewBanner")
+        note.setObjectName("infoBanner")
         note.setWordWrap(True)
         outer.addWidget(note)
 
@@ -139,26 +128,6 @@ class StudyLauncherPage(QWidget):
                 self.recent_layout.addWidget(self._recent_study_card(study), 1)
         else:
             self.recent_layout.addWidget(self._empty_recent_card(), 1)
-        self.recent_layout.addWidget(self._recent_preview_card(), 1)
-
-    def _recent_preview_card(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("recentCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 18, 20, 18)
-        title = QLabel("LYS Design Preview 2026")
-        title.setObjectName("cardTitle")
-        detail = QLabel("Synthetic study · 24 subjects · 8 pending reviews")
-        detail.setObjectName("muted")
-        state = StatusBadge(StatusValue("Preview data", "review"))
-        button = secondary_button("Open preview")
-        button.clicked.connect(self.preview_requested)
-        layout.addWidget(title)
-        layout.addWidget(detail)
-        layout.addWidget(state, alignment=Qt.AlignLeft)
-        layout.addStretch()
-        layout.addWidget(button, alignment=Qt.AlignLeft)
-        return card
 
     def _empty_recent_card(self) -> QFrame:
         card = QFrame()
@@ -218,14 +187,7 @@ class OverviewPage(QScrollArea):
         self.layout.setSpacing(20)
         self.setWidget(self.content)
 
-        heading, heading_layout = _page_heading(
-            "Overview",
-            "Study readiness, scientific workflow status, and the next required actions.",
-        )
-        refresh = secondary_button("Refresh")
-        refresh.setEnabled(False)
-        refresh.setToolTip("The current study refreshes after each completed action.")
-        heading_layout.addWidget(refresh)
+        heading, _heading_layout = _page_heading("Overview")
         self.layout.addWidget(heading)
 
         self.metric_container = QWidget()
@@ -305,10 +267,10 @@ class OverviewPage(QScrollArea):
 class SubjectsPage(QWidget):
     subject_open_requested = Signal(str)
     subject_mri_open_requested = Signal(str)
+    subject_validation_requested = Signal(str)
     subjects_flip_requested = Signal(object)
     subject_remove_requested = Signal(str)
     subject_restore_requested = Signal()
-    preview_action = Signal(str)
     add_subject_requested = Signal()
     import_mri_requested = Signal()
     group_assignment_requested = Signal()
@@ -321,10 +283,7 @@ class SubjectsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
-        heading, heading_layout = _page_heading(
-            "Subjects",
-            "Central worklist for imported data, review gates, and workflow readiness.",
-        )
+        heading, heading_layout = _page_heading("Subjects")
         history = secondary_button("Audit history")
         history.clicked.connect(self.audit_history_requested)
         add_subject = QPushButton("Add subject")
@@ -355,13 +314,12 @@ class SubjectsPage(QWidget):
         self.state_filter.addItems(
             [
                 "All states",
-                "Awaiting review",
-                "Blocked",
+                "Needs validation",
+                "Needs review",
+                "Ready",
                 "Processing",
-                "Provisional",
-                "Human approved",
-                "Result outdated",
-                "Not available",
+                "Complete",
+                "Blocked",
             ]
         )
         filter_layout.addWidget(self.search, 2)
@@ -384,8 +342,7 @@ class SubjectsPage(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.table.sortByColumn(0, Qt.AscendingOrder)
         self.table.doubleClicked.connect(self._open_index)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
@@ -406,6 +363,9 @@ class SubjectsPage(QWidget):
         self.open_mri = secondary_button("Open MRI in ITK-SNAP")
         self.open_mri.setEnabled(False)
         self.open_mri.clicked.connect(self._open_selected_mri)
+        self.validate_selected = QPushButton("Validate converted MRI")
+        self.validate_selected.setEnabled(False)
+        self.validate_selected.clicked.connect(self._validate_selected)
         self.flip_subjects = secondary_button("Create flipped versions…")
         self.flip_subjects.setEnabled(False)
         self.flip_subjects.clicked.connect(self._flip_selected)
@@ -413,6 +373,7 @@ class SubjectsPage(QWidget):
         footer.addStretch()
         footer.addWidget(self.restore_subjects)
         footer.addWidget(self.open_mri)
+        footer.addWidget(self.validate_selected)
         footer.addWidget(self.flip_subjects)
         footer.addWidget(self.remove_subject)
         layout.addLayout(footer)
@@ -463,7 +424,6 @@ class SubjectsPage(QWidget):
         if blinded:
             self.group_filter.setCurrentText("All groups")
         self.group_filter.setVisible(not blinded)
-        self.table.setColumnHidden(1, blinded)
         self.assign_groups.setText(
             "Unblind and assign groups…" if blinded else "Assign groups…"
         )
@@ -488,6 +448,14 @@ class SubjectsPage(QWidget):
         self.remove_subject.setEnabled(one_subject is not None)
         self.open_mri.setEnabled(
             one_subject is not None and one_subject.mri_input_count > 0
+        )
+        self.validate_selected.setEnabled(
+            one_subject is not None and one_subject.needs_input_validation
+        )
+        self.validate_selected.setToolTip(
+            "Checks the selected subject's converted MRI geometry and provenance."
+            if self.validate_selected.isEnabled()
+            else "Select one subject whose converted MRI requires validation."
         )
         self.flip_subjects.setEnabled(
             bool(subjects) and all(subject.mri_input_count > 0 for subject in subjects)
@@ -521,6 +489,11 @@ class SubjectsPage(QWidget):
         if subject is not None:
             self.subject_mri_open_requested.emit(subject.subject_id)
 
+    def _validate_selected(self) -> None:
+        subject = self._selected_subject()
+        if subject is not None and subject.needs_input_validation:
+            self.subject_validation_requested.emit(subject.subject_id)
+
     def _flip_selected(self) -> None:
         subject_ids = tuple(
             subject.subject_id for subject in self._selected_subjects()
@@ -530,13 +503,11 @@ class SubjectsPage(QWidget):
 
 
 class ResultsPage(QScrollArea):
-    preview_action = Signal(str)
     approved_csv_requested = Signal()
 
     def __init__(self) -> None:
         super().__init__()
         self.blinded_review = False
-        self.is_demo = False
         self.has_results = False
         self.has_approved_results = False
         self.setWidgetResizable(True)
@@ -549,16 +520,14 @@ class ResultsPage(QScrollArea):
         layout.setSizeConstraint(QLayout.SetMinimumSize)
         self.setWidget(content)
 
-        heading, _heading_layout = _page_heading(
-            "Results and exports",
-            "Subject-level measurements with approval, method, and missingness preserved.",
-        )
+        heading, _heading_layout = _page_heading("Results and exports")
         layout.addWidget(heading)
 
         self.provisional_warning = QLabel(
-            "Provisional measurements are shown for design review. Approved-only export excludes them by default."
+            "Provisional measurements are not official and are excluded from the "
+            "approved-results export."
         )
-        self.provisional_warning.setObjectName("previewBanner")
+        self.provisional_warning.setObjectName("warningBanner")
         self.provisional_warning.setWordWrap(True)
         layout.addWidget(self.provisional_warning)
 
@@ -572,32 +541,16 @@ class ResultsPage(QScrollArea):
         results_layout = QVBoxLayout(self.results_card)
         results_layout.setContentsMargins(14, 14, 14, 14)
         results_layout.setSpacing(12)
-        results_heading = QHBoxLayout()
-        result_titles = QVBoxLayout()
         result_title = QLabel("Subject results")
         result_title.setObjectName("cardTitle")
-        result_caption = QLabel(
-            "Approval state, method version, and missingness remain visible in every row."
-        )
-        result_caption.setObjectName("metadata")
-        result_caption.setWordWrap(True)
-        result_titles.addWidget(result_title)
-        result_titles.addWidget(result_caption)
-        results_heading.addLayout(result_titles, 1)
-        results_heading.addStretch()
-        self.provenance_button = secondary_button("View provenance")
-        self.provenance_button.clicked.connect(
-            lambda: self.preview_action.emit(
-                "Provenance detail is a connected design-preview action; no record was changed."
-            )
-        )
-        results_heading.addWidget(self.provenance_button)
-        results_layout.addLayout(results_heading)
+        results_layout.addWidget(result_title)
 
         controls = QHBoxLayout()
         self.approved_only = QCheckBox("Show subjects with at least one approved result")
         controls.addWidget(self.approved_only)
         controls.addStretch()
+        self.show_method_details = QCheckBox("Show method details")
+        controls.addWidget(self.show_method_details)
         results_layout.addLayout(controls)
 
         self.model = ResultsTableModel()
@@ -611,153 +564,78 @@ class ResultsPage(QScrollArea):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(42)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setColumnHidden(4, True)
         self.results_stack = QStackedWidget()
         self.results_stack.setMinimumHeight(214)
-        self.results_stack.setMaximumHeight(260)
         self.results_empty = EmptyState(
             "No subject results yet",
-            "Approved and provisional measurements will appear after scientific workflows run.",
+            "Measurements will appear after a scientific workflow produces them.",
             embedded=True,
         )
         self.results_stack.addWidget(self.table)
         self.results_stack.addWidget(self.results_empty)
         results_layout.addWidget(self.results_stack)
         self.approved_only.toggled.connect(self.proxy.set_approved_only)
-        layout.addWidget(self.results_card)
-
-        lower = QHBoxLayout()
-        lower.setSpacing(16)
-        self.plot_card = QFrame()
-        self.plot_card.setObjectName("card")
-        self.plot_card.setMinimumHeight(300)
-        plot_layout = QVBoxLayout(self.plot_card)
-        plot_layout.setContentsMargins(14, 14, 14, 14)
-        plot_layout.setSpacing(6)
-        self.plot_title = QLabel("T2 lesion volume by group")
-        self.plot_title.setObjectName("cardTitle")
-        self.plot_caption = QLabel("Descriptive preview only · dots are synthetic")
-        self.plot_caption.setObjectName("metadata")
-        plot_layout.addWidget(self.plot_title)
-        plot_layout.addWidget(self.plot_caption)
-        self.plot_stack = QStackedWidget()
-        self.cohort_plot = CohortPlot()
-        self.plot_empty = EmptyState(
-            "No cohort results yet",
-            "Approved T1 or T2 measurements will appear here after scientific workflows are connected.",
-            embedded=True,
+        self.show_method_details.toggled.connect(
+            lambda visible: self.table.setColumnHidden(4, not visible)
         )
-        self.plot_stack.addWidget(self.cohort_plot)
-        self.plot_stack.addWidget(self.plot_empty)
-        plot_layout.addWidget(self.plot_stack, 1)
-        lower.addWidget(self.plot_card, 2)
+        layout.addWidget(self.results_card)
 
         self.export_card = QFrame()
         self.export_card.setObjectName("card")
-        self.export_card.setMinimumHeight(300)
-        self.export_card.setMinimumWidth(280)
         export_layout = QVBoxLayout(self.export_card)
         export_layout.setContentsMargins(14, 14, 14, 14)
         export_layout.setSpacing(10)
-        export_title = QLabel("Export safeguards")
+        export_title = QLabel("Approved exports")
         export_title.setObjectName("cardTitle")
         export_layout.addWidget(export_title)
-        export_caption = QLabel(
-            "Exports keep approval state, method version, and missing values explicit."
+        self.approved_csv = QPushButton("Export approved T2 results CSV…")
+        self.approved_csv.setToolTip(
+            "Exports approved T2 lesion results and preserves missing values."
         )
-        export_caption.setObjectName("metadata")
-        export_caption.setWordWrap(True)
-        export_layout.addWidget(export_caption)
-        self.approved_csv = secondary_button("Approved T2 results CSV")
         self.approved_csv.clicked.connect(self.approved_csv_requested.emit)
-        export_layout.addWidget(self.approved_csv)
-        self.preview_export_buttons: list[QPushButton] = []
-        for text in ("QC report · HTML/PDF", "Reproducibility bundle"):
-            button = secondary_button(text)
-            button.clicked.connect(
-                lambda _checked=False, name=text: self._preview_export(name)
-            )
-            export_layout.addWidget(button)
-            self.preview_export_buttons.append(button)
-        self.export_buttons = [self.approved_csv, *self.preview_export_buttons]
-        export_layout.addStretch()
-        safeguard = QLabel("Missing values are never converted to zero.")
-        safeguard.setObjectName("infoBanner")
-        safeguard.setWordWrap(True)
-        export_layout.addWidget(safeguard)
-        lower.addWidget(self.export_card, 1)
-        layout.addLayout(lower)
+        export_layout.addWidget(self.approved_csv, alignment=Qt.AlignLeft)
+        layout.addWidget(self.export_card)
         layout.addStretch()
         self.set_blinded_review(False)
 
     def set_study(self, study: StudyViewModel) -> None:
-        self.is_demo = study.is_demo
         self.has_results = bool(study.results)
         self.has_approved_results = any(
             result.t2_state.kind == "approved" for result in study.results
         )
+        has_provisional_results = any(
+            result.t1_state.kind in {"review", "processing", "outdated"}
+            or result.t2_state.kind in {"review", "processing", "outdated"}
+            for result in study.results
+        )
         self.model.set_results(study.results)
-        has_preview_results = study.is_demo and self.has_results
-        self.provisional_warning.setVisible(has_preview_results)
+        self.provisional_warning.setVisible(has_provisional_results)
         self.results_stack.setCurrentWidget(
             self.table if self.has_results else self.results_empty
         )
-        self.plot_stack.setCurrentWidget(
-            self.cohort_plot if has_preview_results else self.plot_empty
-        )
-        self.plot_caption.setVisible(has_preview_results)
+        self.export_card.setVisible(self.has_results)
+        self.approved_only.setVisible(self.has_results)
         self.approved_only.setEnabled(self.has_results)
-        self.provenance_button.setEnabled(has_preview_results)
-        self.approved_csv.setEnabled(
-            self.has_approved_results and not study.is_demo
-        )
+        self.show_method_details.setVisible(self.has_results)
+        self.approved_csv.setEnabled(self.has_approved_results)
         self.approved_csv.setToolTip(
             ""
-            if self.approved_csv.isEnabled()
-            else "Available when this persistent study has an approved T2 lesion result."
+            if self.has_approved_results
+            else "Available after at least one T2 lesion result is approved."
         )
-        for button in self.preview_export_buttons:
-            button.setEnabled(has_preview_results)
-            button.setToolTip(
-                "Available only when the study contains exportable results."
-                if not has_preview_results
-                else ""
-            )
-        self._refresh_plot_title()
 
     def set_blinded_review(self, blinded: bool) -> None:
         self.blinded_review = blinded
         self.table.setColumnHidden(1, blinded)
         self.blinding_note.setVisible(blinded)
         self.blinding_note.setText(
-            "BLINDED REVIEW — Experimental groups are hidden. Approved exports can omit "
-            "groups; grouped summaries require an explicit audited unblinding step."
-        )
-        self._refresh_plot_title()
-        self.cohort_plot.set_blinded(blinded)
-
-    def _refresh_plot_title(self) -> None:
-        if not self.has_results:
-            self.plot_title.setText("Cohort summary")
-        else:
-            self.plot_title.setText(
-                "T2 lesion volume · blinded cohort"
-                if self.blinded_review
-                else "T2 lesion volume by group"
-            )
-
-    def _preview_export(self, name: str) -> None:
-        suffix = (
-            " Group assignments would be omitted while the study remains blinded."
-            if self.blinded_review
-            else ""
-        )
-        self.preview_action.emit(
-            f"{name} is a connected design-preview action; no file was created.{suffix}"
+            "BLINDED REVIEW — Experimental groups are hidden. Approved exports omit "
+            "groups until the study is explicitly unblinded."
         )
 
 
 class SettingsPage(QScrollArea):
-    preview_action = Signal(str)
     blinding_changed = Signal(bool)
     input_folder_requested = Signal(str)
 
@@ -770,14 +648,12 @@ class SettingsPage(QScrollArea):
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
         self.setWidget(content)
-        heading, _heading_layout = _page_heading(
-            "Settings",
-            "User preferences, processing resources, and installed scientific releases.",
-        )
+        heading, _heading_layout = _page_heading("Settings")
         layout.addWidget(heading)
 
-        self.persistence_note = QLabel("Preview controls are not persisted yet.")
-        self.persistence_note.setObjectName("previewBanner")
+        self.persistence_note = QLabel()
+        self.persistence_note.setObjectName("infoBanner")
+        self.persistence_note.setWordWrap(True)
         layout.addWidget(self.persistence_note)
 
         blinding = QGroupBox("Review blinding")
@@ -820,10 +696,8 @@ class SettingsPage(QScrollArea):
         self.legacy_input_note.hide()
         input_form.addRow(self.legacy_input_note)
         input_note = QLabel(
-            "The selected root is scanned read-only for Bruker sessions and recognisable "
-            "NIfTI files. You review subject IDs, T1 pre/post/T2 roles, coronal orientation, "
-            "and optional storage-axis flips before versioned NIfTI copies are created "
-            "inside the study. A disconnected drive path is retained for reconnection."
+            "The source folder stays read-only. Imported scans are copied into the study "
+            "as versioned NIfTI files."
         )
         input_note.setObjectName("muted")
         input_note.setWordWrap(True)
@@ -837,58 +711,13 @@ class SettingsPage(QScrollArea):
         self.external_editor.setPlaceholderText(
             "Leave blank to find ITK-SNAP automatically"
         )
-        export_dir = QLineEdit("~/Documents/LYS exports")
-        backups = QCheckBox("Create automatic project backups")
-        backups.setChecked(True)
         form.addRow("Reviewer display name", self.reviewer)
         form.addRow("External editor", self.external_editor)
-        form.addRow("Default export directory", export_dir)
-        form.addRow("Backups", backups)
+        session_note = QLabel("These values apply only to the current session.")
+        session_note.setObjectName("muted")
+        session_note.setWordWrap(True)
+        form.addRow(session_note)
         layout.addWidget(standard)
-
-        resources = QGroupBox("Processing resources")
-        resource_form = QFormLayout(resources)
-        workers = QSpinBox()
-        workers.setRange(1, 16)
-        workers.setValue(4)
-        mps = QCheckBox("Use Apple MPS when a compatible backend declares support")
-        mps.setChecked(True)
-        concurrent = QSpinBox()
-        concurrent.setRange(1, 8)
-        concurrent.setValue(2)
-        resource_form.addRow("CPU worker count", workers)
-        resource_form.addRow("Acceleration", mps)
-        resource_form.addRow("Maximum concurrent jobs", concurrent)
-        layout.addWidget(resources)
-
-        releases = QGroupBox("Scientific backend releases")
-        release_layout = QVBoxLayout(releases)
-        t2 = QFrame()
-        t2.setObjectName("card")
-        t2_layout = QHBoxLayout(t2)
-        t2_text = QVBoxLayout()
-        t2_title = QLabel("RatLesNetV2")
-        t2_title.setObjectName("cardTitle")
-        t2_detail = QLabel("No frozen LYS_PROJ1 release installed")
-        t2_detail.setObjectName("muted")
-        t2_text.addWidget(t2_title)
-        t2_text.addWidget(t2_detail)
-        t2_layout.addLayout(t2_text, 1)
-        t2_layout.addWidget(StatusBadge(StatusValue("Not installed", "unavailable")))
-        install = secondary_button("Install release…")
-        install.clicked.connect(
-            lambda: self.preview_action.emit("Release installation UI is preview-only.")
-        )
-        t2_layout.addWidget(install)
-        release_layout.addWidget(t2)
-
-        layout.addWidget(releases)
-
-        save = QPushButton("Save preferences")
-        save.clicked.connect(
-            lambda: self.preview_action.emit("Preferences changed in preview only; nothing was saved.")
-        )
-        layout.addWidget(save, alignment=Qt.AlignRight)
         layout.addStretch()
 
     def set_study_state(self, *, persistent: bool, blinded: bool) -> None:
@@ -906,8 +735,11 @@ class SettingsPage(QScrollArea):
                 "other user preferences are not persisted yet."
             )
         else:
-            self.persistence_note.setObjectName("previewBanner")
-            self.persistence_note.setText("Preview controls are not persisted yet.")
+            self.persistence_note.setObjectName("warningBanner")
+            self.persistence_note.setText(
+                "This legacy project is read-only. Migrate it to a study directory "
+                "before changing persistent study settings."
+            )
         self.persistence_note.style().unpolish(self.persistence_note)
         self.persistence_note.style().polish(self.persistence_note)
 

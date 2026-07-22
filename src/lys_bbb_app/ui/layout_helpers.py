@@ -21,9 +21,9 @@ def clear_layout(layout: QLayout) -> None:
 
 def page_heading(
     title_text: str,
-    description_text: str,
+    description_text: str | None = None,
 ) -> tuple[QWidget, QHBoxLayout]:
-    """Build the consistent title and explanatory text used by application pages."""
+    """Build a consistent page title with optional supporting copy."""
 
     widget = QWidget()
     layout = QHBoxLayout(widget)
@@ -31,11 +31,12 @@ def page_heading(
     titles = QVBoxLayout()
     title = QLabel(title_text)
     title.setObjectName("pageTitle")
-    description = QLabel(description_text)
-    description.setObjectName("muted")
-    description.setWordWrap(True)
     titles.addWidget(title)
-    titles.addWidget(description)
+    if description_text:
+        description = QLabel(description_text)
+        description.setObjectName("muted")
+        description.setWordWrap(True)
+        titles.addWidget(description)
     layout.addLayout(titles)
     layout.addStretch()
     return widget, layout

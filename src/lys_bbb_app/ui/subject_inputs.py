@@ -16,7 +16,12 @@ from PySide6.QtWidgets import (
 
 from lys_bbb_app.domain.view_models import InputScanViewModel, SubjectViewModel
 from lys_bbb_app.ui.layout_helpers import clear_layout
-from lys_bbb_app.ui.widgets import ElidedLabel, StatusBadge, secondary_button
+from lys_bbb_app.ui.widgets import (
+    CollapsibleSection,
+    ElidedLabel,
+    StatusBadge,
+    secondary_button,
+)
 
 
 class SubjectInputsPanel(QScrollArea):
@@ -39,22 +44,13 @@ class SubjectInputsPanel(QScrollArea):
         self.scan_cards: list[QFrame] = []
 
         header = QHBoxLayout()
-        titles = QVBoxLayout()
-        title = QLabel("MRI input readiness")
+        title = QLabel("MRI inputs")
         title.setObjectName("cardTitle")
-        description = QLabel(
-            "Inspect the active converted versions, then validate their managed files "
-            "before starting T1 or T2 analysis."
-        )
-        description.setObjectName("muted")
-        description.setWordWrap(True)
-        titles.addWidget(title)
-        titles.addWidget(description)
-        header.addLayout(titles, 1)
+        header.addWidget(title, 1)
         self.import_inputs = secondary_button("Replace or add MRI…")
         self.import_inputs.clicked.connect(self.import_requested)
         header.addWidget(self.import_inputs)
-        self.validate_inputs = QPushButton("Validate subject inputs")
+        self.validate_inputs = QPushButton("Validate converted MRI")
         self.validate_inputs.clicked.connect(self._request_validation)
         header.addWidget(self.validate_inputs)
         self.layout.addLayout(header)
@@ -72,27 +68,6 @@ class SubjectInputsPanel(QScrollArea):
         self.cards_layout.setSpacing(10)
         self.layout.addLayout(self.cards_layout)
 
-        self.next_step_card = QFrame()
-        self.next_step_card.setObjectName("card")
-        next_layout = QGridLayout(self.next_step_card)
-        next_layout.setContentsMargins(16, 12, 16, 12)
-        next_layout.setColumnStretch(0, 1)
-        next_title = QLabel("What becomes available next")
-        next_title.setObjectName("cardTitle")
-        next_layout.addWidget(next_title, 0, 0, 1, 2)
-        self.t1_next = QLabel()
-        self.t1_next.setWordWrap(True)
-        self.t2_next = QLabel()
-        self.t2_next.setWordWrap(True)
-        self.t1_continue = secondary_button("T1 brain-mask step")
-        self.t1_continue.setEnabled(False)
-        self.t2_continue = secondary_button("T2 lesion-mask step")
-        self.t2_continue.setEnabled(False)
-        next_layout.addWidget(self.t1_next, 1, 0)
-        next_layout.addWidget(self.t1_continue, 1, 1)
-        next_layout.addWidget(self.t2_next, 2, 0)
-        next_layout.addWidget(self.t2_continue, 2, 1)
-        self.layout.insertWidget(2, self.next_step_card)
         self.layout.addStretch()
 
     def set_subject(self, subject: SubjectViewModel) -> None:
@@ -111,16 +86,6 @@ class SubjectInputsPanel(QScrollArea):
                 card = self._scan_card(subject.subject_id, scan)
                 self.scan_cards.append(card)
                 self.cards_layout.addWidget(card)
-        else:
-            empty = QLabel(
-                "No active MRI inputs are assigned to this subject. Use Replace or add "
-                "MRI to review the source folder again."
-            )
-            empty.setObjectName("muted")
-            empty.setWordWrap(True)
-            empty.setContentsMargins(8, 12, 8, 12)
-            self.cards_layout.addWidget(empty)
-        self._set_next_steps(subject)
 
     def _set_readiness(self, subject: SubjectViewModel) -> None:
         if not subject.inputs:
@@ -158,37 +123,6 @@ class SubjectInputsPanel(QScrollArea):
                 )
         self.readiness_label.setText(message)
 
-    def _set_next_steps(self, subject: SubjectViewModel) -> None:
-        t1_ready = subject.t1_data.kind == "ready"
-        t2_ready = subject.t2_data.kind == "ready"
-        self.t1_next.setText(
-            "T1: ready to create or import a versioned draft brain mask."
-            if t1_ready
-            else "T1: not expected for this subject."
-            if subject.t1_data.label == "Not applicable"
-            else f"T1: {subject.t1_data.label}. Validate a complete pre/post pair first."
-        )
-        self.t2_next.setText(
-            "T2: ready to import a released lesion mask. Frozen-model execution will "
-            "remain unavailable until a compatible LYS_PROJ1 release is installed."
-            if t2_ready
-            else "T2: not expected for this subject."
-            if subject.t2_data.label == "Not applicable"
-            else f"T2: {subject.t2_data.label}. Validate the converted T2 first."
-        )
-        t1_reason = (
-            "The artifact/review service is the next implementation milestone."
-            if t1_ready
-            else "A validated T1 pair is required."
-        )
-        t2_reason = (
-            "The released-mask artifact service is the next implementation milestone."
-            if t2_ready
-            else "A validated T2 input is required."
-        )
-        self.t1_continue.setToolTip(t1_reason)
-        self.t2_continue.setToolTip(t2_reason)
-
     def _scan_card(self, subject_id: str, scan: InputScanViewModel) -> QFrame:
         card = QFrame()
         card.setObjectName("card")
@@ -205,6 +139,7 @@ class SubjectInputsPanel(QScrollArea):
         header.addWidget(StatusBadge(scan.validation))
         layout.addLayout(header)
 
+        technical_details = CollapsibleSection()
         paths = QGridLayout()
         paths.setColumnStretch(1, 1)
         managed_key = QLabel("Managed NIfTI")
@@ -217,7 +152,7 @@ class SubjectInputsPanel(QScrollArea):
         paths.addWidget(managed, 0, 1)
         paths.addWidget(source_key, 1, 0)
         paths.addWidget(source, 1, 1)
-        layout.addLayout(paths)
+        technical_details.content_layout.addLayout(paths)
 
         facts = QGridLayout()
         fact_values = (
@@ -237,7 +172,8 @@ class SubjectInputsPanel(QScrollArea):
             facts.addWidget(label, row, column)
             facts.addWidget(value, row + 1, column)
             facts.setColumnStretch(column, 1)
-        layout.addLayout(facts)
+        technical_details.content_layout.addLayout(facts)
+        layout.addWidget(technical_details)
 
         for issue in scan.issues:
             prefix = "Warning" if issue.severity == "warning" else "Problem"

@@ -25,9 +25,18 @@ from lys_bbb_app.domain.study import (
     StudySnapshot,
     SubjectRecord,
 )
+from lys_bbb.t1_brain_mask_release import FrozenT1BrainMaskRelease
+from lys_bbb.t1_brain_mask_review import T1BrainMaskMeasurement
 from lys_bbb.t2_model_release import FrozenT2ModelRelease
+from lys_bbb_app.domain.t1_brain_mask import (
+    T1BrainMaskArtifactDraft,
+    T1CorrectedBrainMaskDraft,
+)
+from lys_bbb_app.domain.t1_analysis import (
+    T1EnhancementResultDraft,
+    T1RegistrationArtifactDraft,
+)
 from lys_bbb_app.domain.t2_lesion import (
-    ReviewDecision,
     T2ArtifactDraft,
     T2CorrectedArtifactDraft,
 )
@@ -53,6 +62,44 @@ from lys_bbb_app.infrastructure.study_schema import (
     create_schema as _create_study_schema,
     migrate_schema as _migrate_study_schema,
 )
+from lys_bbb_app.infrastructure.t1_brain_mask_repository import (
+    approval_from_row as _t1_approval_from_row,
+    artifact_from_row as _t1_artifact_from_row,
+    complete_t1_brain_mask_job as _complete_t1_brain_mask_job,
+    create_corrected_t1_brain_mask_artifact as _create_corrected_t1_brain_mask_artifact,
+    create_t1_brain_mask_job as _create_t1_brain_mask_job,
+    fail_t1_brain_mask_job as _fail_t1_brain_mask_job,
+    interrupt_running_t1_brain_mask_jobs as _interrupt_running_t1_brain_mask_jobs,
+    job_from_row as _t1_job_from_row,
+    record_t1_brain_mask_approval as _record_t1_brain_mask_approval,
+    register_t1_brain_mask_release as _register_t1_brain_mask_release,
+    release_from_row as _t1_release_from_row,
+    start_t1_brain_mask_job as _start_t1_brain_mask_job,
+    update_t1_brain_mask_job as _update_t1_brain_mask_job,
+)
+from lys_bbb_app.infrastructure.t1_analysis_repository import (
+    complete_enhancement_job as _complete_t1_enhancement_job,
+    complete_registration_job as _complete_t1_registration_job,
+    create_enhancement_job as _create_t1_enhancement_job,
+    create_registration_job as _create_t1_registration_job,
+    enhancement_job_from_row as _t1_enhancement_job_from_row,
+    enhancement_method_from_row as _t1_enhancement_method_from_row,
+    enhancement_result_from_row as _t1_enhancement_result_from_row,
+    fail_enhancement_job as _fail_t1_enhancement_job,
+    fail_registration_job as _fail_t1_registration_job,
+    interrupt_running_jobs as _interrupt_running_t1_analysis_jobs,
+    record_registration_approval as _record_t1_registration_approval,
+    register_enhancement_method as _register_t1_enhancement_method,
+    register_registration_method as _register_t1_registration_method,
+    registration_approval_from_row as _t1_registration_approval_from_row,
+    registration_artifact_from_row as _t1_registration_artifact_from_row,
+    registration_job_from_row as _t1_registration_job_from_row,
+    registration_method_from_row as _t1_registration_method_from_row,
+    start_enhancement_job as _start_t1_enhancement_job,
+    start_registration_job as _start_t1_registration_job,
+    update_enhancement_job as _update_t1_enhancement_job,
+    update_registration_job as _update_t1_registration_job,
+)
 from lys_bbb_app.infrastructure.t2_inference_repository import (
     artifact_from_row as _artifact_from_row,
     complete_job as _complete_t2_job,
@@ -67,14 +114,14 @@ from lys_bbb_app.infrastructure.t2_inference_repository import (
 )
 from lys_bbb_app.infrastructure.t2_review_repository import (
     create_corrected_t2_artifact as _create_corrected_t2_artifact,
-    record_t2_review as _record_t2_review,
+    record_t2_approval as _record_t2_approval,
     result_from_row as _t2_result_from_row,
     review_from_row as _t2_review_from_row,
 )
 from lys_bbb.t2_review import T2MaskMeasurement
 
 
-STUDY_SCHEMA_VERSION = 7
+STUDY_SCHEMA_VERSION = 10
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -266,6 +313,8 @@ class StudyRepository:
 
         repository = cls(root)
         _interrupt_running_jobs(repository)
+        _interrupt_running_t1_brain_mask_jobs(repository)
+        _interrupt_running_t1_analysis_jobs(repository)
         repository.snapshot()
         return repository
 
@@ -393,6 +442,117 @@ class StudyRepository:
                         (study["id"],),
                     ).fetchall()
                 )
+                t1_brain_mask_releases = tuple(
+                    _t1_release_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_brain_mask_releases
+                        WHERE study_id = ?
+                        ORDER BY active DESC, validated_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_brain_mask_jobs = tuple(
+                    _t1_job_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_brain_mask_jobs
+                        WHERE study_id = ? ORDER BY submitted_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_brain_mask_artifacts = tuple(
+                    _t1_artifact_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_brain_mask_artifacts
+                        WHERE study_id = ? ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_brain_mask_approvals = tuple(
+                    _t1_approval_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_brain_mask_reviews
+                        WHERE study_id = ? ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_registration_methods = tuple(
+                    _t1_registration_method_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_registration_methods
+                        WHERE study_id = ? ORDER BY active DESC, registered_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_registration_jobs = tuple(
+                    _t1_registration_job_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_registration_jobs
+                        WHERE study_id = ? ORDER BY submitted_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_registration_artifacts = tuple(
+                    _t1_registration_artifact_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_registration_artifacts
+                        WHERE study_id = ? ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_registration_approvals = tuple(
+                    _t1_registration_approval_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_registration_reviews
+                        WHERE study_id = ? ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_enhancement_methods = tuple(
+                    _t1_enhancement_method_from_row(row)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_enhancement_methods
+                        WHERE study_id = ? ORDER BY active DESC, registered_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_enhancement_jobs = tuple(
+                    _t1_enhancement_job_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_enhancement_jobs
+                        WHERE study_id = ? ORDER BY submitted_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
+                t1_enhancement_results = tuple(
+                    _t1_enhancement_result_from_row(row, self.root_path)
+                    for row in connection.execute(
+                        """
+                        SELECT * FROM t1_enhancement_results
+                        WHERE study_id = ? ORDER BY created_at DESC
+                        """,
+                        (study["id"],),
+                    ).fetchall()
+                )
         except StudyStateError:
             raise
         except (sqlite3.Error, json.JSONDecodeError) as exc:
@@ -419,6 +579,17 @@ class StudyRepository:
             artifacts=artifacts,
             reviews=reviews,
             results=results,
+            t1_brain_mask_releases=t1_brain_mask_releases,
+            t1_brain_mask_jobs=t1_brain_mask_jobs,
+            t1_brain_mask_artifacts=t1_brain_mask_artifacts,
+            t1_brain_mask_approvals=t1_brain_mask_approvals,
+            t1_registration_methods=t1_registration_methods,
+            t1_registration_jobs=t1_registration_jobs,
+            t1_registration_artifacts=t1_registration_artifacts,
+            t1_registration_approvals=t1_registration_approvals,
+            t1_enhancement_methods=t1_enhancement_methods,
+            t1_enhancement_jobs=t1_enhancement_jobs,
+            t1_enhancement_results=t1_enhancement_results,
             archived_subjects=archived_subjects,
             mri_input_folder=folders.get("mri"),
             t1_input_folder=folders.get("t1"),
@@ -848,6 +1019,233 @@ class StudyRepository:
     ) -> None:
         _register_t2_model_release(self, release, actor=actor)
 
+    def register_t1_brain_mask_release(
+        self,
+        release: FrozenT1BrainMaskRelease,
+        *,
+        manifest_sha256: str,
+        method_spec_sha256: str,
+        method_metadata: dict[str, Any],
+        actor: str,
+    ) -> None:
+        _register_t1_brain_mask_release(
+            self,
+            release,
+            manifest_sha256=manifest_sha256,
+            method_spec_sha256=method_spec_sha256,
+            method_metadata=method_metadata,
+            actor=actor,
+        )
+
+    def create_t1_brain_mask_job(
+        self,
+        subject_ids: tuple[str, ...],
+        *,
+        release_id: str,
+        actor: str,
+    ) -> str:
+        return _create_t1_brain_mask_job(
+            self,
+            subject_ids,
+            release_id=release_id,
+            actor=actor,
+        )
+
+    def start_t1_brain_mask_job(self, job_id: str) -> None:
+        _start_t1_brain_mask_job(self, job_id)
+
+    def update_t1_brain_mask_job(
+        self,
+        job_id: str,
+        current: int,
+        total: int,
+        stage: str,
+    ) -> None:
+        _update_t1_brain_mask_job(self, job_id, current, total, stage)
+
+    def fail_t1_brain_mask_job(
+        self,
+        job_id: str,
+        error: str,
+        *,
+        actor: str,
+    ) -> None:
+        _fail_t1_brain_mask_job(self, job_id, error, actor=actor)
+
+    def complete_t1_brain_mask_job(
+        self,
+        job_id: str,
+        drafts: tuple[T1BrainMaskArtifactDraft, ...],
+        *,
+        release_id: str,
+        output_path: Path,
+        actor: str,
+    ) -> None:
+        _complete_t1_brain_mask_job(
+            self,
+            job_id,
+            drafts,
+            release_id=release_id,
+            output_path=output_path,
+            actor=actor,
+        )
+
+    def create_corrected_t1_brain_mask_artifact(
+        self,
+        draft: T1CorrectedBrainMaskDraft,
+        *,
+        actor: str,
+    ) -> str:
+        return _create_corrected_t1_brain_mask_artifact(self, draft, actor=actor)
+
+    def record_t1_brain_mask_approval(
+        self,
+        artifact_id: str,
+        *,
+        reviewer: str,
+        measurement: T1BrainMaskMeasurement,
+    ) -> None:
+        _record_t1_brain_mask_approval(
+            self,
+            artifact_id,
+            reviewer=reviewer,
+            measurement=measurement,
+        )
+
+    def register_t1_registration_method(
+        self,
+        *,
+        method_version: str,
+        method_spec_sha256: str,
+        config: dict[str, Any],
+        actor: str,
+    ) -> str:
+        return _register_t1_registration_method(
+            self,
+            method_version=method_version,
+            method_spec_sha256=method_spec_sha256,
+            config=config,
+            actor=actor,
+        )
+
+    def create_t1_registration_job(
+        self,
+        subject_ids: tuple[str, ...],
+        *,
+        method_id: str,
+        actor: str,
+    ) -> str:
+        return _create_t1_registration_job(
+            self,
+            subject_ids,
+            method_id=method_id,
+            actor=actor,
+        )
+
+    def start_t1_registration_job(self, job_id: str) -> None:
+        _start_t1_registration_job(self, job_id)
+
+    def update_t1_registration_job(
+        self,
+        job_id: str,
+        current: int,
+        total: int,
+        stage: str,
+    ) -> None:
+        _update_t1_registration_job(self, job_id, current, total, stage)
+
+    def fail_t1_registration_job(self, job_id: str, error: str, *, actor: str) -> None:
+        _fail_t1_registration_job(self, job_id, error, actor=actor)
+
+    def complete_t1_registration_job(
+        self,
+        job_id: str,
+        drafts: tuple[T1RegistrationArtifactDraft, ...],
+        *,
+        method_id: str,
+        output_path: Path,
+        actor: str,
+    ) -> None:
+        _complete_t1_registration_job(
+            self,
+            job_id,
+            drafts,
+            method_id=method_id,
+            output_path=output_path,
+            actor=actor,
+        )
+
+    def record_t1_registration_approval(
+        self,
+        artifact_id: str,
+        *,
+        reviewer: str,
+    ) -> None:
+        _record_t1_registration_approval(self, artifact_id, reviewer=reviewer)
+
+    def register_t1_enhancement_method(
+        self,
+        *,
+        method_version: str,
+        method_spec_sha256: str,
+        config: dict[str, Any],
+        actor: str,
+    ) -> str:
+        return _register_t1_enhancement_method(
+            self,
+            method_version=method_version,
+            method_spec_sha256=method_spec_sha256,
+            config=config,
+            actor=actor,
+        )
+
+    def create_t1_enhancement_job(
+        self,
+        subject_ids: tuple[str, ...],
+        *,
+        method_id: str,
+        actor: str,
+    ) -> str:
+        return _create_t1_enhancement_job(
+            self,
+            subject_ids,
+            method_id=method_id,
+            actor=actor,
+        )
+
+    def start_t1_enhancement_job(self, job_id: str) -> None:
+        _start_t1_enhancement_job(self, job_id)
+
+    def update_t1_enhancement_job(
+        self,
+        job_id: str,
+        current: int,
+        total: int,
+        stage: str,
+    ) -> None:
+        _update_t1_enhancement_job(self, job_id, current, total, stage)
+
+    def fail_t1_enhancement_job(self, job_id: str, error: str, *, actor: str) -> None:
+        _fail_t1_enhancement_job(self, job_id, error, actor=actor)
+
+    def complete_t1_enhancement_job(
+        self,
+        job_id: str,
+        drafts: tuple[T1EnhancementResultDraft, ...],
+        *,
+        method_id: str,
+        output_path: Path,
+        actor: str,
+    ) -> None:
+        _complete_t1_enhancement_job(
+            self,
+            job_id,
+            drafts,
+            method_id=method_id,
+            output_path=output_path,
+            actor=actor,
+        )
+
     def create_t2_inference_job(
         self,
         subject_ids: tuple[str, ...],
@@ -903,23 +1301,17 @@ class StudyRepository:
     ) -> str:
         return _create_corrected_t2_artifact(self, draft, actor=actor)
 
-    def record_t2_review(
+    def record_t2_approval(
         self,
         artifact_id: str,
-        decision: ReviewDecision,
         *,
         reviewer: str,
-        issue_code: str | None = None,
-        notes: str | None = None,
-        measurement: T2MaskMeasurement | None = None,
+        measurement: T2MaskMeasurement,
     ) -> None:
-        _record_t2_review(
+        _record_t2_approval(
             self,
             artifact_id,
-            decision,
             reviewer=reviewer,
-            issue_code=issue_code,
-            notes=notes,
             measurement=measurement,
         )
 

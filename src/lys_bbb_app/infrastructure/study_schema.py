@@ -11,7 +11,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 7:
+    if schema_version != 10:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -145,7 +145,7 @@ def create_schema(
             state TEXT NOT NULL CHECK (
                 state IN (
                     'DRAFT_REVIEW_REQUIRED', 'CORRECTED_REVIEW_REQUIRED',
-                    'APPROVED', 'REJECTED', 'OUTDATED'
+                    'APPROVED', 'OUTDATED'
                 )
             ),
             version INTEGER NOT NULL CHECK (version > 0),
@@ -166,18 +166,11 @@ def create_schema(
             study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
             subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
             artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
-            decision TEXT NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
             reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
             study_blinding_state TEXT NOT NULL CHECK (
                 study_blinding_state IN ('BLINDED', 'UNBLINDED')
             ),
-            issue_code TEXT,
-            notes TEXT,
-            created_at TEXT NOT NULL,
-            CHECK (decision != 'REJECTED' OR (
-                issue_code IS NOT NULL AND length(trim(issue_code)) > 0
-                AND notes IS NOT NULL AND length(trim(notes)) > 0
-            ))
+            created_at TEXT NOT NULL
         );
         CREATE TABLE results (
             id TEXT PRIMARY KEY,
@@ -203,6 +196,217 @@ def create_schema(
             outdated_reason TEXT,
             superseded_by TEXT REFERENCES results(id),
             UNIQUE(subject_id, result_type, version)
+        );
+        CREATE TABLE IF NOT EXISTS t1_brain_mask_releases (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            root_path TEXT NOT NULL,
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            source_commit TEXT NOT NULL,
+            weights_sha256 TEXT NOT NULL,
+            manifest_sha256 TEXT NOT NULL,
+            test_time_augmentation INTEGER NOT NULL CHECK (
+                test_time_augmentation IN (0, 1)
+            ),
+            method_version TEXT NOT NULL,
+            method_spec_sha256 TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            validated_at TEXT NOT NULL,
+            validated_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS t1_brain_mask_jobs (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            state TEXT NOT NULL CHECK (
+                state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+            ),
+            stage TEXT,
+            progress_current INTEGER,
+            progress_total INTEGER,
+            release_id TEXT NOT NULL REFERENCES t1_brain_mask_releases(id),
+            subject_ids_json TEXT NOT NULL DEFAULT '[]',
+            submitted_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            error_message TEXT,
+            output_path TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE IF NOT EXISTS t1_brain_mask_artifacts (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            origin TEXT NOT NULL CHECK (origin IN ('AUTOMATIC', 'CORRECTED')),
+            state TEXT NOT NULL CHECK (
+                state IN (
+                    'DRAFT_REVIEW_REQUIRED', 'CORRECTED_REVIEW_REQUIRED',
+                    'APPROVED', 'OUTDATED'
+                )
+            ),
+            version INTEGER NOT NULL CHECK (version > 0),
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            mask_path TEXT NOT NULL,
+            mask_sha256 TEXT NOT NULL,
+            raw_mask_path TEXT,
+            raw_mask_sha256 TEXT,
+            qc_preview_path TEXT,
+            source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+            release_id TEXT NOT NULL REFERENCES t1_brain_mask_releases(id),
+            job_id TEXT NOT NULL REFERENCES t1_brain_mask_jobs(id),
+            foreground_voxels INTEGER NOT NULL CHECK (foreground_voxels > 0),
+            volume_mm3 REAL NOT NULL CHECK (volume_mm3 > 0),
+            device TEXT NOT NULL,
+            regularity_warnings_json TEXT NOT NULL DEFAULT '[]',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            superseded_by TEXT REFERENCES t1_brain_mask_artifacts(id),
+            UNIQUE(subject_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS t1_brain_mask_reviews (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            artifact_id TEXT NOT NULL UNIQUE
+                REFERENCES t1_brain_mask_artifacts(id) ON DELETE CASCADE,
+            reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+            study_blinding_state TEXT NOT NULL CHECK (
+                study_blinding_state IN ('BLINDED', 'UNBLINDED')
+            ),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS t1_registration_methods (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            method_version TEXT NOT NULL,
+            method_spec_sha256 TEXT NOT NULL,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            registered_at TEXT NOT NULL,
+            registered_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS t1_registration_jobs (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            state TEXT NOT NULL CHECK (
+                state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+            ),
+            stage TEXT,
+            progress_current INTEGER,
+            progress_total INTEGER,
+            method_id TEXT NOT NULL REFERENCES t1_registration_methods(id),
+            subject_ids_json TEXT NOT NULL DEFAULT '[]',
+            submitted_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            error_message TEXT,
+            output_path TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE IF NOT EXISTS t1_registration_artifacts (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            state TEXT NOT NULL CHECK (
+                state IN ('REVIEW_REQUIRED', 'APPROVED', 'OUTDATED')
+            ),
+            version INTEGER NOT NULL CHECK (version > 0),
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            registered_post_path TEXT NOT NULL,
+            registered_post_sha256 TEXT NOT NULL,
+            transform_path TEXT NOT NULL,
+            transform_sha256 TEXT NOT NULL,
+            qc_preview_path TEXT NOT NULL,
+            qc_preview_sha256 TEXT NOT NULL,
+            source_pre_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+            source_post_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+            source_brain_mask_artifact_id TEXT NOT NULL
+                REFERENCES t1_brain_mask_artifacts(id),
+            method_id TEXT NOT NULL REFERENCES t1_registration_methods(id),
+            job_id TEXT NOT NULL REFERENCES t1_registration_jobs(id),
+            before_xcorr REAL,
+            after_xcorr REAL NOT NULL,
+            registration_metric REAL NOT NULL,
+            optimizer_stop TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            superseded_by TEXT REFERENCES t1_registration_artifacts(id),
+            UNIQUE(subject_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS t1_registration_reviews (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            artifact_id TEXT NOT NULL UNIQUE
+                REFERENCES t1_registration_artifacts(id) ON DELETE CASCADE,
+            reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+            study_blinding_state TEXT NOT NULL CHECK (
+                study_blinding_state IN ('BLINDED', 'UNBLINDED')
+            ),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS t1_enhancement_methods (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            method_version TEXT NOT NULL,
+            method_spec_sha256 TEXT NOT NULL,
+            scientific_status TEXT NOT NULL CHECK (
+                scientific_status IN ('PROVISIONAL', 'APPROVED', 'RETIRED')
+            ),
+            config_json TEXT NOT NULL DEFAULT '{}',
+            registered_at TEXT NOT NULL,
+            registered_by TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS t1_enhancement_jobs (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            state TEXT NOT NULL CHECK (
+                state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+            ),
+            stage TEXT,
+            progress_current INTEGER,
+            progress_total INTEGER,
+            method_id TEXT NOT NULL REFERENCES t1_enhancement_methods(id),
+            subject_ids_json TEXT NOT NULL DEFAULT '[]',
+            submitted_at TEXT NOT NULL,
+            started_at TEXT,
+            finished_at TEXT,
+            error_message TEXT,
+            output_path TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE TABLE IF NOT EXISTS t1_enhancement_results (
+            id TEXT PRIMARY KEY,
+            study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+            subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL CHECK (version > 0),
+            state TEXT NOT NULL CHECK (state IN ('PROVISIONAL', 'OUTDATED')),
+            active INTEGER NOT NULL CHECK (active IN (0, 1)),
+            percent_enhancement_map TEXT NOT NULL,
+            percent_enhancement_sha256 TEXT NOT NULL,
+            summary_csv TEXT NOT NULL,
+            summary_sha256 TEXT NOT NULL,
+            qc_preview_path TEXT NOT NULL,
+            qc_preview_sha256 TEXT NOT NULL,
+            metadata_path TEXT NOT NULL,
+            metadata_sha256 TEXT NOT NULL,
+            source_registration_artifact_id TEXT NOT NULL
+                REFERENCES t1_registration_artifacts(id),
+            source_brain_mask_artifact_id TEXT NOT NULL
+                REFERENCES t1_brain_mask_artifacts(id),
+            source_pre_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+            method_id TEXT NOT NULL REFERENCES t1_enhancement_methods(id),
+            job_id TEXT NOT NULL REFERENCES t1_enhancement_jobs(id),
+            metrics_json TEXT NOT NULL DEFAULT '[]',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            outdated_at TEXT,
+            outdated_reason TEXT,
+            superseded_by TEXT REFERENCES t1_enhancement_results(id),
+            UNIQUE(subject_id, version)
         );
         CREATE TABLE audit_events (
             id TEXT PRIMARY KEY,
@@ -235,6 +439,36 @@ def create_schema(
         CREATE INDEX idx_results_state ON results(study_id, state);
         CREATE UNIQUE INDEX idx_results_active_type
             ON results(subject_id, result_type) WHERE active = 1;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_brain_mask_releases_active
+            ON t1_brain_mask_releases(study_id) WHERE active = 1;
+        CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_jobs_state
+            ON t1_brain_mask_jobs(study_id, state);
+        CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_artifacts_subject
+            ON t1_brain_mask_artifacts(subject_id, version DESC);
+        CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_artifacts_state
+            ON t1_brain_mask_artifacts(study_id, state);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_brain_mask_artifacts_active
+            ON t1_brain_mask_artifacts(subject_id) WHERE active = 1;
+        CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_reviews_subject_time
+            ON t1_brain_mask_reviews(subject_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_registration_methods_active
+            ON t1_registration_methods(study_id) WHERE active = 1;
+        CREATE INDEX IF NOT EXISTS idx_t1_registration_jobs_state
+            ON t1_registration_jobs(study_id, state);
+        CREATE INDEX IF NOT EXISTS idx_t1_registration_artifacts_subject
+            ON t1_registration_artifacts(subject_id, version DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_registration_artifacts_active
+            ON t1_registration_artifacts(subject_id) WHERE active = 1;
+        CREATE INDEX IF NOT EXISTS idx_t1_registration_reviews_subject_time
+            ON t1_registration_reviews(subject_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_enhancement_methods_active
+            ON t1_enhancement_methods(study_id) WHERE active = 1;
+        CREATE INDEX IF NOT EXISTS idx_t1_enhancement_jobs_state
+            ON t1_enhancement_jobs(study_id, state);
+        CREATE INDEX IF NOT EXISTS idx_t1_enhancement_results_subject
+            ON t1_enhancement_results(subject_id, version DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_enhancement_results_active
+            ON t1_enhancement_results(subject_id) WHERE active = 1;
         CREATE INDEX idx_audit_events_study_time ON audit_events(study_id, created_at DESC);
         """
     )
@@ -440,7 +674,7 @@ def migrate_schema(
                 state TEXT NOT NULL CHECK (
                     state IN (
                         'DRAFT_REVIEW_REQUIRED', 'CORRECTED_REVIEW_REQUIRED',
-                        'APPROVED', 'REJECTED', 'OUTDATED'
+                        'APPROVED', 'OUTDATED'
                     )
                 ),
                 version INTEGER NOT NULL CHECK (version > 0),
@@ -480,18 +714,11 @@ def migrate_schema(
                 study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
                 subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
                 artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
-                decision TEXT NOT NULL CHECK (decision IN ('APPROVED', 'REJECTED')),
                 reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
                 study_blinding_state TEXT NOT NULL CHECK (
                     study_blinding_state IN ('BLINDED', 'UNBLINDED')
                 ),
-                issue_code TEXT,
-                notes TEXT,
-                created_at TEXT NOT NULL,
-                CHECK (decision != 'REJECTED' OR (
-                    issue_code IS NOT NULL AND length(trim(issue_code)) > 0
-                    AND notes IS NOT NULL AND length(trim(notes)) > 0
-                ))
+                created_at TEXT NOT NULL
             );
             CREATE TABLE results (
                 id TEXT PRIMARY KEY,
@@ -527,7 +754,313 @@ def migrate_schema(
                 ON results(subject_id, result_type) WHERE active = 1;
             """
         )
-        version = 7
+        version = 8
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 7:
+        connection.executescript(
+            """
+            UPDATE artifacts
+            SET state = 'OUTDATED', active = 0
+            WHERE state = 'REJECTED';
+
+            CREATE TABLE reviews_v8 (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
+                reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+                study_blinding_state TEXT NOT NULL CHECK (
+                    study_blinding_state IN ('BLINDED', 'UNBLINDED')
+                ),
+                created_at TEXT NOT NULL
+            );
+            INSERT INTO reviews_v8(
+                id, study_id, subject_id, artifact_id, reviewer,
+                study_blinding_state, created_at
+            )
+            SELECT
+                id, study_id, subject_id, artifact_id, reviewer,
+                study_blinding_state, created_at
+            FROM reviews
+            WHERE decision = 'APPROVED';
+            DROP TABLE reviews;
+            ALTER TABLE reviews_v8 RENAME TO reviews;
+            CREATE INDEX idx_reviews_subject_time
+                ON reviews(subject_id, created_at DESC);
+
+            UPDATE audit_events
+            SET details_json = json_remove(details_json, '$.issue_code', '$.notes')
+            WHERE json_valid(details_json);
+            """
+        )
+        version = 8
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 8:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS t1_brain_mask_releases (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                root_path TEXT NOT NULL,
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                source_commit TEXT NOT NULL,
+                weights_sha256 TEXT NOT NULL,
+                manifest_sha256 TEXT NOT NULL,
+                test_time_augmentation INTEGER NOT NULL CHECK (
+                    test_time_augmentation IN (0, 1)
+                ),
+                method_version TEXT NOT NULL,
+                method_spec_sha256 TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                validated_at TEXT NOT NULL,
+                validated_by TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS t1_brain_mask_jobs (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                state TEXT NOT NULL CHECK (
+                    state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+                ),
+                stage TEXT,
+                progress_current INTEGER,
+                progress_total INTEGER,
+                release_id TEXT NOT NULL REFERENCES t1_brain_mask_releases(id),
+                subject_ids_json TEXT NOT NULL DEFAULT '[]',
+                submitted_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                error_message TEXT,
+                output_path TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS t1_brain_mask_artifacts (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                origin TEXT NOT NULL CHECK (origin IN ('AUTOMATIC', 'CORRECTED')),
+                state TEXT NOT NULL CHECK (
+                    state IN (
+                        'DRAFT_REVIEW_REQUIRED', 'CORRECTED_REVIEW_REQUIRED',
+                        'APPROVED', 'OUTDATED'
+                    )
+                ),
+                version INTEGER NOT NULL CHECK (version > 0),
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                mask_path TEXT NOT NULL,
+                mask_sha256 TEXT NOT NULL,
+                raw_mask_path TEXT,
+                raw_mask_sha256 TEXT,
+                qc_preview_path TEXT,
+                source_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                release_id TEXT NOT NULL REFERENCES t1_brain_mask_releases(id),
+                job_id TEXT NOT NULL REFERENCES t1_brain_mask_jobs(id),
+                foreground_voxels INTEGER NOT NULL CHECK (foreground_voxels > 0),
+                volume_mm3 REAL NOT NULL CHECK (volume_mm3 > 0),
+                device TEXT NOT NULL,
+                regularity_warnings_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                superseded_by TEXT REFERENCES t1_brain_mask_artifacts(id),
+                UNIQUE(subject_id, version)
+            );
+            CREATE TABLE IF NOT EXISTS t1_brain_mask_reviews (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_id TEXT NOT NULL UNIQUE
+                    REFERENCES t1_brain_mask_artifacts(id) ON DELETE CASCADE,
+                reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+                study_blinding_state TEXT NOT NULL CHECK (
+                    study_blinding_state IN ('BLINDED', 'UNBLINDED')
+                ),
+                created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_brain_mask_releases_active
+                ON t1_brain_mask_releases(study_id) WHERE active = 1;
+            CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_jobs_state
+                ON t1_brain_mask_jobs(study_id, state);
+            CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_artifacts_subject
+                ON t1_brain_mask_artifacts(subject_id, version DESC);
+            CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_artifacts_state
+                ON t1_brain_mask_artifacts(study_id, state);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_brain_mask_artifacts_active
+                ON t1_brain_mask_artifacts(subject_id) WHERE active = 1;
+            CREATE INDEX IF NOT EXISTS idx_t1_brain_mask_reviews_subject_time
+                ON t1_brain_mask_reviews(subject_id, created_at DESC);
+            """
+        )
+        version = 9
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 9:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS t1_registration_methods (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                method_version TEXT NOT NULL,
+                method_spec_sha256 TEXT NOT NULL,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                registered_at TEXT NOT NULL,
+                registered_by TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS t1_registration_jobs (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                state TEXT NOT NULL CHECK (
+                    state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+                ),
+                stage TEXT,
+                progress_current INTEGER,
+                progress_total INTEGER,
+                method_id TEXT NOT NULL REFERENCES t1_registration_methods(id),
+                subject_ids_json TEXT NOT NULL DEFAULT '[]',
+                submitted_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                error_message TEXT,
+                output_path TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS t1_registration_artifacts (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                state TEXT NOT NULL CHECK (
+                    state IN ('REVIEW_REQUIRED', 'APPROVED', 'OUTDATED')
+                ),
+                version INTEGER NOT NULL CHECK (version > 0),
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                registered_post_path TEXT NOT NULL,
+                registered_post_sha256 TEXT NOT NULL,
+                transform_path TEXT NOT NULL,
+                transform_sha256 TEXT NOT NULL,
+                qc_preview_path TEXT NOT NULL,
+                qc_preview_sha256 TEXT NOT NULL,
+                source_pre_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                source_post_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                source_brain_mask_artifact_id TEXT NOT NULL
+                    REFERENCES t1_brain_mask_artifacts(id),
+                method_id TEXT NOT NULL REFERENCES t1_registration_methods(id),
+                job_id TEXT NOT NULL REFERENCES t1_registration_jobs(id),
+                before_xcorr REAL,
+                after_xcorr REAL NOT NULL,
+                registration_metric REAL NOT NULL,
+                optimizer_stop TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                superseded_by TEXT REFERENCES t1_registration_artifacts(id),
+                UNIQUE(subject_id, version)
+            );
+            CREATE TABLE IF NOT EXISTS t1_registration_reviews (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                artifact_id TEXT NOT NULL UNIQUE
+                    REFERENCES t1_registration_artifacts(id) ON DELETE CASCADE,
+                reviewer TEXT NOT NULL CHECK (length(trim(reviewer)) > 0),
+                study_blinding_state TEXT NOT NULL CHECK (
+                    study_blinding_state IN ('BLINDED', 'UNBLINDED')
+                ),
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS t1_enhancement_methods (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                method_version TEXT NOT NULL,
+                method_spec_sha256 TEXT NOT NULL,
+                scientific_status TEXT NOT NULL CHECK (
+                    scientific_status IN ('PROVISIONAL', 'APPROVED', 'RETIRED')
+                ),
+                config_json TEXT NOT NULL DEFAULT '{}',
+                registered_at TEXT NOT NULL,
+                registered_by TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS t1_enhancement_jobs (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                state TEXT NOT NULL CHECK (
+                    state IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'INTERRUPTED')
+                ),
+                stage TEXT,
+                progress_current INTEGER,
+                progress_total INTEGER,
+                method_id TEXT NOT NULL REFERENCES t1_enhancement_methods(id),
+                subject_ids_json TEXT NOT NULL DEFAULT '[]',
+                submitted_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                error_message TEXT,
+                output_path TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            );
+            CREATE TABLE IF NOT EXISTS t1_enhancement_results (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                version INTEGER NOT NULL CHECK (version > 0),
+                state TEXT NOT NULL CHECK (state IN ('PROVISIONAL', 'OUTDATED')),
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                percent_enhancement_map TEXT NOT NULL,
+                percent_enhancement_sha256 TEXT NOT NULL,
+                summary_csv TEXT NOT NULL,
+                summary_sha256 TEXT NOT NULL,
+                qc_preview_path TEXT NOT NULL,
+                qc_preview_sha256 TEXT NOT NULL,
+                metadata_path TEXT NOT NULL,
+                metadata_sha256 TEXT NOT NULL,
+                source_registration_artifact_id TEXT NOT NULL
+                    REFERENCES t1_registration_artifacts(id),
+                source_brain_mask_artifact_id TEXT NOT NULL
+                    REFERENCES t1_brain_mask_artifacts(id),
+                source_pre_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                method_id TEXT NOT NULL REFERENCES t1_enhancement_methods(id),
+                job_id TEXT NOT NULL REFERENCES t1_enhancement_jobs(id),
+                metrics_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL,
+                outdated_at TEXT,
+                outdated_reason TEXT,
+                superseded_by TEXT REFERENCES t1_enhancement_results(id),
+                UNIQUE(subject_id, version)
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_registration_methods_active
+                ON t1_registration_methods(study_id) WHERE active = 1;
+            CREATE INDEX IF NOT EXISTS idx_t1_registration_jobs_state
+                ON t1_registration_jobs(study_id, state);
+            CREATE INDEX IF NOT EXISTS idx_t1_registration_artifacts_subject
+                ON t1_registration_artifacts(subject_id, version DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_registration_artifacts_active
+                ON t1_registration_artifacts(subject_id) WHERE active = 1;
+            CREATE INDEX IF NOT EXISTS idx_t1_registration_reviews_subject_time
+                ON t1_registration_reviews(subject_id, created_at DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_enhancement_methods_active
+                ON t1_enhancement_methods(study_id) WHERE active = 1;
+            CREATE INDEX IF NOT EXISTS idx_t1_enhancement_jobs_state
+                ON t1_enhancement_jobs(study_id, state);
+            CREATE INDEX IF NOT EXISTS idx_t1_enhancement_results_subject
+                ON t1_enhancement_results(subject_id, version DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_t1_enhancement_results_active
+                ON t1_enhancement_results(subject_id) WHERE active = 1;
+            """
+        )
+        version = 10
         connection.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

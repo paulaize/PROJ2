@@ -11,17 +11,6 @@ from typing import Any
 T2_LESION_MASK_ARTIFACT_TYPE = "T2_LESION_MASK"
 T2_LESION_VOLUME_RESULT_TYPE = "T2_LESION_VOLUME"
 T2_NATIVE_VOLUME_METHOD_VERSION = "native_binary_mask_volume_v1"
-T2_REJECTION_ISSUES = (
-    ("Missing lesion region", "MISSING_REGION"),
-    ("False positive", "FALSE_POSITIVE"),
-    ("Inaccurate boundary", "INACCURATE_BOUNDARY"),
-    ("Severe image artifact", "SEVERE_ARTIFACT"),
-    ("Wrong subject", "WRONG_SUBJECT"),
-    ("Wrong orientation", "WRONG_ORIENTATION"),
-    ("Other", "OTHER"),
-)
-
-
 class ProcessingJobState(str, Enum):
     QUEUED = "QUEUED"
     RUNNING = "RUNNING"
@@ -34,13 +23,7 @@ class ArtifactState(str, Enum):
     DRAFT_REVIEW_REQUIRED = "DRAFT_REVIEW_REQUIRED"
     CORRECTED_REVIEW_REQUIRED = "CORRECTED_REVIEW_REQUIRED"
     APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
     OUTDATED = "OUTDATED"
-
-
-class ReviewDecision(str, Enum):
-    APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
 
 
 class ResultState(str, Enum):
@@ -115,15 +98,12 @@ class T2LesionArtifactRecord:
 
 
 @dataclass(frozen=True)
-class T2ReviewDecisionRecord:
+class T2ApprovalRecord:
     id: str
     subject_id: str
     artifact_id: str
-    decision: ReviewDecision
     reviewer: str
     study_blinding_state: str
-    issue_code: str | None
-    notes: str | None
     created_at: str
 
 

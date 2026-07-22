@@ -377,10 +377,10 @@ class UnblindingDialog(QDialog):
 
         warning = QLabel(
             "This reveals the group allocation for every subject. It cannot make "
-            "earlier decisions blinded again, and the final application will record "
+            "earlier approvals blinded again, and the final application will record "
             "this action in the study audit history."
         )
-        warning.setObjectName("previewBanner")
+        warning.setObjectName("warningBanner")
         warning.setWordWrap(True)
         layout.addWidget(warning)
 

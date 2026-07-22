@@ -23,6 +23,8 @@ def qc_row(case_id: str = "C25S1_D1") -> dict[str, object]:
         "registration_qc_png": f"reports/qc/registration_all_mice/{case_id}/{case_id}_registration_qc.png",
         "registration_source_match": True,
         "registration_after_xcorr": 0.75,
+        "registration_review": "pass",
+        "mask_review": "pass",
         "qc_notes": "",
     }
 
@@ -47,6 +49,16 @@ def test_analysis_manifest_excludes_unchanged_or_unmarked_mask():
     assert rows[0]["qc_gate"] == "mask_needs_review"
     assert rows[0]["brain_mask_path"] == ""
     assert "unchanged" in rows[0]["qc_notes"]
+
+
+def test_analysis_manifest_requires_explicit_registration_approval():
+    row = qc_row()
+    row["registration_review"] = ""
+
+    rows = build_analysis_manifest_rows([row])
+
+    assert rows[0]["include"] == "no"
+    assert rows[0]["qc_gate"] == "registration_approval_required"
 
 
 def test_analysis_manifest_preserves_side_group_lesion_and_review_fields():

@@ -1,4 +1,4 @@
-"""Subject-owned T2 lesion inference, correction, and review panel."""
+"""Subject-level controls for the persistent T1 brain-mask slice."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -26,60 +25,49 @@ from lys_bbb_app.ui.widgets import (
 )
 
 
-class T2LesionPanel(QScrollArea):
+class T1BrainMaskPanel(QWidget):
+    """Mirror the study-level T1 review actions for one subject."""
+
     select_release_requested = Signal()
     run_subject_requested = Signal(str)
-    run_study_requested = Signal()
     manual_edit_requested = Signal(str, str)
     approve_requested = Signal(str, str)
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.content = QWidget()
-        self.layout = QVBoxLayout(self.content)
-        self.layout.setContentsMargins(18, 16, 18, 20)
-        self.layout.setSpacing(12)
-        self.setWidget(self.content)
         self.current_subject: SubjectViewModel | None = None
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(18, 16, 18, 18)
+        self.layout.setSpacing(12)
 
-        header = QHBoxLayout()
-        heading = QVBoxLayout()
-        title = QLabel("T2 lesion segmentation")
+        run_row = QHBoxLayout()
+        copy = QVBoxLayout()
+        title = QLabel("T1 brain mask")
         title.setObjectName("sectionTitle")
-        heading.addWidget(title)
-        header.addLayout(heading, 1)
-        self.select_release = secondary_button("Select model release…")
+        subtitle = QLabel(
+            "Automatic draft — human approval required."
+        )
+        subtitle.setObjectName("muted")
+        subtitle.setWordWrap(True)
+        copy.addWidget(title)
+        copy.addWidget(subtitle)
+        run_row.addLayout(copy, 1)
+        self.select_release = secondary_button("Select method…")
         self.select_release.clicked.connect(self.select_release_requested.emit)
-        self.run_study = secondary_button("Run all eligible subjects…")
-        self.run_study.clicked.connect(self.run_study_requested.emit)
-        self.run_subject = QPushButton("Run this subject")
+        self.run_subject = QPushButton("Generate draft")
         self.run_subject.clicked.connect(self._run_subject)
-        header.addWidget(self.select_release)
-        header.addWidget(self.run_study)
-        header.addWidget(self.run_subject)
-        self.layout.addLayout(header)
+        run_row.addWidget(self.select_release)
+        run_row.addWidget(self.run_subject)
+        self.layout.addLayout(run_row)
 
-        release_card = QFrame()
-        release_card.setObjectName("card")
-        release_layout = QGridLayout(release_card)
-        release_layout.setContentsMargins(16, 13, 16, 13)
-        release_layout.setColumnStretch(1, 1)
-        release_title = QLabel("Active frozen release")
-        release_title.setObjectName("cardTitle")
-        self.release_status = QLabel("No release selected")
-        self.release_status.setObjectName("muted")
+        self.release_status = QLabel("No method selected")
+        self.release_status.setObjectName("infoBanner")
         self.release_status.setWordWrap(True)
-        release_layout.addWidget(release_title, 0, 0)
-        release_layout.addWidget(self.release_status, 0, 1)
-        self.layout.addWidget(release_card)
+        self.layout.addWidget(self.release_status)
 
         self.readiness = QLabel()
-        self.readiness.setObjectName("infoBanner")
+        self.readiness.setObjectName("muted")
         self.readiness.setWordWrap(True)
-        self.readiness.setContentsMargins(14, 9, 14, 9)
         self.layout.addWidget(self.readiness)
 
         self.artifact_card = QFrame()
@@ -87,14 +75,14 @@ class T2LesionPanel(QScrollArea):
         artifact_layout = QVBoxLayout(self.artifact_card)
         artifact_layout.setContentsMargins(16, 14, 16, 16)
         artifact_layout.setSpacing(12)
-        artifact_header = QHBoxLayout()
-        self.artifact_title = QLabel("Current lesion artifact")
+        header = QHBoxLayout()
+        self.artifact_title = QLabel("Current brain mask")
         self.artifact_title.setObjectName("cardTitle")
-        artifact_header.addWidget(self.artifact_title)
-        artifact_header.addStretch()
-        self.artifact_status_container = QHBoxLayout()
-        artifact_header.addLayout(self.artifact_status_container)
-        artifact_layout.addLayout(artifact_header)
+        self.artifact_status = QHBoxLayout()
+        header.addWidget(self.artifact_title)
+        header.addStretch()
+        header.addLayout(self.artifact_status)
+        artifact_layout.addLayout(header)
 
         actions = QHBoxLayout()
         self.manual_edit = secondary_button("Manually edit in ITK-SNAP…")
@@ -112,9 +100,8 @@ class T2LesionPanel(QScrollArea):
         self.qc_image = QLabel()
         self.qc_image.setAlignment(Qt.AlignCenter)
         self.qc_image.setStyleSheet("background: #101b2b; border-radius: 8px;")
-        self.qc_image.setScaledContents(False)
         self.empty_viewer = QLabel(
-            "QC preview is unavailable. Open the mask in ITK-SNAP."
+            "QC preview is unavailable. Open the mask in ITK-SNAP for full review."
         )
         self.empty_viewer.setAlignment(Qt.AlignCenter)
         self.empty_viewer.setObjectName("muted")
@@ -135,61 +122,54 @@ class T2LesionPanel(QScrollArea):
         self.technical_details.content_layout.addLayout(self.technical_stats_layout)
         paths = QGridLayout()
         self.mask_path = ElidedLabel()
-        self.probability_path = ElidedLabel()
-        self.mask_path_label = QLabel("Current mask")
-        paths.addWidget(self.mask_path_label, 0, 0)
+        self.raw_mask_path = ElidedLabel()
+        paths.addWidget(QLabel("Current mask"), 0, 0)
         paths.addWidget(self.mask_path, 0, 1)
-        paths.addWidget(QLabel("Probability map"), 1, 0)
-        paths.addWidget(self.probability_path, 1, 1)
+        paths.addWidget(QLabel("Raw RS2 mask"), 1, 0)
+        paths.addWidget(self.raw_mask_path, 1, 1)
         paths.setColumnStretch(1, 1)
         self.technical_details.content_layout.addLayout(paths)
         artifact_layout.addWidget(self.technical_details)
-
         self.layout.addWidget(self.artifact_card)
         self.layout.addStretch()
 
     def set_subject(self, subject: SubjectViewModel) -> None:
         self.current_subject = subject
         self.release_status.setText(
-            subject.t2_release_label or "No validated release selected for this study."
+            subject.t1_brain_mask_release_label
+            or "No validated local RS2-Net/M-seam method is selected for this study."
         )
-        self.run_subject.setEnabled(subject.can_run_t2_inference)
+        self.run_subject.setEnabled(subject.can_run_t1_brain_mask)
         self.run_subject.setText(
-            "Re-run this subject"
-            if subject.t2_artifact is not None
-            else "Run this subject"
+            "Generate new draft"
+            if subject.t1_brain_mask_artifact is not None
+            else "Generate draft"
         )
-        self.run_subject.setToolTip(subject.t2_inference_blocked_reason or "")
+        self.run_subject.setToolTip(subject.t1_brain_mask_blocked_reason or "")
         self.readiness.setText(
-            "The T2 input is ready. Select the frozen model release to continue."
-            if subject.can_run_t2_inference and subject.t2_release_label is None
-            else "Ready to run the frozen ensemble. The existing draft will be preserved as "
-            "an older version."
-            if subject.can_run_t2_inference and subject.t2_artifact is not None
-            else "Ready to run the frozen ensemble on this validated native T2."
-            if subject.can_run_t2_inference
-            else subject.t2_inference_blocked_reason
-            or "This subject is not ready for T2 inference."
+            "Ready to generate an automatic draft. Human review will still be required."
+            if subject.can_run_t1_brain_mask
+            else subject.t1_brain_mask_blocked_reason
+            or "This subject is not ready for T1 brain-mask generation."
         )
-        artifact = subject.t2_artifact
+        artifact = subject.t1_brain_mask_artifact
         self.artifact_card.setVisible(artifact is not None)
         if artifact is None:
             return
         self.technical_details.set_expanded(False)
-        self.artifact_title.setText(
-            f"{artifact.origin_label} · version {artifact.version}"
-        )
-        clear_layout(self.artifact_status_container)
-        self.artifact_status_container.addWidget(StatusBadge(artifact.state))
+        self.artifact_title.setText(f"{artifact.origin_label} · version {artifact.version}")
+        clear_layout(self.artifact_status)
+        self.artifact_status.addWidget(StatusBadge(artifact.state))
         clear_layout(self.stats_layout)
         clear_layout(self.technical_stats_layout)
-        volume_label = (
-            "Official volume" if artifact.official_volume_text else "Provisional volume"
+        warnings = (
+            "; ".join(artifact.regularity_warnings)
+            if artifact.regularity_warnings
+            else "None"
         )
-        volume_value = artifact.official_volume_text or artifact.provisional_volume_text
         stats = (
-            (volume_label, volume_value),
-            ("Lesion voxels", f"{artifact.lesion_voxel_count:,}"),
+            ("Mask volume", artifact.volume_text),
+            ("QC warnings", warnings),
             (
                 "Reviewed by" if artifact.reviewer else "Created",
                 (
@@ -201,13 +181,15 @@ class T2LesionPanel(QScrollArea):
         )
         _populate_stat_grid(self.stats_layout, stats)
         technical_stats = (
-            ("Threshold", artifact.threshold_text),
+            ("Foreground voxels", f"{artifact.foreground_voxels:,}"),
             ("Device", artifact.device.upper()),
-            ("Release", artifact.release_label),
+            ("Method", artifact.release_label),
         )
         _populate_stat_grid(self.technical_stats_layout, technical_stats)
         self.mask_path.setText(str(artifact.mask_path))
-        self.probability_path.setText(str(artifact.probability_path))
+        self.raw_mask_path.setText(
+            str(artifact.raw_mask_path) if artifact.raw_mask_path is not None else "—"
+        )
         preview = artifact.qc_preview_path
         if preview is not None and preview.is_file():
             pixmap = QPixmap(str(preview))
@@ -217,27 +199,8 @@ class T2LesionPanel(QScrollArea):
             self.viewer_stack.setCurrentWidget(self.qc_image)
         else:
             self.viewer_stack.setCurrentWidget(self.empty_viewer)
-        self.mask_path_label.setText(
-            "Approved mask"
-            if artifact.official_volume_text
-            else "Corrected mask"
-            if "correction" in artifact.origin_label.casefold()
-            else "Draft mask"
-        )
-        review_tooltip = (
-            ""
-            if artifact.can_review
-            else "This artifact is already approved or is no longer current."
-        )
-        correction_tooltip = (
-            ""
-            if artifact.can_correct
-            else "Only the current mask can be opened or replaced."
-        )
         self.manual_edit.setEnabled(artifact.can_correct)
-        self.manual_edit.setToolTip(correction_tooltip)
         self.approve.setEnabled(artifact.can_review)
-        self.approve.setToolTip(review_tooltip)
 
     def _run_subject(self) -> None:
         if self.current_subject is not None:
@@ -246,21 +209,21 @@ class T2LesionPanel(QScrollArea):
     def _manual_edit(self) -> None:
         if (
             self.current_subject is not None
-            and self.current_subject.t2_artifact is not None
+            and self.current_subject.t1_brain_mask_artifact is not None
         ):
             self.manual_edit_requested.emit(
                 self.current_subject.subject_id,
-                self.current_subject.t2_artifact.artifact_id,
+                self.current_subject.t1_brain_mask_artifact.artifact_id,
             )
 
     def _approve(self) -> None:
         if (
             self.current_subject is not None
-            and self.current_subject.t2_artifact is not None
+            and self.current_subject.t1_brain_mask_artifact is not None
         ):
             self.approve_requested.emit(
                 self.current_subject.subject_id,
-                self.current_subject.t2_artifact.artifact_id,
+                self.current_subject.t1_brain_mask_artifact.artifact_id,
             )
 
 

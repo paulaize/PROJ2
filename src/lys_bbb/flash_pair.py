@@ -26,6 +26,8 @@ import matplotlib.pyplot as plt
 import nibabel as nib
 from scipy import ndimage as ndi
 
+from lys_bbb.t1_registration import register_post_to_pre
+
 
 def voxel_sizes(img: nib.Nifti1Image) -> np.ndarray:
     return np.linalg.norm(img.affine[:3, :3], axis=0)
@@ -120,55 +122,6 @@ def enhancement_maps(pre_norm: np.ndarray, post_norm: np.ndarray,
         "post_minus_pre": diff.astype(np.float32),
         "post_over_pre": ratio.astype(np.float32),
         "percent_enhancement": percent.astype(np.float32),
-    }
-
-
-def register_post_to_pre(pre_path: Path, post_path: Path, out_path: Path,
-                         transform_path: Path) -> dict[str, Any]:
-    import SimpleITK as sitk
-
-    fixed = sitk.Cast(sitk.ReadImage(str(pre_path)), sitk.sitkFloat32)
-    moving = sitk.Cast(sitk.ReadImage(str(post_path)), sitk.sitkFloat32)
-    initial = sitk.CenteredTransformInitializer(
-        fixed,
-        moving,
-        sitk.Euler3DTransform(),
-        sitk.CenteredTransformInitializerFilter.GEOMETRY,
-    )
-    registration = sitk.ImageRegistrationMethod()
-    registration.SetMetricAsMattesMutualInformation(numberOfHistogramBins=50)
-    registration.SetMetricSamplingStrategy(registration.RANDOM)
-    registration.SetMetricSamplingPercentage(0.2, seed=42)
-    registration.SetInterpolator(sitk.sitkLinear)
-    registration.SetOptimizerAsRegularStepGradientDescent(
-        learningRate=2.0,
-        minStep=1e-4,
-        numberOfIterations=150,
-        relaxationFactor=0.5,
-        gradientMagnitudeTolerance=1e-6,
-    )
-    registration.SetOptimizerScalesFromPhysicalShift()
-    registration.SetShrinkFactorsPerLevel([4, 2, 1])
-    registration.SetSmoothingSigmasPerLevel([2, 1, 0])
-    registration.SmoothingSigmasAreSpecifiedInPhysicalUnitsOn()
-    registration.SetInitialTransform(initial, inPlace=False)
-    final_transform = registration.Execute(fixed, moving)
-    registered = sitk.Resample(
-        moving,
-        fixed,
-        final_transform,
-        sitk.sitkLinear,
-        0.0,
-        moving.GetPixelID(),
-    )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    transform_path.parent.mkdir(parents=True, exist_ok=True)
-    sitk.WriteImage(registered, str(out_path))
-    sitk.WriteTransform(final_transform, str(transform_path))
-    return {
-        "metric": float(registration.GetMetricValue()),
-        "optimizer_stop": registration.GetOptimizerStopConditionDescription(),
-        "transform_path": str(transform_path),
     }
 
 

@@ -12,7 +12,7 @@ A non-technical researcher must be able to:
 2. import subject-owned T1 and T2 MRI data without modifying raw files;
 3. understand the state and next action for every subject;
 4. run registered, versioned scientific workflows;
-5. review, reject, or correct automatic artifacts;
+5. review or correct automatic artifacts;
 6. approve eligible masks, registrations, and results explicitly;
 7. inspect subject and cohort results without hiding missing or provisional data; and
 8. export approved measurements with QC and reproducibility provenance.
@@ -39,7 +39,7 @@ Study
 ```
 
 Visible subject names may change, but stable subject IDs own inputs, artifacts, jobs,
-decisions, and results. Workflows can be marked not applicable per subject.
+approvals, and results. Workflows can be marked not applicable per subject.
 
 ### Automatic is not approved
 
@@ -48,7 +48,7 @@ Use explicit language:
 - Draft mask
 - Awaiting review
 - Human approved
-- Rejected
+- Manual edit required
 - Superseded
 - Provisional result
 - Approved result
@@ -108,7 +108,7 @@ study-root/
 - The SQLite study should live on a reliable local or locally mounted filesystem.
 - Multi-machine concurrent editing and remote clusters are outside the MVP.
 
-Schema-v7 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
+Schema-v8 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
 legacy inputs supported only for non-destructive inspection and migration.
 
 ## Current application shell
@@ -123,25 +123,26 @@ Results & exports
 Settings
 ```
 
-The synthetic `--demo` mode is a design fixture. It is clearly labelled, writes no
-study state, and is now frozen except for changes required to keep tests or terminology
-consistent with production behavior.
-
 ### Launcher
 
-Create a study, open a schema-v7 study root, resume a recent study, or migrate a legacy
+Create a study, open a schema-v10 study root, resume a recent study, or migrate a legacy
 `.lysbbb` file. Creation must refuse an existing target directory and leave source MRI
 untouched.
 
 ### Subjects and subject workspace
 
-The worklist is the central operational screen. It separates `T2 data` from `T2 lesion`
-state and supports search, selection, subject archiving, group assignment after
-unblinding, input validation, versioned axis flips, MRI viewing, and cohort T2 inference.
+The worklist is the central operational screen. Its default columns are subject, next
+action, compact T1 state, compact T2 state, and overall state. Detailed input, mask,
+registration, and result stages belong in the subject workspace rather than separate
+worklist columns. The worklist supports search, selection, direct validation of a
+selected converted MRI, subject archiving, group assignment after unblinding, versioned
+axis flips, MRI viewing, and cohort T2 inference.
 
-The subject workspace exposes inputs, workflow state, next action, artifacts, provenance,
-and history. Long paths elide visually but remain available in full through a tooltip or
-technical details.
+The subject workspace leads with exactly one next action and compact T1/T2 status, then
+exposes workflow tabs. Paths, checksums, geometry, device, release/method provenance,
+stored IDs, and similar technical values are collapsed by default but remain available
+through technical-details disclosures. Long paths elide visually and remain available
+in full through a tooltip.
 
 ### Reviews
 
@@ -149,19 +150,26 @@ The product uses one review concept for T1 masks, T2 masks, registrations, and e
 results. Mask correction routes through ITK-SNAP:
 
 1. preserve the immutable automatic draft;
-2. make or select an editable copy;
+2. create a managed editable copy;
 3. open image and copy in ITK-SNAP;
-4. validate the saved grid, labels, and checksum;
-5. register the correction as a new immutable artifact;
-6. record accept/reject decision against the exact version.
+4. save the edit over that managed copy;
+5. validate the saved grid, labels, checksum, and source;
+6. register the edit as the new active immutable artifact version;
+7. approve that exact version explicitly when it is acceptable.
 
 The study-level Reviews page is the primary work queue. Subject workspaces may expose
 the same actions for context, but must not become a separate review system. The current
-persistent queue contains T2 lesion-mask drafts and corrections; later T1 artifacts
-must use the same queue and service-backed decisions.
+persistent queue contains T1 brain-mask and T2 lesion-mask drafts and corrections. Both
+use the same queue interaction while retaining feature-specific services and state.
 
-Approval records reviewer, time, decision, and study blinding state. Rejection also
-requires an issue code and notes. Bulk approval is prohibited.
+The Reviews page uses fixed modality buttons (`T1`, `T2`) rather than dynamically named
+category lists. Pending work is shown as one concise `Subject — workflow` button per
+artifact. Mask QC must provide every native slice with previous/next navigation; display
+orientation changes affect only rendered QC images and never the NIfTI artifact.
+
+Approval records reviewer, time, exact artifact, and study blinding state. Reviewer
+notes, issue types, and rejection decisions are not collected or stored. A mask that
+needs changes follows the managed manual-edit path. Bulk approval is prohibited.
 
 ### Results and exports
 
@@ -203,6 +211,19 @@ Native pre-Gd T1 is the reference. The approved pre-space mask is used for pre-G
 registered post-Gd images. The UI must say `Semi-quantitative T1-weighted gadolinium
 enhancement`; never permeability, absolute T1, `Ktrans`, or `Ki`.
 
+The connected brain-mask slice validates and stores the frozen local RS2-Net/M-seam
+method, runs exact eight-way TTA off the GUI thread, commits the automatic result as an
+immutable draft only after job success, and supports managed ITK-SNAP correction plus
+approval of the exact active native-grid mask. Approval does not create a T1
+enhancement result; registration and enhancement remain separate downstream gates.
+
+The application service now persists a rigid-registration job and immutable registered
+image/transform/QC bundle tied to the exact pre/post inputs and approved mask. A separate
+approval record gates enhancement. Enhancement consumes that exact approved registered
+image, never recomputes registration, and persists a `PROVISIONAL` result with exact
+checksums and dependencies. Desktop controls for these service actions remain to be
+added to the existing workspace and general Reviews queue.
+
 ## State and provenance requirements
 
 The canonical database must be able to represent:
@@ -212,8 +233,8 @@ The canonical database must be able to represent:
 - exact artifact dependencies and supersession;
 - model/method release identity and checksums;
 - background job state and structured failure;
-- immutable review decisions;
-- provisional, approved, rejected, and outdated results;
+- immutable approvals;
+- provisional, approved, and outdated results;
 - append-only audit history.
 
 Derived results record exact source IDs. Invalidation changes state to `OUTDATED`; it

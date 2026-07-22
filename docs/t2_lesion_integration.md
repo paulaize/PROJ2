@@ -78,21 +78,27 @@ validated T2 → inference → immutable draft mask → review/correction
 → approved mask → official native-space volume → approved-only CSV
 ```
 
-An automatic mask starts as `DRAFT_REVIEW_REQUIRED`; an imported correction starts as
+An automatic mask starts as `DRAFT_REVIEW_REQUIRED`; a saved manual edit starts as
 `CORRECTED_REVIEW_REQUIRED`. Their displayed volumes remain provisional. Only approval
 creates an active official result. Both states appear in the study-level Reviews queue;
 the subject workspace exposes the same service actions for detailed context.
 
+The T2 QC renderer writes a montage plus one PNG for every native slice. The Reviews
+viewer navigates those individual slices. Its coronal presentation is reflected
+vertically (about the display x-axis); no voxel data, affine, or stored mask is changed.
+
 ### Review actions
 
-- `Approve`: accept this exact native-grid mask version.
-- `Reject`: require issue code and notes; keep the draft.
-- `Open for correction`: create an editable copy and open T2 plus copy in ITK-SNAP.
-- `Import corrected mask`: validate shape, affine, binary labels, checksum, and source;
-  store it as a new immutable version.
+- `Approve current mask`: accept this exact native-grid mask version.
+- `Manually edit in ITK-SNAP`: create a managed editable copy and open the native T2
+  plus that copy in ITK-SNAP.
+- `Use saved mask`: validate shape, affine, binary labels, checksum, and source, then
+  store the edit as the subject's new active immutable mask version.
 
-Every decision records reviewer, time, notes, issue code where required, and study
-blinding state.
+Approval records reviewer identity, time, exact artifact, and study blinding state. The
+application stores no reviewer note, issue type, or rejection decision. A manual edit is
+the current human-corrected mask, but it still requires explicit approval before its
+volume becomes official.
 
 ### Official volume
 

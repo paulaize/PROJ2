@@ -66,8 +66,7 @@ vertical slice reveals a real responsibility boundary.
 ```text
 job succeeded
     → automatic draft
-        → rejected
-        → corrected as a new version
+        → manually edited as a new version
         → human approved
             → eligible method + exact dependencies
                 → approved or provisional result
@@ -77,7 +76,7 @@ Job success does not imply artifact approval. Artifact approval does not imply m
 approval. A result is official only when its method and all required upstream artifacts
 are eligible and approved.
 
-Automatic, editable, corrected, approved, rejected, superseded, and outdated products
+Automatic, editable, corrected, approved, superseded, and outdated products
 remain separate records. Replacing a dependency marks downstream state `OUTDATED`; it
 does not overwrite or delete it.
 
@@ -92,25 +91,39 @@ Each scientific artifact/result should record:
 - configuration and code revision;
 - exact dependency IDs and supersession link;
 - job state, stage, hardware, and structured error;
-- reviewer decision and time where applicable;
+- reviewer identity and approval time where applicable;
 - output paths and creation time.
 
 ## Canonical and transitional state
 
-Schema-v7 `StudyRepository` state is canonical for new desktop studies. It owns studies,
-subjects, input versions, validation, T2 model releases, T2 jobs, versioned lesion-mask
-artifacts, immutable reviews, approved/outdated T2 results, blinding/groups, and audit
-events. General method records and dependency tables remain deferred until another
-vertical workflow needs them; the T2 result already stores its exact input, mask,
-release, method version, and checksums explicitly.
+Schema-v10 `StudyRepository` state is canonical for new desktop studies. It owns studies,
+subjects, input versions, validation, T2 model releases/jobs/artifacts/results, T1
+brain-mask releases/jobs/artifacts/approvals, T1 registration methods/jobs/artifacts/
+approvals, provisional enhancement methods/jobs/results, blinding/groups, and audit
+events. The T1 tables are feature-specific because their approval and dependency
+contracts differ from the T2 ensemble and measured result. Presenters merge reviewable
+feature state into the same application presentation layer.
 
 `lys_bbb.project_state.ProjectDatabase` is the frozen compatibility layer for the
 single-file schema-v1 prototype. Production uses it only for inspection and migration;
 it is not a second production service or database and must not receive new features.
 
-CSV manifests in the repository-development workflow remain transitional handoffs for
-T1 work. Desktop users should eventually edit only canonical study state through
-services.
+CSV manifests in the repository-development workflow remain scientific-validation
+handoffs. Desktop T1 processing uses canonical study state through services. The
+registration and enhancement run/review controls are not yet exposed in the UI, while
+the enhancement measurement itself remains scientifically provisional.
+
+The T1 brain-mask slice uses `lys_bbb.t1_brain_mask_review` for native-grid binary-mask
+validation, `T1BrainMaskReviewService` for managed correction/approval, and a feature
+repository for frozen releases, durable runs, immutable mask versions, and approvals.
+Automatic mask volume is QC metadata only; it is not a T1 analysis result.
+
+`lys_bbb.t1_registration` owns the Qt-free frozen rigid-registration contract and emits
+the registered post image, transform, QC, checksums, and method identity. The app stores
+that immutable bundle and requires approval of the exact checksummed files.
+`lys_bbb.t1_enhancement` accepts the approved registered post directly and cannot
+recompute registration. Its outputs remain explicitly `PROVISIONAL` and are invalidated
+when the source input, mask, registration, or active method changes.
 
 ## Storage
 
