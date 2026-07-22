@@ -6,13 +6,14 @@ It accepts only the immutable five-fold release that was selected and frozen ups
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from lys_bbb.hashing import sha256_file
 
 
 EXPECTED_MODEL_COUNT = 5
@@ -169,15 +170,6 @@ def validate_frozen_t2_model_release(
             },
         },
     )
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
 
 def _read_json(path: Path) -> dict[str, Any]:
     try:

@@ -10,6 +10,8 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
+from lys_bbb.hashing import sha256_file as _sha256_file
+
 from lys_bbb.mri_import import (
     OrientationPolicy,
     ScanConversionResult,
@@ -178,15 +180,6 @@ def _validate_image_geometry(image: nib.spatialimages.SpatialImage) -> None:
     spacing = np.asarray(image.header.get_zooms()[:3], dtype=float)
     if spacing.shape != (3,) or not np.isfinite(spacing).all() or np.any(spacing <= 0):
         raise ValueError(f"The converted image has invalid voxel spacing: {spacing}")
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
 
 def _sha256_bruker_scan(scan_directory: Path) -> str:
     candidates = [scan_directory / "acqp", scan_directory / "method"]

@@ -235,7 +235,6 @@ class OverviewPage(QScrollArea):
                 EmptyState(
                     "No subjects yet",
                     "Import subjects to populate T1, T2, and combined workflow cards.",
-                    "Import subjects",
                 ),
                 0,
                 0,
@@ -678,10 +677,6 @@ class SettingsPage(QScrollArea):
         self.mri_input_folder = QLineEdit()
         self.mri_input_folder.setReadOnly(True)
         self.mri_input_folder.setPlaceholderText("No MRI source folder selected")
-        self.t1_input_folder = QLineEdit()
-        self.t1_input_folder.setReadOnly(True)
-        self.t2_input_folder = QLineEdit()
-        self.t2_input_folder.setReadOnly(True)
         browse = secondary_button("Choose and review…")
         browse.clicked.connect(lambda: self.input_folder_requested.emit("mri"))
         self.mri_input_row = QWidget()
@@ -752,8 +747,6 @@ class SettingsPage(QScrollArea):
         enabled: bool,
     ) -> None:
         self.mri_input_folder.setText(str(mri_path) if mri_path is not None else "")
-        self.t1_input_folder.setText(str(t1_path) if t1_path is not None else "")
-        self.t2_input_folder.setText(str(t2_path) if t2_path is not None else "")
         legacy = []
         if t1_path is not None:
             legacy.append(f"T1: {t1_path}")

@@ -17,6 +17,8 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
+from lys_bbb.hashing import sha256_file
+
 
 T1_REGISTRATION_METHOD_VERSION = "sitk_rigid_mattes_v1"
 
@@ -105,15 +107,6 @@ class T1RegistrationOutput:
     method_version: str
     method_spec_sha256: str
     metadata: dict[str, object]
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
 
 def load_float(path: Path) -> tuple[nib.Nifti1Image, np.ndarray]:
     image = nib.load(str(path))

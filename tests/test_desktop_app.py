@@ -114,7 +114,6 @@ def test_persistent_review_queue_emits_connected_t2_actions(
         assert pixmap.save(str(path))
         qc_slices.append(path)
     review = ReviewItemViewModel(
-        review_id="review-t2-v1",
         subject_id="stable-subject-id",
         subject_label="Mouse-001",
         category="T2 lesion masks",
@@ -256,7 +255,8 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     window.select_input_folder("t1")
     assert window.current_study is not None
     assert window.current_study.t1_input_folder == t1_source.resolve()
-    assert window.settings_page.t1_input_folder.text() == str(t1_source.resolve())
+    assert "T1:" in window.settings_page.legacy_input_note.text()
+    assert not window.settings_page.legacy_input_note.isHidden()
 
     monkeypatch.setattr(UnblindingDialog, "exec", lambda _dialog: QDialog.Accepted)
     monkeypatch.setattr(GroupAssignmentDialog, "exec", lambda _dialog: QDialog.Accepted)

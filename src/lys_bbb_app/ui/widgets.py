@@ -282,7 +282,6 @@ class EmptyState(QFrame):
         self,
         title: str,
         detail: str,
-        action: str | None = None,
         embedded: bool = False,
         parent: QWidget | None = None,
     ) -> None:
@@ -305,8 +304,3 @@ class EmptyState(QFrame):
         layout.addWidget(icon)
         layout.addWidget(heading)
         layout.addWidget(body)
-        if action:
-            button = QPushButton(action)
-            button.setEnabled(False)
-            button.setToolTip("This action will be connected in a later implementation phase.")
-            layout.addWidget(button, alignment=Qt.AlignCenter)

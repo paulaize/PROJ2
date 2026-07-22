@@ -49,15 +49,12 @@ def present_legacy_project(project: LegacyProjectRecord) -> StudyViewModel:
         study_id=project.project_id,
         name=project.name,
         root_path=project.database_path,
-        description="Legacy schema-v1 project. Migrate it before adding subjects.",
-        schema_version=project.schema_version,
-        last_opened="Just now",
         metrics=(
-            MetricViewModel("Subjects", "0", "No subjects imported", "neutral"),
-            MetricViewModel("Ready", "0", "No available actions", "ready"),
-            MetricViewModel("Need review", "0", "No review items", "review"),
-            MetricViewModel("Blocked", "0", "No subjects", "failed"),
-            MetricViewModel("Complete", "0", "No subjects", "approved"),
+            MetricViewModel("Subjects", "0", "neutral"),
+            MetricViewModel("Ready", "0", "ready"),
+            MetricViewModel("Need review", "0", "review"),
+            MetricViewModel("Blocked", "0", "failed"),
+            MetricViewModel("Complete", "0", "approved"),
         ),
         workflows=(),
         priority_actions=(),
@@ -266,7 +263,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     if active_inputs
                     else "Choose or review the MRI source folder"
                 ),
-                "review" if input_reviews else "ready" if active_inputs else "unavailable",
                 "subjects",
             ),
         )
@@ -279,7 +275,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                         if active_release is not None
                         else "Select the frozen LYS v1 release before starting"
                     ),
-                    "ready" if active_release is not None else "review",
                     "subjects",
                 ),
             ) + priority_actions
@@ -292,7 +287,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                         if active_t1_release is not None
                         else "Select the frozen local RS2/M-seam release before starting"
                     ),
-                    "ready" if active_t1_release is not None else "review",
                     "subjects",
                 ),
             ) + priority_actions
@@ -301,7 +295,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 PriorityActionViewModel(
                     f"{t2_drafts} draft T2 lesion masks require human review",
                     "Approve or manually edit the current mask in ITK-SNAP",
-                    "review",
                     "reviews",
                 ),
             ) + priority_actions
@@ -310,7 +303,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 PriorityActionViewModel(
                     f"{t1_drafts} draft T1 brain masks require human review",
                     "Approve or manually edit the current mask in ITK-SNAP",
-                    "review",
                     "reviews",
                 ),
             ) + priority_actions
@@ -319,7 +311,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 PriorityActionViewModel(
                     f"{unassigned} subjects have no experimental group",
                     "Group assignment remains optional for subject-level work",
-                    "review",
                     "subjects",
                 ),
             )
@@ -328,14 +319,11 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         study_id=study.id,
         name=study.name,
         root_path=study.root_path,
-        description=study.description or "",
-        schema_version=study.schema_version,
-        last_opened="Just now",
         blinded_review=study.is_blinded,
         group_definitions=study.group_definitions,
         archived_subjects=archived_subjects,
         metrics=(
-            MetricViewModel("Subjects", str(len(subjects)), "Persisted in this study", "neutral"),
+            MetricViewModel("Subjects", str(len(subjects)), "neutral"),
             MetricViewModel(
                 "Ready",
                 str(
@@ -344,20 +332,17 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                         for subject in subjects
                     )
                 ),
-                "At least one workflow has validated input",
                 "ready",
             ),
             MetricViewModel(
                 "Need review",
                 str(review_count),
-                "MRI inputs or draft masks",
                 "review",
             ),
-            MetricViewModel("Blocked", str(failed_inputs), "Input conversion failures", "failed"),
+            MetricViewModel("Blocked", str(failed_inputs), "failed"),
             MetricViewModel(
                 "Complete",
                 str(complete_subjects),
-                "All expected workflows are complete",
                 "approved",
             ),
         ),
@@ -381,8 +366,6 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
             if active_t1_release is not None
             else None
         ),
-        t1_brain_mask_eligible_subject_count=t1_eligible,
-        t1_brain_mask_running_job_count=t1_running_jobs,
     )
 
 
@@ -712,7 +695,6 @@ def _present_t1_brain_mask_review_item(
         else "No automatic regularity warnings"
     )
     return ReviewItemViewModel(
-        review_id=artifact.id,
         subject_id=subject.id,
         category="T1 brain masks",
         artifact_name=(
@@ -763,7 +745,6 @@ def _present_t2_review_item(
     )
     corrected = artifact.state is ArtifactState.CORRECTED_REVIEW_REQUIRED
     return ReviewItemViewModel(
-        review_id=artifact.id,
         subject_id=subject.id,
         category="T2 lesion masks",
         artifact_name=(
@@ -1137,7 +1118,6 @@ def _present_scan_input(record: ScanInputRecord) -> InputScanViewModel:
     )
     return InputScanViewModel(
         scan_input_id=record.id,
-        role=record.role.value,
         role_label=role_labels[record.role],
         version=record.version,
         conversion=conversion,

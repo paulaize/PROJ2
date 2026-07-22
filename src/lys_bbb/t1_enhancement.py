@@ -7,12 +7,13 @@ reviewer approved.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from lys_bbb.hashing import sha256_file
 
 T1_ENHANCEMENT_METHOD_VERSION = "relative_t1w_enhancement_provisional_v1"
 
@@ -81,15 +82,6 @@ class T1EnhancementOutput:
     metrics: tuple[dict[str, str], ...]
     metadata: dict[str, object]
 
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def _verify_checksum(path: Path, expected: str | None, label: str) -> None:
     if expected is not None and sha256_file(path) != expected:
         raise ValueError(f"{label} changed after it was registered")
@@ -98,7 +90,7 @@ def _verify_checksum(path: Path, expected: str | None, label: str) -> None:
 def run_t1_enhancement(request: T1EnhancementRequest) -> T1EnhancementOutput:
     """Calculate provisional enhancement from exact approved dependencies."""
 
-    from lys_bbb.flash_pair import process_pair
+    from lys_bbb.flash_pair import FlashPairRequest, process_pair_request
 
     _verify_checksum(
         request.registered_post_t1_path,
@@ -110,7 +102,7 @@ def run_t1_enhancement(request: T1EnhancementRequest) -> T1EnhancementOutput:
         request.expected_brain_mask_sha256,
         "approved brain mask",
     )
-    args = argparse.Namespace(
+    pair_request = FlashPairRequest(
         pre=request.pre_t1_path,
         post=request.registered_post_t1_path,
         out_dir=request.output_directory,
@@ -125,7 +117,7 @@ def run_t1_enhancement(request: T1EnhancementRequest) -> T1EnhancementOutput:
         save_intermediates=False,
         save_all_maps=request.config.save_all_maps,
     )
-    metadata = process_pair(args)
+    metadata = process_pair_request(pair_request)
     percent_map = request.output_directory / f"{request.case_id}_percent_enhancement.nii.gz"
     summary_csv = request.output_directory / f"{request.case_id}_summary.csv"
     qc_preview = request.output_directory / f"{request.case_id}_enhancement_qc.png"

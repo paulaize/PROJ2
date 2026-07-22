@@ -471,19 +471,6 @@ class GroupAssignmentDialog(QDialog):
             self.group_selectors[subject.subject_id] = selector
         layout.addWidget(self.table, 1)
 
-        import_row = QHBoxLayout()
-        import_mapping = secondary_button("Import subject/group CSV…")
-        import_mapping.setEnabled(False)
-        import_mapping.setToolTip(
-            "CSV import will be connected with the persisted subject service."
-        )
-        import_row.addWidget(import_mapping)
-        import_hint = QLabel("Expected columns: subject_id, group")
-        import_hint.setObjectName("metadata")
-        import_row.addWidget(import_hint)
-        import_row.addStretch()
-        layout.addLayout(import_row)
-
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
         buttons.button(QDialogButtonBox.Save).setText(
             "Save assignments" if persistent else "Apply assignments (preview)"

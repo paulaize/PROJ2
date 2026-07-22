@@ -1599,10 +1599,6 @@ class MainWindow(QMainWindow):
         self.workspace_page.set_blinded_review(blinded)
         self.results_page.set_blinded_review(blinded)
 
-    def open_reviews_for_subject(self, subject_id: str) -> None:
-        self.show_page("reviews")
-        self.reviews_page.focus_subject(subject_id)
-
     def show_launcher(self) -> None:
         if self._background_job_running():
             self._show_status_message(

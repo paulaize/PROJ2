@@ -18,7 +18,6 @@ class StatusValue:
 class MetricViewModel:
     label: str
     value: str
-    detail: str
     kind: str = "neutral"
 
 
@@ -37,7 +36,6 @@ class WorkflowSummaryViewModel:
 class PriorityActionViewModel:
     label: str
     detail: str
-    kind: str
     target_page: str
 
 
@@ -52,7 +50,6 @@ class InputIssueViewModel:
 @dataclass(frozen=True)
 class InputScanViewModel:
     scan_input_id: str
-    role: str
     role_label: str
     version: int
     conversion: StatusValue
@@ -213,7 +210,6 @@ def _furthest_workflow_status(*statuses: StatusValue) -> StatusValue:
 
 @dataclass(frozen=True)
 class ReviewItemViewModel:
-    review_id: str
     subject_id: str
     category: str
     artifact_name: str
@@ -244,9 +240,6 @@ class StudyViewModel:
     study_id: str
     name: str
     root_path: Path | None
-    description: str
-    schema_version: int
-    last_opened: str
     metrics: tuple[MetricViewModel, ...]
     workflows: tuple[WorkflowSummaryViewModel, ...]
     priority_actions: tuple[PriorityActionViewModel, ...]
@@ -263,8 +256,6 @@ class StudyViewModel:
     t2_eligible_subject_count: int = 0
     t2_running_job_count: int = 0
     active_t1_brain_mask_release_label: str | None = None
-    t1_brain_mask_eligible_subject_count: int = 0
-    t1_brain_mask_running_job_count: int = 0
 
     def subject(self, subject_id: str) -> SubjectViewModel | None:
         return next(

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from lys_bbb.hashing import sha256_file
 
 
 T1_BRAIN_MASK_RELEASE_SCHEMA_VERSION = 1
@@ -30,17 +31,6 @@ class FrozenT1BrainMaskRelease:
     source_commit: str
     weights_sha256: str
     test_time_augmentation: bool
-
-
-def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
-    """Return the hexadecimal SHA-256 digest for one file."""
-
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(chunk_size):
-            digest.update(chunk)
-    return digest.hexdigest()
-
 
 def validate_t1_brain_mask_release(root_path: Path) -> FrozenT1BrainMaskRelease:
     """Validate a local RS2 release without importing or executing upstream code."""

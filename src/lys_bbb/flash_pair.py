@@ -7,6 +7,7 @@ import argparse
 import csv
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import tempfile
@@ -27,6 +28,25 @@ import nibabel as nib
 from scipy import ndimage as ndi
 
 from lys_bbb.t1_registration import register_post_to_pre
+
+
+@dataclass(frozen=True)
+class FlashPairRequest:
+    """Typed inputs for one pre/post T1 enhancement calculation."""
+
+    pre: Path
+    post: Path
+    out_dir: Path
+    mask: Path | None
+    session_id: str | None = None
+    mask_slice_start: int | None = 50
+    mask_slice_stop: int | None = 170
+    no_register: bool = False
+    bias_method: str = "smooth"
+    bias_sigma_mm: float = 2.0
+    normalization: str = "median"
+    save_intermediates: bool = False
+    save_all_maps: bool = False
 
 
 def voxel_sizes(img: nib.Nifti1Image) -> np.ndarray:
@@ -268,69 +288,86 @@ def qc_enhancement(pre: np.ndarray, post: np.ndarray, percent: np.ndarray,
     plt.close(fig)
 
 
-def process_pair(args: argparse.Namespace) -> dict[str, Any]:
-    out_dir = args.out_dir
-    out_dir.mkdir(parents=True, exist_ok=True)
-    session_id = args.session_id or out_dir.name
+def process_pair_request(request: FlashPairRequest) -> dict[str, Any]:
+    """Process one image pair from a typed application-facing request."""
 
-    pre_img, pre = load_float(args.pre)
+    out_dir = request.out_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    session_id = request.session_id or out_dir.name
+
+    pre_img, pre = load_float(request.pre)
     temp_registered_dir = None
-    if args.save_intermediates:
+    if request.save_intermediates:
         post_registered_path = out_dir / f"{session_id}_post_registered.nii.gz"
     else:
         temp_registered_dir = Path(tempfile.mkdtemp(prefix="lys_bbb_flash_"))
         post_registered_path = temp_registered_dir / f"{session_id}_post_registered.nii.gz"
     transform_path = out_dir / f"{session_id}_post_to_pre.tfm"
-    if args.no_register:
-        post_img, post = load_float(args.post)
+    if request.no_register:
+        post_img, post = load_float(request.post)
         if pre.shape != post.shape or not np.allclose(pre_img.affine, post_img.affine, atol=1e-3):
             raise ValueError("--no-register requires matching pre/post shape and affine")
-        if args.save_intermediates:
+        if request.save_intermediates:
             save_like(post, pre_img, post_registered_path)
         else:
-            post_registered_path = args.post
+            post_registered_path = request.post
         registration_meta = {"method": "none", "transform_path": ""}
     else:
         registration_meta = {
             "method": "SimpleITK rigid Mattes mutual information",
-            **register_post_to_pre(args.pre, args.post, post_registered_path, transform_path),
+            **register_post_to_pre(
+                request.pre,
+                request.post,
+                post_registered_path,
+                transform_path,
+            ),
         }
     _, post_registered = load_float(post_registered_path)
     if temp_registered_dir is not None:
         shutil.rmtree(temp_registered_dir, ignore_errors=True)
 
-    if args.mask is None:
+    if request.mask is None:
         raise ValueError(
             "a corrected or predicted pre-space brain mask is required; pass --mask"
         )
-    mask_img, mask_data = load_float(args.mask)
+    mask_img, mask_data = load_float(request.mask)
     if mask_data.shape != pre.shape or not np.allclose(mask_img.affine, pre_img.affine, atol=1e-3):
         raise ValueError("provided mask must match pre image shape and affine")
     mask = mask_data > 0
-    mask_source = str(args.mask)
+    mask_source = str(request.mask)
     save_like(mask.astype(np.uint8), pre_img, out_dir / f"{session_id}_mask.nii.gz", dtype=np.uint8)
 
-    if args.bias_method == "none":
+    if request.bias_method == "none":
         pre_corr = np.clip(pre, 0, None).astype(np.float32)
         post_corr = np.clip(post_registered, 0, None).astype(np.float32)
         pre_field = None
         post_field = None
-    elif args.bias_method == "smooth":
-        pre_corr, pre_field = smooth_bias_correct(pre, mask, pre_img, sigma_mm=args.bias_sigma_mm)
+    elif request.bias_method == "smooth":
+        pre_corr, pre_field = smooth_bias_correct(
+            pre,
+            mask,
+            pre_img,
+            sigma_mm=request.bias_sigma_mm,
+        )
         post_corr, post_field = smooth_bias_correct(post_registered, mask, pre_img,
-                                                    sigma_mm=args.bias_sigma_mm)
+                                                    sigma_mm=request.bias_sigma_mm)
     else:
-        raise ValueError(f"unknown bias method: {args.bias_method}")
+        raise ValueError(f"unknown bias method: {request.bias_method}")
 
-    if args.save_intermediates:
+    if request.save_intermediates:
         save_like(pre_corr, pre_img, out_dir / f"{session_id}_pre_biascorr.nii.gz")
         save_like(post_corr, pre_img, out_dir / f"{session_id}_post_registered_biascorr.nii.gz")
         if pre_field is not None and post_field is not None:
             save_like(pre_field, pre_img, out_dir / f"{session_id}_pre_biasfield.nii.gz")
             save_like(post_field, pre_img, out_dir / f"{session_id}_post_registered_biasfield.nii.gz")
 
-    pre_norm, post_norm, norm_meta = normalize_pair(pre_corr, post_corr, mask, args.normalization)
-    if args.save_intermediates:
+    pre_norm, post_norm, norm_meta = normalize_pair(
+        pre_corr,
+        post_corr,
+        mask,
+        request.normalization,
+    )
+    if request.save_intermediates:
         save_like(pre_norm, pre_img, out_dir / f"{session_id}_pre_norm.nii.gz")
         save_like(post_norm, pre_img, out_dir / f"{session_id}_post_registered_norm.nii.gz")
 
@@ -341,7 +378,7 @@ def process_pair(args: argparse.Namespace) -> dict[str, Any]:
         pre_img,
         out_dir / f"{session_id}_percent_enhancement.nii.gz",
     )
-    if args.save_all_maps:
+    if request.save_all_maps:
         for name in ("post_minus_pre", "post_over_pre"):
             save_like(data=maps[name], ref=pre_img, path=out_dir / f"{session_id}_{name}.nii.gz")
             saved_maps.append(name)
@@ -361,29 +398,31 @@ def process_pair(args: argparse.Namespace) -> dict[str, Any]:
         pre_norm,
         mask,
         out_dir / f"{session_id}_mask_qc.png",
-        slice_start=args.mask_slice_start,
-        slice_stop=args.mask_slice_stop,
+        slice_start=request.mask_slice_start,
+        slice_stop=request.mask_slice_stop,
     )
     qc_enhancement(pre_norm, post_norm, maps["percent_enhancement"], mask,
                    out_dir / f"{session_id}_enhancement_qc.png",
-                   slice_start=args.mask_slice_start,
-                   slice_stop=args.mask_slice_stop)
+                   slice_start=request.mask_slice_start,
+                   slice_stop=request.mask_slice_stop)
 
     metadata = {
         "session_id": session_id,
-        "pre": str(args.pre),
-        "post": str(args.post),
-        "post_registered": str(post_registered_path) if args.save_intermediates else "",
+        "pre": str(request.pre),
+        "post": str(request.post),
+        "post_registered": (
+            str(post_registered_path) if request.save_intermediates else ""
+        ),
         "mask_source": mask_source,
         "mask_mode": "provided_pre_space_mask",
-        "mask_slice_start": args.mask_slice_start,
-        "mask_slice_stop": args.mask_slice_stop,
-        "bias_method": args.bias_method,
-        "bias_sigma_mm": args.bias_sigma_mm,
+        "mask_slice_start": request.mask_slice_start,
+        "mask_slice_stop": request.mask_slice_stop,
+        "bias_method": request.bias_method,
+        "bias_sigma_mm": request.bias_sigma_mm,
         "normalization": norm_meta,
         "registration": registration_meta,
-        "save_intermediates": bool(args.save_intermediates),
-        "save_all_maps": bool(args.save_all_maps),
+        "save_intermediates": bool(request.save_intermediates),
+        "save_all_maps": bool(request.save_all_maps),
         "saved_nifti_maps": saved_maps,
         "outputs_are": "semi-quantitative T1-weighted gadolinium enhancement, not T1, Ktrans, or absolute permeability",
         "voxel_sizes_mm": [float(v) for v in voxel_sizes(pre_img)],
@@ -391,6 +430,28 @@ def process_pair(args: argparse.Namespace) -> dict[str, Any]:
     }
     (out_dir / f"{session_id}_metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
+
+
+def process_pair(args: argparse.Namespace) -> dict[str, Any]:
+    """Compatibility adapter for the command-line and cohort entry points."""
+
+    return process_pair_request(
+        FlashPairRequest(
+            pre=args.pre,
+            post=args.post,
+            out_dir=args.out_dir,
+            mask=args.mask,
+            session_id=args.session_id,
+            mask_slice_start=args.mask_slice_start,
+            mask_slice_stop=args.mask_slice_stop,
+            no_register=args.no_register,
+            bias_method=args.bias_method,
+            bias_sigma_mm=args.bias_sigma_mm,
+            normalization=args.normalization,
+            save_intermediates=args.save_intermediates,
+            save_all_maps=args.save_all_maps,
+        )
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -424,7 +485,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                              "The percent_enhancement map is always saved.")
     return parser.parse_args(argv)
 
-# could you describe the current setup used to run models for brian extraction
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     metadata = process_pair(args)

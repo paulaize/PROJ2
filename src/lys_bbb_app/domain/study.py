@@ -213,14 +213,6 @@ class StudySnapshot:
             None,
         )
 
-    def t2_reviews_for_subject(
-        self,
-        subject_id: str,
-    ) -> tuple[T2ApprovalRecord, ...]:
-        return tuple(
-            review for review in self.reviews if review.subject_id == subject_id
-        )
-
     def t2_results_for_subject(
         self,
         subject_id: str,

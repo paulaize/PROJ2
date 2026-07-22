@@ -122,8 +122,10 @@ Automatic mask volume is QC metadata only; it is not a T1 analysis result.
 the registered post image, transform, QC, checksums, and method identity. The app stores
 that immutable bundle and requires approval of the exact checksummed files.
 `lys_bbb.t1_enhancement` accepts the approved registered post directly and cannot
-recompute registration. Its outputs remain explicitly `PROVISIONAL` and are invalidated
-when the source input, mask, registration, or active method changes.
+recompute registration. It calls the typed `FlashPairRequest` backend directly; the
+argument parser is retained only as a compatibility adapter for CLI and cohort callers.
+Its outputs remain explicitly `PROVISIONAL` and are invalidated when the source input,
+mask, registration, or active method changes.
 
 ## Storage
 

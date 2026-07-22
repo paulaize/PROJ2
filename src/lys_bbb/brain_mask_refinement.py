@@ -12,7 +12,7 @@ orientation conversion before calling these functions.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 from scipy import ndimage as ndi
@@ -867,10 +867,3 @@ def _method_stats(
         "rejected_slices": rejected,
         "configuration": asdict(config),
     }
-
-
-METHODS: dict[str, Callable[..., tuple[np.ndarray, dict[str, Any]]]] = {
-    "rs2_m_seam": refine_direct_seam,
-    "rs2_marker_watershed": refine_watershed,
-    "rs2_random_walker": refine_random_walker,
-}

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+
+from lys_bbb.hashing import sha256_file as _sha256_file
 
 
 @dataclass(frozen=True)
@@ -179,11 +180,3 @@ def validate_managed_nifti(
         sha256=actual_sha256,
         issues=tuple(issues),
     )
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
