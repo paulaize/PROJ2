@@ -11,6 +11,7 @@ from lys_bbb_app.domain.scan_import import (
     ScanInputRecord,
     ScanRole,
 )
+from lys_bbb_app.domain.atlas_mapping import AtlasReviewState
 from lys_bbb_app.domain.study import LegacyProjectRecord, StudySnapshot, SubjectRecord
 from lys_bbb_app.domain.t1_analysis import (
     T1EnhancementResultState,
@@ -32,6 +33,8 @@ from lys_bbb_app.domain.view_models import (
     StudyViewModel,
     SubjectViewModel,
     T1BrainMaskArtifactViewModel,
+    T1EnhancementResultViewModel,
+    T1RegistrationArtifactViewModel,
     T2LesionArtifactViewModel,
     WorkflowSummaryViewModel,
 )
@@ -105,7 +108,15 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
             ArtifactState.CORRECTED_REVIEW_REQUIRED,
         }
     )
-    reviews = t1_reviews + t2_reviews
+    t1_registration_reviews = tuple(
+        _present_t1_registration_review_item(subject, artifact, study)
+        for subject in study.subjects
+        for artifact in study.t1_registrations_for_subject(subject.id)
+        if artifact.active
+        and artifact.state is T1RegistrationState.REVIEW_REQUIRED
+    )
+    atlas_reviews = _present_atlas_review_items(study)
+    reviews = t1_reviews + t1_registration_reviews + t2_reviews + atlas_reviews
     archived_subjects = tuple(
         _present_subject(subject, (), (), (), study)
         for subject in study.archived_subjects
@@ -135,6 +146,18 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
     t2_approved = sum(subject.t2_lesion.kind == "approved" for subject in subjects)
     t1_drafts = sum(subject.brain_mask.kind == "review" for subject in subjects)
     t1_approved = sum(subject.brain_mask.kind == "approved" for subject in subjects)
+    t1_registration_reviews_count = sum(
+        subject.registration.kind == "review" for subject in subjects
+    )
+    t1_registration_ready = sum(
+        subject.can_run_t1_registration for subject in subjects
+    )
+    t1_enhancement_ready = sum(
+        subject.can_run_t1_enhancement for subject in subjects
+    )
+    t1_provisional = sum(
+        subject.t1_result.label == "Provisional enhancement" for subject in subjects
+    )
     t2_outdated_results = sum(
         any(
             result.state is ResultState.OUTDATED
@@ -171,7 +194,9 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
     )
     active_release = study.active_t2_model_release
     active_t1_release = study.active_t1_brain_mask_release
-    review_count = input_reviews + t1_drafts + t2_drafts
+    review_count = (
+        input_reviews + t1_drafts + t1_registration_reviews_count + t2_drafts
+    )
 
     workflows: tuple[WorkflowSummaryViewModel, ...] = ()
     priority_actions: tuple[PriorityActionViewModel, ...] = ()
@@ -182,7 +207,12 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 "T1 Enhancement",
                 "Pre/post T1 import and review-gated enhancement workflow.",
                 (
-                    StatusValue(f"{t1_drafts} brain masks need review", "review")
+                    StatusValue(
+                        f"{t1_registration_reviews_count} registrations need review",
+                        "review",
+                    )
+                    if t1_registration_reviews_count
+                    else StatusValue(f"{t1_drafts} brain masks need review", "review")
                     if t1_drafts
                     else StatusValue(
                         f"{t1_running_jobs} brain-mask job running",
@@ -193,6 +223,21 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     if t1_input_reviews
                     else StatusValue(f"{t1_eligible} ready for mask", "ready")
                     if t1_eligible
+                    else StatusValue(
+                        f"{t1_registration_ready} ready for registration",
+                        "ready",
+                    )
+                    if t1_registration_ready
+                    else StatusValue(
+                        f"{t1_enhancement_ready} ready for calculation",
+                        "ready",
+                    )
+                    if t1_enhancement_ready
+                    else StatusValue(
+                        f"{t1_provisional} provisional result(s)",
+                        "review",
+                    )
+                    if t1_provisional
                     else WAITING_FOR_INPUT
                 ),
                 (
@@ -200,9 +245,20 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     ("Inputs converted", str(converted_t1)),
                     ("Input reviews", str(t1_input_reviews)),
                     ("Approved brain masks", str(t1_approved)),
+                    ("Provisional results", str(t1_provisional)),
                 ),
-                "Review T1 brain masks" if t1_drafts else "View subjects",
-                "reviews" if t1_drafts else "subjects",
+                (
+                    "Review T1 registrations"
+                    if t1_registration_reviews_count
+                    else "Review T1 brain masks"
+                    if t1_drafts
+                    else "View subjects"
+                ),
+                (
+                    "reviews"
+                    if t1_registration_reviews_count or t1_drafts
+                    else "subjects"
+                ),
             ),
             WorkflowSummaryViewModel(
                 "t2",
@@ -304,6 +360,30 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     f"{t1_drafts} draft T1 brain masks require human review",
                     "Approve or manually edit the current mask in ITK-SNAP",
                     "reviews",
+                ),
+            ) + priority_actions
+        if t1_registration_reviews_count:
+            priority_actions = (
+                PriorityActionViewModel(
+                    f"{t1_registration_reviews_count} T1 registrations require review",
+                    "Inspect the post-to-pre QC and approve the exact registration",
+                    "reviews",
+                ),
+            ) + priority_actions
+        if t1_registration_ready:
+            priority_actions = (
+                PriorityActionViewModel(
+                    f"{t1_registration_ready} subjects are ready for T1 registration",
+                    "Open a subject to run the frozen post-to-pre method",
+                    "subjects",
+                ),
+            ) + priority_actions
+        if t1_enhancement_ready:
+            priority_actions = (
+                PriorityActionViewModel(
+                    f"{t1_enhancement_ready} subjects are ready for T1 calculation",
+                    "The result will remain provisional while method validation is pending",
+                    "subjects",
                 ),
             ) + priority_actions
         if not study.is_blinded and unassigned:
@@ -492,6 +572,7 @@ def _present_subject(
         else StatusValue("Ready for registration", "ready")
         if active_t1_artifact is not None
         and active_t1_artifact.state is ArtifactState.APPROVED
+        and t1_data.kind == "ready"
         else NOT_STARTED
         if subject.expected_t1
         else NOT_APPLICABLE
@@ -556,6 +637,27 @@ def _present_subject(
         pre_t1_available,
         study.active_t1_brain_mask_release is not None,
         t1_job_running,
+    )
+    can_run_t1_registration = (
+        registration.label == "Ready for registration"
+        and not registration_job_running
+    )
+    t1_registration_blocked_reason = _t1_registration_blocked_reason(
+        subject.expected_t1,
+        t1_data,
+        active_t1_artifact,
+        active_registration,
+        registration_job_running,
+    )
+    can_run_t1_enhancement = (
+        t1_result.label == "Ready for provisional calculation"
+        and not enhancement_job_running
+    )
+    t1_enhancement_blocked_reason = _t1_enhancement_blocked_reason(
+        subject.expected_t1,
+        active_registration,
+        active_t1_result,
+        enhancement_job_running,
     )
     ready = t1_data.label == "Inputs validated" or t2_data.label == "T2 validated"
     failed = t1_data.kind == "failed" or t2_data.kind == "failed"
@@ -664,6 +766,30 @@ def _present_subject(
             if study.active_t1_brain_mask_release is not None
             else None
         ),
+        t1_registration_artifact=(
+            _present_t1_registration_artifact(latest_registration, study)
+            if latest_registration is not None
+            else None
+        ),
+        can_run_t1_registration=can_run_t1_registration,
+        t1_registration_blocked_reason=t1_registration_blocked_reason,
+        t1_registration_method_label=(
+            study.active_t1_registration_method.method_version
+            if study.active_t1_registration_method is not None
+            else None
+        ),
+        t1_enhancement_result=(
+            _present_t1_enhancement_result(latest_t1_result, study)
+            if latest_t1_result is not None
+            else None
+        ),
+        can_run_t1_enhancement=can_run_t1_enhancement,
+        t1_enhancement_blocked_reason=t1_enhancement_blocked_reason,
+        t1_enhancement_method_label=(
+            study.active_t1_enhancement_method.method_version
+            if study.active_t1_enhancement_method is not None
+            else None
+        ),
     )
 
 
@@ -722,6 +848,41 @@ def _present_t1_brain_mask_review_item(
     )
 
 
+def _present_t1_registration_review_item(
+    subject: SubjectRecord,
+    artifact,
+    study: StudySnapshot,
+) -> ReviewItemViewModel:
+    """Build one review item for an immutable post-to-pre registration bundle."""
+
+    presented = _present_t1_registration_artifact(artifact, study)
+    correlation_change = artifact.after_xcorr - artifact.before_xcorr
+    return ReviewItemViewModel(
+        subject_id=subject.id,
+        category="T1 registrations",
+        artifact_name=f"Post-Gd to pre-Gd registration · v{artifact.version}",
+        reason=(
+            "Inspect the registration QC before approving this exact registered image "
+            "and transform."
+        ),
+        automatic_qc=(
+            f"Cross-correlation {artifact.before_xcorr:.3f} → "
+            f"{artifact.after_xcorr:.3f} "
+            f"({correlation_change:+.3f}) · metric "
+            f"{artifact.registration_metric:.4f} · {presented.method_label}"
+        ),
+        status=presented.state,
+        slice_count=1,
+        subject_label=subject.subject_code,
+        artifact_id=artifact.id,
+        qc_preview_path=artifact.qc_preview_path,
+        workflow_key="t1_registration",
+        approve_label="Approve registration",
+        can_manual_edit=False,
+        supports_slice_qc=False,
+    )
+
+
 def _present_t2_review_item(
     subject: SubjectRecord,
     artifact,
@@ -770,6 +931,130 @@ def _present_t2_review_item(
         qc_slice_paths=_qc_slice_paths(artifact.qc_preview_path),
         workflow_key="t2_lesion",
     )
+
+
+def _present_atlas_review_items(study: StudySnapshot) -> tuple[ReviewItemViewModel, ...]:
+    if not study.subjects:
+        return ()
+    items: list[ReviewItemViewModel] = []
+    first_subject = study.subjects[0]
+    first_state = study.atlas_mapping_for_subject(first_subject.id)
+    if (
+        first_state is not None
+        and first_state.scheme is not None
+        and first_state.scheme.state is AtlasReviewState.DRAFT_REVIEW_REQUIRED
+    ):
+        scheme = first_state.scheme
+        items.append(
+            ReviewItemViewModel(
+                subject_id=first_subject.id,
+                subject_label="Study-wide",
+                category="Atlas resources",
+                artifact_name=f"Proposed major-region scheme · {scheme.mapping_version}",
+                reason=(
+                    "Scientific review is required before any regional result can be "
+                    "calculated or exported."
+                ),
+                automatic_qc=(
+                    f"{scheme.source_label_count} source labels collapse to "
+                    f"{scheme.major_region_count} proposed hemisphere-aware major regions."
+                ),
+                status=StatusValue("Draft mapping review required", "review"),
+                artifact_id=scheme.id,
+                workflow_key="atlas_scheme",
+                approve_label="Approve exact major-region scheme",
+                can_manual_edit=False,
+                supports_slice_qc=False,
+            )
+        )
+    for subject in study.subjects:
+        state = study.atlas_mapping_for_subject(subject.id)
+        if state is None:
+            continue
+        support = state.t2_support_mask
+        if support is not None and support.state is AtlasReviewState.DRAFT_REVIEW_REQUIRED:
+            items.append(
+                ReviewItemViewModel(
+                    subject_id=subject.id,
+                    subject_label=subject.subject_code,
+                    category="Atlas mapping",
+                    artifact_name=f"T2 registration-support mask · v{support.version}",
+                    reason="Review this whole-brain support mask before rigid T1-to-T2 registration.",
+                    automatic_qc="DRAFT · this mask is not the lesion mask.",
+                    status=StatusValue("Draft support mask", "review"),
+                    artifact_id=support.id,
+                    workflow_key="atlas_t2_support",
+                    approve_label="Approve T2 support mask",
+                    can_manual_edit=False,
+                    supports_slice_qc=False,
+                )
+            )
+        for candidate in state.atlas_to_t1_candidates:
+            if candidate.state is not AtlasReviewState.DRAFT_REVIEW_REQUIRED:
+                continue
+            items.append(
+                ReviewItemViewModel(
+                    subject_id=subject.id,
+                    subject_label=subject.subject_code,
+                    category="Atlas mapping",
+                    artifact_name=f"Atlas→pre-T1 {candidate.candidate} candidate",
+                    reason="Select and approve one exact candidate after landmark QC.",
+                    automatic_qc="Optimizer success is not scientific approval.",
+                    status=StatusValue("Candidate review required", "review"),
+                    artifact_id=candidate.id,
+                    qc_preview_path=candidate.qc_path,
+                    workflow_key="atlas_to_t1",
+                    approve_label=f"Select and approve {candidate.candidate}",
+                    can_manual_edit=False,
+                    supports_slice_qc=False,
+                )
+            )
+        t1_t2 = state.t1_to_t2
+        if t1_t2 is not None and t1_t2.state is AtlasReviewState.DRAFT_REVIEW_REQUIRED:
+            items.append(
+                ReviewItemViewModel(
+                    subject_id=subject.id,
+                    subject_label=subject.subject_code,
+                    category="Atlas mapping",
+                    artifact_name="Pre-T1→native T2 rigid registration",
+                    reason="Inspect every original T2 slice before approval.",
+                    automatic_qc=f"{len(t1_t2.qc_slice_paths)} original T2 slices rendered.",
+                    status=StatusValue("All-slice review required", "review"),
+                    artifact_id=t1_t2.id,
+                    qc_preview_path=t1_t2.qc_montage_path,
+                    qc_slice_paths=t1_t2.qc_slice_paths,
+                    slice_count=len(t1_t2.qc_slice_paths),
+                    workflow_key="atlas_t1_to_t2",
+                    approve_label="Approve exact rigid registration",
+                    can_manual_edit=False,
+                )
+            )
+        composite = state.composite
+        if (
+            composite is not None
+            and composite.state is AtlasReviewState.DRAFT_REVIEW_REQUIRED
+        ):
+            items.append(
+                ReviewItemViewModel(
+                    subject_id=subject.id,
+                    subject_label=subject.subject_code,
+                    category="Atlas mapping",
+                    artifact_name="Major-region labels on native T2",
+                    reason="Inspect major boundaries and the native lesion on every T2 slice.",
+                    automatic_qc=(
+                        f"{len(composite.qc_slice_paths)} slices · no fine labels exposed."
+                    ),
+                    status=StatusValue("Composite review required", "review"),
+                    artifact_id=composite.id,
+                    qc_preview_path=composite.qc_montage_path,
+                    qc_slice_paths=composite.qc_slice_paths,
+                    slice_count=len(composite.qc_slice_paths),
+                    workflow_key="atlas_composite",
+                    approve_label="Approve exact composite labels",
+                    can_manual_edit=False,
+                )
+            )
+    return tuple(items)
 
 
 def _qc_slice_paths(qc_preview_path: Path | None) -> tuple[Path, ...]:
@@ -846,6 +1131,101 @@ def _present_t1_brain_mask_artifact(
         reviewed_at=(
             _format_timestamp(approval.created_at) if approval is not None else None
         ),
+    )
+
+
+def _present_t1_registration_artifact(
+    artifact,
+    study: StudySnapshot,
+) -> T1RegistrationArtifactViewModel:
+    method = next(
+        (
+            item
+            for item in study.t1_registration_methods
+            if item.id == artifact.method_id
+        ),
+        None,
+    )
+    approval = study.t1_registration_approval_for_artifact(artifact.id)
+    state = {
+        T1RegistrationState.REVIEW_REQUIRED: StatusValue(
+            "Registration · human review required",
+            "review",
+        ),
+        T1RegistrationState.APPROVED: StatusValue(
+            "Human-approved registration",
+            "approved",
+        ),
+        T1RegistrationState.OUTDATED: StatusValue("Outdated", "outdated"),
+    }[artifact.state]
+    return T1RegistrationArtifactViewModel(
+        artifact_id=artifact.id,
+        version=artifact.version,
+        state=state,
+        registered_post_path=artifact.registered_post_path,
+        transform_path=artifact.transform_path,
+        qc_preview_path=artifact.qc_preview_path,
+        before_xcorr=artifact.before_xcorr,
+        after_xcorr=artifact.after_xcorr,
+        registration_metric=artifact.registration_metric,
+        optimizer_stop=artifact.optimizer_stop,
+        method_label=(
+            method.method_version if method is not None else artifact.method_id
+        ),
+        created_at=_format_timestamp(artifact.created_at),
+        can_review=(
+            artifact.active
+            and artifact.state is T1RegistrationState.REVIEW_REQUIRED
+        ),
+        reviewer=approval.reviewer if approval is not None else None,
+        reviewed_at=(
+            _format_timestamp(approval.created_at) if approval is not None else None
+        ),
+    )
+
+
+def _present_t1_enhancement_result(
+    result,
+    study: StudySnapshot,
+) -> T1EnhancementResultViewModel:
+    method = next(
+        (
+            item
+            for item in study.t1_enhancement_methods
+            if item.id == result.method_id
+        ),
+        None,
+    )
+    percent_row = next(
+        (
+            row
+            for row in result.metrics
+            if row.get("metric") == "percent_enhancement"
+        ),
+        None,
+    )
+    median = percent_row.get("median") if percent_row is not None else None
+    value_text = (
+        f"Median {float(median):.3f}%" if median is not None else "Provisional result"
+    )
+    state = (
+        StatusValue("Provisional · method validation pending", "review")
+        if result.state is T1EnhancementResultState.PROVISIONAL and result.active
+        else StatusValue("Outdated", "outdated")
+    )
+    return T1EnhancementResultViewModel(
+        result_id=result.id,
+        version=result.version,
+        state=state,
+        value_text=value_text,
+        qc_preview_path=result.qc_preview_path,
+        percent_enhancement_map=result.percent_enhancement_map,
+        summary_csv=result.summary_csv,
+        metadata_path=result.metadata_path,
+        method_label=(
+            method.method_version if method is not None else result.method_id
+        ),
+        created_at=_format_timestamp(result.created_at),
     )
 
 
@@ -1029,6 +1409,46 @@ def _t1_brain_mask_blocked_reason(
     return None
 
 
+def _t1_registration_blocked_reason(
+    expected: bool,
+    input_status: StatusValue,
+    brain_mask,
+    registration,
+    running: bool,
+) -> str | None:
+    if not expected:
+        return "T1 is marked not applicable for this subject."
+    if running:
+        return "T1 registration is already running for this subject."
+    if registration is not None and registration.active:
+        if registration.state is T1RegistrationState.REVIEW_REQUIRED:
+            return "Review and approve the current T1 registration first."
+        if registration.state is T1RegistrationState.APPROVED:
+            return "The current T1 registration is already approved."
+    if input_status.kind != "ready":
+        return "Import and validate both the pre- and post-Gd T1 inputs first."
+    if brain_mask is None or brain_mask.state is not ArtifactState.APPROVED:
+        return "Approve the current native pre-Gd brain mask first."
+    return None
+
+
+def _t1_enhancement_blocked_reason(
+    expected: bool,
+    registration,
+    result,
+    running: bool,
+) -> str | None:
+    if not expected:
+        return "T1 is marked not applicable for this subject."
+    if running:
+        return "T1 enhancement calculation is already running for this subject."
+    if result is not None and result.active:
+        return "A current provisional T1 enhancement result already exists."
+    if registration is None or registration.state is not T1RegistrationState.APPROVED:
+        return "Approve the current post-to-pre T1 registration first."
+    return None
+
+
 def _t1_input_status(records: tuple[ScanInputRecord, ...]) -> StatusValue:
     relevant = tuple(
         record for record in records if record.role in {ScanRole.T1_PRE, ScanRole.T1_POST}
@@ -1124,6 +1544,9 @@ def _present_scan_input(record: ScanInputRecord) -> InputScanViewModel:
         validation=validation,
         managed_path=record.output_path,
         source_path=record.source_path,
+        session_id=record.session_id,
+        scan_id=record.scan_id,
+        protocol=record.protocol,
         shape_text=" × ".join(str(value) for value in record.output_shape) or "—",
         spacing_text=(
             " × ".join(f"{value:.4g}" for value in record.output_spacing_mm) + " mm"

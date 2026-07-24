@@ -7,15 +7,16 @@ milestone only. Historical plans belong in Git history.
 
 The repository is technically coherent and should not be replaced or split now. The
 current branch is a consolidation candidate for `main`: it has a sensible internal
-boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v10 studies, real MRI
+boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v11 studies, real MRI
 import, frozen-model T1/T2 draft generation, immutable review, approved T1 brain masks,
 durable T1 registration/provisional-enhancement state, and approved T2 results.
 
-The T2 reviewed-result workflow, persistent T1 brain-mask slice, and app-facing T1
-registration-to-provisional-enhancement service path are code-complete. The product
-remains incomplete because registration run/review controls are not exposed in the
-desktop, the T1 slice still needs a real-case smoke test, and the enhancement method has
-not passed signal-preservation validation.
+The T2 reviewed-result workflow and the persistent T1 path from brain-mask generation
+through reviewed registration and provisional enhancement are connected to the desktop.
+The product remains incomplete because the T1 slice still needs a real-case smoke test
+and the enhancement method has not passed signal-preservation validation. The atlas
+vertical slice is software-complete for synthetic execution but has not run on a real
+case because the exact app subject/session pairing is not yet confirmed.
 
 At this checkpoint, Ruff and the complete test suite pass locally. GitHub Actions runs
 the same style check and offscreen suite on pushes and pull requests.
@@ -31,7 +32,7 @@ T2 input → validation → inference → draft/corrected mask → human approva
 
 ### Desktop and study state
 
-- Create, open, and reopen schema-v10 study roots; schema-v2 through v9 roots migrate
+- Create, open, and reopen schema-v11 study roots; schema-v2 through v10 roots migrate
   non-destructively when opened.
 - Reference read-only Bruker/NIfTI source folders on mounted drives.
 - Discover scans and let users correct subject IDs, T1/T2 roles, and orientation actions.
@@ -52,14 +53,21 @@ collapsed technical-detail disclosures.
 Persistent draft and corrected T1 brain masks and T2 lesion masks populate the
 study-level `Reviews` queue, where the user can approve the current mask or manually
 edit a managed ITK-SNAP copy. Saving that edit through the app registers it as the new
-active human-corrected mask version. The queue is filtered by fixed T1/T2 modality
+active human-corrected mask version. The queue is filtered by T1/T2 modality
 buttons; each pending item is one subject/workflow button. Mask QC renders every native
 slice for previous/next navigation, with display-only orientation changes never
 modifying the NIfTI. The subject's `T1 Brain Mask` and `T2 Lesion` tabs mirror the same
-service actions. Registration review controls, cohort charts, and QC/reproducibility
-exports are not implemented. Subject presentation can report persisted registration and
-provisional T1-result state, but there are no placeholder run buttons. The application
-contains no sample-data mode or placeholder scientific actions.
+service actions. The subject's `T1 Registration & Result` tab runs the frozen post-to-pre
+registration off the GUI thread, exposes its QC and exact approval, and calculates an
+explicitly provisional enhancement result after approval. Registrations awaiting review
+also populate the general T1 Reviews queue. Cohort charts and QC/reproducibility exports
+are not implemented. The application contains no sample-data mode or placeholder
+scientific actions.
+
+When atlas review items exist, the same general Reviews queue adds an Atlas filter. The
+subject workspace has one focused Atlas Mapping tab with sequential resource/scheme,
+atlas→pre-T1, pre-T1→T2, native-T2 composite, and regional-result cards. Registration
+and propagation run outside the GUI thread; no ANTs tuning controls are exposed.
 
 ### T2 lesion workflow
 
@@ -88,13 +96,16 @@ reviewed RS2 commit and weight, applies M-seam, removes conservatively gated sma
 islands, repairs only short outlier runs with agreeing flanks, and writes native-grid
 drafts plus QC and provenance. The added continuity cleanup still needs ten-case visual
 review, and no automatic output is ground truth or an approved mask. Exact eight-way
-TTA is CPU/CUDA on the tested M1 because it exceeded MPS memory. The explicit MPS/no-TTA
-variant completed one real case in 83 seconds and reached raw-mask Dice 0.980 against its
-Colab TTA counterpart; it is recorded as a distinct draft method, not an equivalent run.
+TTA now uses CUDA when available, the bounded-memory MPS adapter on Apple Silicon, and
+CPU only as a fallback. The explicit MPS/no-TTA variant completed one real case in 83
+seconds and reached raw-mask Dice 0.980 against its Colab TTA counterpart; it remains a
+distinct draft method, not an equivalent run.
 
-For desktop integration, the selected exact-TTA RS2/M-seam/continuity configuration is
-now treated as the frozen method contract. Schema-v10 persists the validated release and
-method-spec checksum separately from T2 releases, records durable T1 jobs, commits only
+For desktop integration, the installed exact-TTA RS2 release remains an immutable
+validated source-and-weight contract, while the interactive app now runs the explicit
+no-TTA local-draft variant. The no-TTA execution has its own versioned method
+specification and hash and remains provisional until mask review and approval. Schema-v11
+persists the release separately from T2 releases, records durable T1 jobs, commits only
 successful native-grid drafts, preserves raw RS2 and QC provenance, versions managed
 ITK-SNAP corrections, and records exact mask approval with reviewer, time, and blinding
 state. Replacing the native pre-Gd T1 makes the active brain mask outdated without
@@ -148,7 +159,8 @@ The application code now covers this user story:
 Implemented acceptance criteria:
 
 1. The app validates the exact RS2 source commit, weight checksum, release manifest,
-   exact-TTA declaration, and deterministic M-seam/cleanup configuration hash.
+   exact-TTA release declaration, and deterministic M-seam/cleanup configuration hash.
+   Each interactive job additionally records the distinct no-TTA generation contract.
 2. Generation runs outside the GUI thread and persists queued, running, succeeded,
    failed, or interrupted job state independently from artifact approval.
 3. A successful run creates an immutable automatic draft tied to the exact native
@@ -168,10 +180,13 @@ Implemented acceptance criteria:
 10. Focused tests cover generation success, correction, invalid edits, checksum change,
     approval, dependency invalidation, migration, presentation, and reopening.
 
-This milestone is code-complete; a real local exact-TTA desktop run and full anatomical
-review remain required before relying on it for cohort analysis.
+An isolated real-input exact-TTA MPS smoke run completed on 2026-07-22 in approximately
+seven minutes but made the 8 GB development Mac difficult to use. The app therefore
+defaults to the explicit no-TTA draft method, measured at approximately 83 seconds in
+the earlier one-case run. A representative multi-case comparison, full app-managed run,
+review, and anatomical approval remain required before relying on it for cohort analysis.
 
-## Implemented application boundary: T1 registration and provisional enhancement
+## Implemented desktop milestone: T1 registration and provisional enhancement
 
 The non-UI application path now covers this dependency chain:
 
@@ -206,17 +221,50 @@ Implemented acceptance criteria:
 9. Stored input/dependency checksums are reverified immediately before processing, and
    returned output checksums and durable job paths are verified before database commit.
 10. Focused tests cover approval-to-result execution, no-registration enhancement,
-    invalidation, migration, presentation, and reopening.
+    invalidation, migration, presentation, reopening, and the connected desktop sequence.
 
-This boundary is ready for desktop controls, not scientific cohort interpretation. The
-existing legacy cohort/CLI code remains an exploratory compatibility path and is not an
-approval route.
+This path is ready for a real-case desktop smoke test, not scientific cohort
+interpretation. The existing legacy cohort/CLI code remains an exploratory compatibility
+path and is not an approval route.
+
+## Implemented software milestone: major-region atlas mapping
+
+The application now implements the provisional, review-gated graph:
+
+```text
+AIDAmri MRI/Allen → native pre-Gd T1 → original native T2
+                                      + untouched native lesion
+                                      → major-region overlap and ±0.5 mm AP stress test
+```
+
+- Native ANTs 2.6.5 is pinned and invoked with argument arrays. Every command records
+  executable, version, full arguments, logs, return code, runtime, and hashes.
+- Atlas→pre-T1 uses cropped/N4 processed copies, the exact approved RS2/M-seam mask,
+  mutual information, a provisional physical 4×2×1 pyramid, and separate rigid/affine
+  candidates. SyN remains disabled.
+- Pre-T1→T2 is rigid-only with mutual information and requires a separately reviewed
+  whole-brain T2 registration-support mask. The lesion is never substituted for it.
+- Source labels are collapsed before propagation. The proposed 98-row
+  `major_regions_v1` contract yields 28 hemisphere-specific major IDs and remains
+  `DRAFT_REVIEW_REQUIRED` until Paul approves its exact checksum.
+- Major labels are propagated directly from the source atlas grid to native T2 in one
+  interpolation. The native lesion is never resampled.
+- All original T2 slices are rendered for registration and composite QC. Approved
+  overlap reports mapped/unmapped/outside-support voxels, boundary proximity, and a
+  physical anterior/posterior ±0.5 mm sensitivity stress test.
+- Schema-v11 stores feature-specific immutable releases, methods, jobs, artifacts,
+  reviews, results, and invalidation. Closing/reopening reconstructs the same state.
+
+Synthetic tests cover resource/grid/label gates, non-commuting transform order, direct
+propagation, native-lesion immutability, approvals, invalidation, all-slice QC, disabled
+UI actions, and reopening. See `atlas_mapping.md` for the audit and real-case blockers.
 
 ## Still explicitly frozen
 
 - Additional application pages or placeholder UI features.
 - More responsive-layout polishing.
-- Atlas or T2-to-T1 integration.
+- Detailed Allen nuclei/layers/tract outputs, Waxholm comparison, and cohort atlas export.
+- SyN activation until affine landmark review demonstrates a need.
 - New modalities or models.
 - General-purpose plugin/job/workflow frameworks.
 - New schema revisions without a concrete vertical-workflow requirement.
@@ -224,17 +272,21 @@ approval route.
 
 ## What follows
 
-First run one real T1 subject through the connected brain-mask desktop slice when local
-CPU resources are available: validate the default release, generate the exact-TTA draft,
-review/correct it, approve it, close the app, and confirm the same state after reopen.
-Then expose the already implemented service chain inside the existing workspace and
-general Reviews queue without adding a new page:
+First provide the exact matching identity for the atlas pilot: LYS_PROJ2 subject,
+timepoint/session, and approved pre-T1 artifact. Then import and review a T2
+registration-support mask and run one real subject through rigid/affine atlas→pre,
+rigid pre→T2, direct native-T2 composition, all-slice QC, and major-region sensitivity.
+
+The independent T1 enhancement smoke test also remains:
 
 ```text
 approved pre-Gd brain mask → run exact post-to-pre registration
 → inspect QC and approve the exact registration
 → run explicitly provisional enhancement → inspect subject result
 ```
+
+Close and reopen the study and confirm that the mask, registration approval, provisional
+result, exact dependencies, and history are unchanged.
 
 Before T1 cohort interpretation:
 

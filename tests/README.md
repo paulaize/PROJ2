@@ -8,10 +8,13 @@ env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 ```
 
 The tests cover scientific geometry and gates, the RS2 notebook build, frozen
-schema-v1 migration compatibility, canonical schema-v10 studies, MRI import/conversion,
+schema-v1 migration compatibility, canonical schema-v11 studies, MRI import/conversion,
 T1 release/generation/correction/approval persistence, T1 registration and provisional
 enhancement dependencies, T2 release/inference persistence, immutable approval, approved
 results/CSV, and connected offscreen desktop behavior.
+`test_atlas_mapping_vertical.py` and `test_atlas_mapping_persistence.py` cover the
+checksummed atlas contract, major-label collapse, transform order, direct propagation,
+native lesion immutability, all-slice QC, exact approvals, invalidation, and reopening.
 They do not
 replace visual anatomical QC or a real raw-data-to-approved-result validation set.
 

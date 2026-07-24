@@ -71,6 +71,7 @@ from lys_bbb_app.domain.study import (
     StudySnapshot,
 )
 from lys_bbb_app.domain.t1_brain_mask import (
+    T1_BRAIN_MASK_APP_GENERATION_METHOD_VERSION,
     T1_BRAIN_MASK_METHOD_VERSION,
     T1BrainMaskArtifactDraft,
     T1BrainMaskReadiness,
@@ -105,6 +106,7 @@ from lys_bbb_app.services.t2_review_service import (
     T2ManualEditSession,
     T2ReviewService,
 )
+from lys_bbb_app.services.atlas_mapping_service import AtlasMappingService
 
 
 ScanConverter = Callable[..., ScanConversionResult]
@@ -155,6 +157,7 @@ class StudyService:
         self._t1_registration_config = t1_registration_config
         self._t1_enhancement_runner = t1_enhancement_runner
         self._t1_enhancement_config = t1_enhancement_config
+        self.atlas_mapping = AtlasMappingService(self._require_repository)
 
     @property
     def current_study(self) -> StudySnapshot | None:
@@ -460,7 +463,7 @@ class StudyService:
         device_name: str = "auto",
         progress: ProgressCallback | None = None,
     ) -> StudySnapshot:
-        """Generate exact-TTA RS2/M-seam drafts and persist them only on success."""
+        """Generate low-impact no-TTA drafts and persist them only on success."""
 
         repository = self._require_repository()
         snapshot = repository.snapshot()
@@ -476,7 +479,9 @@ class StudyService:
             raise StudyStateError(
                 f"The registered T1 brain-mask release is no longer valid: {exc}"
             ) from exc
-        _method_metadata, method_spec_sha256 = _t1_brain_mask_method_spec(release)
+        _release_method_metadata, release_method_spec_sha256 = (
+            _t1_brain_mask_method_spec(release)
+        )
         if (
             release.id != release_record.id
             or release.source_commit != release_record.source_commit
@@ -484,7 +489,7 @@ class StudyService:
             or release.test_time_augmentation
             != release_record.test_time_augmentation
             or manifest_sha256 != release_record.manifest_sha256
-            or method_spec_sha256 != release_record.method_spec_sha256
+            or release_method_spec_sha256 != release_record.method_spec_sha256
         ):
             raise StudyStateError(
                 "The installed T1 brain-mask method changed after validation. "
@@ -506,9 +511,16 @@ class StudyService:
             )
             for subject_id in readiness.eligible_subject_ids
         }
+        generation_method, generation_method_spec_sha256 = (
+            _t1_brain_mask_app_generation_spec(release)
+        )
         job_id = repository.create_t1_brain_mask_job(
             readiness.eligible_subject_ids,
             release_id=release.id,
+            generation_metadata={
+                "generation_method": generation_method,
+                "generation_method_spec_sha256": generation_method_spec_sha256,
+            },
             actor=actor,
         )
         output_root = (
@@ -535,10 +547,19 @@ class StudyService:
                     output_root / "cases" / subject_id,
                     case_id=subject_id,
                     device_name=device_name,
-                    disable_tta=False,
+                    disable_tta=True,
                 )
                 metadata = json.loads(case_output.metadata_path.read_text())
                 generation = metadata.get("generation", {})
+                if (
+                    generation.get("test_time_augmentation") is not False
+                    or generation.get("generation_variant")
+                    != "explicit_no_tta_local_draft"
+                ):
+                    raise RuntimeError(
+                        "The T1 brain-mask runner did not return the required explicit "
+                        "no-TTA draft variant."
+                    )
                 drafts.append(
                     T1BrainMaskArtifactDraft(
                         subject_id=subject_id,
@@ -554,8 +575,12 @@ class StudyService:
                         regularity_warnings=case_output.regularity_warnings,
                         metadata={
                             "generator_metadata": metadata,
-                            "method_version": T1_BRAIN_MASK_METHOD_VERSION,
-                            "method_spec_sha256": method_spec_sha256,
+                            "method_version": (
+                                T1_BRAIN_MASK_APP_GENERATION_METHOD_VERSION
+                            ),
+                            "method_spec_sha256": generation_method_spec_sha256,
+                            "generation_variant": "explicit_no_tta_local_draft",
+                            "test_time_augmentation": False,
                             "predictions_are_drafts": True,
                             "human_review_required": True,
                         },
@@ -1678,6 +1703,28 @@ def _t1_brain_mask_method_spec(
         "cleanup_configuration": asdict(MSeamCleanupConfig()),
         "regularity_configuration": asdict(MaskRegularityConfig()),
         "human_review_required": True,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return payload, hashlib.sha256(canonical).hexdigest()
+
+
+def _t1_brain_mask_app_generation_spec(
+    release: FrozenT1BrainMaskRelease,
+) -> tuple[dict[str, object], str]:
+    """Return the desktop's explicit low-impact draft-generation contract."""
+
+    payload: dict[str, object] = {
+        "method_version": T1_BRAIN_MASK_APP_GENERATION_METHOD_VERSION,
+        "release_id": release.id,
+        "source_commit": release.source_commit,
+        "weights_sha256": release.weights_sha256,
+        "test_time_augmentation": False,
+        "generation_variant": "explicit_no_tta_local_draft",
+        "gap_configuration": asdict(GapRefinementConfig()),
+        "cleanup_configuration": asdict(MSeamCleanupConfig()),
+        "regularity_configuration": asdict(MaskRegularityConfig()),
+        "human_review_required": True,
+        "scientific_status": "PROVISIONAL",
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return payload, hashlib.sha256(canonical).hexdigest()

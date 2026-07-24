@@ -89,7 +89,7 @@ class SubjectInputsPanel(QScrollArea):
 
     def _set_readiness(self, subject: SubjectViewModel) -> None:
         if not subject.inputs:
-            message = "No MRI inputs have been converted for this subject."
+            message = "No converted MRI inputs are available yet."
         else:
             conversion_failed = sum(
                 scan.conversion.kind == "failed" for scan in subject.inputs
@@ -100,27 +100,15 @@ class SubjectInputsPanel(QScrollArea):
             invalid = sum(scan.validation.kind == "failed" for scan in subject.inputs)
             pending = sum(scan.validation.kind == "review" for scan in subject.inputs)
             if conversion_failed:
-                message = (
-                    f"{conversion_failed} input conversion(s) failed. Review the scan "
-                    "card and import a corrected replacement."
-                )
+                message = f"{conversion_failed} converted input(s) failed."
             elif converting:
-                message = f"{converting} input conversion(s) are still running."
+                message = f"{converting} converted input(s) are still running."
             elif invalid:
-                message = (
-                    f"{invalid} input(s) failed validation. Review the issue below and "
-                    "replace or recreate the affected version."
-                )
+                message = f"{invalid} converted input(s) failed validation."
             elif pending:
-                message = (
-                    f"{pending} converted input(s) require validation before their "
-                    "workflow can advance."
-                )
+                message = f"{pending} converted input(s) need validation."
             else:
-                message = (
-                    "All active converted inputs passed validation and are ready for "
-                    "their next workflow step."
-                )
+                message = "All converted inputs are ready."
         self.readiness_label.setText(message)
 
     def _scan_card(self, subject_id: str, scan: InputScanViewModel) -> QFrame:
@@ -156,6 +144,9 @@ class SubjectInputsPanel(QScrollArea):
 
         facts = QGridLayout()
         fact_values = (
+            ("Session / timepoint", scan.session_id or "—"),
+            ("Scan", str(scan.scan_id) if scan.scan_id is not None else "—"),
+            ("Protocol", scan.protocol or "—"),
             ("Dimensions", scan.shape_text),
             ("Voxel spacing", scan.spacing_text),
             ("Axis codes", scan.orientation_text),

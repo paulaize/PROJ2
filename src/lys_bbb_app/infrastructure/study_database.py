@@ -48,6 +48,7 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study as _touch_study,
     utc_now as _utc_now,
 )
+from lys_bbb_app.infrastructure.atlas_mapping_repository import AtlasMappingRepository
 from lys_bbb_app.infrastructure.input_validation_repository import (
     record_input_validations as _record_input_validations,
 )
@@ -121,7 +122,7 @@ from lys_bbb_app.infrastructure.t2_review_repository import (
 from lys_bbb.t2_review import T2MaskMeasurement
 
 
-STUDY_SCHEMA_VERSION = 10
+STUDY_SCHEMA_VERSION = 11
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-bbb-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -315,6 +316,7 @@ class StudyRepository:
         _interrupt_running_jobs(repository)
         _interrupt_running_t1_brain_mask_jobs(repository)
         _interrupt_running_t1_analysis_jobs(repository)
+        AtlasMappingRepository(repository).interrupt_running_jobs()
         repository.snapshot()
         return repository
 
@@ -558,6 +560,11 @@ class StudyRepository:
         except (sqlite3.Error, json.JSONDecodeError) as exc:
             raise InvalidStudyError(f"Could not read study state: {exc}") from exc
 
+        atlas_mapping_states = tuple(
+            (subject.id, AtlasMappingRepository(self).state(subject.id))
+            for subject in subjects
+        )
+
         return StudySnapshot(
             id=study["id"],
             identifier=study["identifier"],
@@ -590,6 +597,7 @@ class StudyRepository:
             t1_enhancement_methods=t1_enhancement_methods,
             t1_enhancement_jobs=t1_enhancement_jobs,
             t1_enhancement_results=t1_enhancement_results,
+            atlas_mapping_states=atlas_mapping_states,
             archived_subjects=archived_subjects,
             mri_input_folder=folders.get("mri"),
             t1_input_folder=folders.get("t1"),
@@ -1042,12 +1050,14 @@ class StudyRepository:
         subject_ids: tuple[str, ...],
         *,
         release_id: str,
+        generation_metadata: dict[str, Any],
         actor: str,
     ) -> str:
         return _create_t1_brain_mask_job(
             self,
             subject_ids,
             release_id=release_id,
+            generation_metadata=generation_metadata,
             actor=actor,
         )
 

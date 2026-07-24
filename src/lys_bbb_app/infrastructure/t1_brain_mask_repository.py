@@ -31,6 +31,9 @@ from lys_bbb_app.infrastructure.database_support import (
     utc_now,
 )
 from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_analysis
+from lys_bbb_app.infrastructure.atlas_mapping_repository import (
+    invalidate_atlas_for_t1_mask_change,
+)
 
 
 class StudyDatabaseContext(Protocol):
@@ -137,6 +140,7 @@ def create_t1_brain_mask_job(
     subject_ids: tuple[str, ...],
     *,
     release_id: str,
+    generation_metadata: dict[str, Any],
     actor: str,
 ) -> str:
     reviewer = normalize_required(actor, "Actor")
@@ -172,7 +176,13 @@ def create_t1_brain_mask_job(
                         release_id,
                         json.dumps(subject_ids),
                         now,
-                        json.dumps({"submitted_by": reviewer}, sort_keys=True),
+                        json.dumps(
+                            {
+                                "submitted_by": reviewer,
+                                **generation_metadata,
+                            },
+                            sort_keys=True,
+                        ),
                     ),
                 )
                 insert_audit(
@@ -184,6 +194,7 @@ def create_t1_brain_mask_job(
                         "job_id": job_id,
                         "release_id": release_id,
                         "subject_ids": list(subject_ids),
+                        **generation_metadata,
                     },
                     created_at=now,
                 )
@@ -346,6 +357,12 @@ def complete_t1_brain_mask_job(
                         reason="The active approved T1 brain mask changed.",
                         changed_at=now,
                         invalidate_registration=True,
+                    )
+                    invalidate_atlas_for_t1_mask_change(
+                        connection,
+                        subject_id=draft.subject_id,
+                        reason="The current pre-T1 brain mask changed.",
+                        changed_at=now,
                     )
                     version = int(
                         connection.execute(
@@ -527,6 +544,12 @@ def create_corrected_t1_brain_mask_artifact(
                     reason="The active approved T1 brain mask changed.",
                     changed_at=now,
                     invalidate_registration=True,
+                )
+                invalidate_atlas_for_t1_mask_change(
+                    connection,
+                    subject_id=draft.subject_id,
+                    reason="The current pre-T1 brain mask changed.",
+                    changed_at=now,
                 )
                 connection.execute(
                     """

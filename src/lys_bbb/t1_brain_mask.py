@@ -8,6 +8,7 @@ import json
 import os
 import platform
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,8 @@ from lys_bbb.t1_brain_mask_release import (
 RawRs2Runner = Callable[
     [FrozenT1BrainMaskRelease, str, Path, Path, str, bool, Path, Path], Path
 ]
+
+RS2_INFERENCE_TIMEOUT_SECONDS = 30 * 60
 
 
 @dataclass(frozen=True)
@@ -111,16 +114,21 @@ def run_local_t1_brain_mask(
         shutil.copy2(input_path, staged_input)
         rs2_output = work_root / "rs2_output"
         log_path = work_root / "rs2.log"
-        raw_prediction = runner(
-            release,
-            case_id,
-            input_directory,
-            rs2_output,
-            device,
-            use_tta,
-            log_path,
-            work_root,
-        )
+        try:
+            raw_prediction = runner(
+                release,
+                case_id,
+                input_directory,
+                rs2_output,
+                device,
+                use_tta,
+                log_path,
+                work_root,
+            )
+        except Exception as exc:
+            failure_log = _preserve_failed_rs2_log(log_path, output_root, case_id)
+            suffix = f" Failure log: {failure_log}" if failure_log else ""
+            raise RuntimeError(f"{exc}{suffix}") from exc
         result_root = work_root / "result"
         generation = {
             "generator": "RS2-Net",
@@ -136,6 +144,7 @@ def run_local_t1_brain_mask(
                 "trusted legacy checkpoint loaded with weights_only=False",
                 "compiled-checkpoint _orig_mod prefix normalized",
                 "torch.compile disabled for portable local inference",
+                "single-process preprocessing and export for bounded desktop RAM",
                 "MPS mirrored predictions accumulated on CPU with cache clearing",
             ],
         }
@@ -540,6 +549,7 @@ def _run_rs2_predict(
         ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
     )
     _patch_rs2_runtime(runtime_source / "RS2/inference/predict.py")
+    _patch_rs2_single_process(runtime_source / "RS2/inference/predict.py")
     _patch_rs2_mps_tta(
         runtime_source / "RS2/inference/sliding_window_prediction.py"
     )
@@ -566,27 +576,27 @@ def _run_rs2_predict(
     environment["PYTHONPATH"] = os.pathsep.join(
         [str(runtime_source), environment.get("PYTHONPATH", "")]
     )
+    environment["PYTHONUNBUFFERED"] = "1"
     if device == "mps":
         environment.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("w") as log:
-        process = subprocess.Popen(
-            command,
-            cwd=runtime_source,
-            env=environment,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            print(line, end="")
-            log.write(line)
-        return_code = process.wait()
+    return_code = _run_logged_subprocess(
+        command,
+        cwd=runtime_source,
+        environment=environment,
+        log_path=log_path,
+        timeout_seconds=RS2_INFERENCE_TIMEOUT_SECONDS,
+    )
     if return_code != 0:
+        termination = ""
+        if return_code < 0:
+            try:
+                termination = f" ({signal.Signals(-return_code).name})"
+            except ValueError:
+                termination = ""
         raise RuntimeError(
-            f"RS2-Net inference failed with exit code {return_code}. Log: {log_path}"
+            "RS2-Net inference failed with exit code "
+            f"{return_code}{termination}. Log: {log_path}"
         )
     log_text = log_path.read_text(errors="replace")
     fatal_runtime_markers = (
@@ -609,6 +619,71 @@ def _run_rs2_predict(
             f"RS2-Net created {len(outputs)} expected masks for {case_id!r}; expected one."
         )
     return outputs[0]
+
+
+def _run_logged_subprocess(
+    command: list[str],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+    log_path: Path,
+    timeout_seconds: float,
+) -> int:
+    """Run RS2 in an isolated process group without an inheritable stdout pipe."""
+
+    with log_path.open("w", buffering=1) as log:
+        log.write(json.dumps({"command": command}) + "\n")
+        log.flush()
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            return_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_process_group(process)
+            raise RuntimeError(
+                "RS2-Net inference exceeded the "
+                f"{timeout_seconds / 60:.1f}-minute safety timeout. Log: {log_path}"
+            ) from exc
+    if return_code != 0:
+        _terminate_process_group(process)
+    return int(return_code)
+
+
+def _terminate_process_group(process: subprocess.Popen[str]) -> None:
+    """Terminate descendants that may outlive a failed multiprocessing parent."""
+
+    if os.name != "posix":
+        if process.poll() is None:
+            process.terminate()
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        if process.poll() is None:
+            process.terminate()
+
+
+def _preserve_failed_rs2_log(
+    temporary_log: Path,
+    output_root: Path,
+    case_id: str,
+) -> Path | None:
+    if not temporary_log.is_file():
+        return None
+    failure_log = output_root.parent / f"{case_id}_rs2_failed.log"
+    if failure_log.exists():
+        raise FileExistsError(f"Refusing to overwrite failed RS2 log: {failure_log}")
+    shutil.copy2(temporary_log, failure_log)
+    return failure_log
 
 
 def _patch_rs2_runtime(predict_path: Path) -> None:
@@ -644,6 +719,82 @@ def _patch_rs2_runtime(predict_path: Path) -> None:
     predict_path.write_text(source)
 
 
+def _patch_rs2_single_process(source_path: Path) -> None:
+    """Avoid redundant torch processes for the one-case desktop invocation."""
+
+    source = source_path.read_text()
+    import_marker = "import inspect\n"
+    context_import = "from contextlib import nullcontext\n"
+    if context_import not in source:
+        if source.count(import_marker) != 1:
+            raise RuntimeError("Cannot apply the single-process context patch.")
+        source = source.replace(import_marker, import_marker + context_import)
+
+    threaded_import = (
+        "from batchgenerators.dataloading.multi_threaded_augmenter import "
+        "MultiThreadedAugmenter\n"
+    )
+    single_import = (
+        "from batchgenerators.dataloading.single_threaded_augmenter import "
+        "SingleThreadedAugmenter\n"
+    )
+    if single_import not in source:
+        if source.count(threaded_import) != 1:
+            raise RuntimeError("Cannot apply the single-process augmenter import patch.")
+        source = source.replace(threaded_import, threaded_import + single_import)
+
+    old_augmenter = (
+        "    mta = MultiThreadedAugmenter(ppa, NumpyToTensor(), num_processes, "
+        "1, None, pin_memory=device.type == 'cuda',\n"
+        "                                 timeout=1)\n"
+    )
+    new_augmenter = "    mta = SingleThreadedAugmenter(ppa, NumpyToTensor())\n"
+    if new_augmenter not in source:
+        if source.count(old_augmenter) != 1:
+            raise RuntimeError("Cannot apply the single-process preprocessing patch.")
+        source = source.replace(old_augmenter, new_augmenter)
+
+    old_pool = (
+        '    with multiprocessing.get_context("spawn").Pool('
+        "num_processes_segmentation_export) as export_pool:\n"
+    )
+    new_pool = "    with nullcontext(None) as export_pool:\n"
+    if new_pool not in source:
+        if source.count(old_pool) != 1:
+            raise RuntimeError("Cannot apply the single-process export-pool patch.")
+        source = source.replace(old_pool, new_pool)
+
+    async_start = source.find(
+        "                r.append(\n"
+        "                    export_pool.starmap_async(\n"
+    )
+    async_stop_marker = "                print(f'done with {os.path.basename(ofile)}')"
+    async_stop = source.find(async_stop_marker, async_start)
+    synchronous_export = (
+        "                export_prediction_from_sigmoid(\n"
+        "                    prediction,\n"
+        "                    properties,\n"
+        "                    configuration_manager,\n"
+        "                    plans_manager,\n"
+        "                    dataset_json,\n"
+        "                    ofile,\n"
+        "                    save_probabilities,\n"
+        "                )\n"
+    )
+    if synchronous_export not in source:
+        if async_start < 0 or async_stop < 0:
+            raise RuntimeError("Cannot apply the synchronous RS2 export patch.")
+        source = source[:async_start] + synchronous_export + source[async_stop:]
+
+    wait_marker = "        [i.get() for i in r]\n"
+    wait_replacement = "        # Export completed synchronously in this process.\n"
+    if wait_replacement not in source:
+        if source.count(wait_marker) != 1:
+            raise RuntimeError("Cannot remove the RS2 export-pool wait.")
+        source = source.replace(wait_marker, wait_replacement)
+    source_path.write_text(source)
+
+
 def _patch_rs2_mps_tta(source_path: Path) -> None:
     """Accumulate mirrored predictions on CPU so eight-way TTA fits Apple MPS."""
 
@@ -659,8 +810,11 @@ def _patch_rs2_mps_tta(source_path: Path) -> None:
     """Run the upstream mirror ensemble with bounded Apple-MPS memory."""
     print(x.shape)
     accumulation_device = torch.device('cpu') if x.device.type == 'mps' else x.device
+    num_predictions = 2 ** len(mirror_axes) if mirror_axes is not None else 1
+    completed_predictions = 0
 
     def forward(mirror_dimensions=None):
+        nonlocal completed_predictions
         model_input = torch.flip(x, mirror_dimensions) if mirror_dimensions else x
         result = network(model_input).to(accumulation_device)
         if mirror_dimensions:
@@ -669,12 +823,13 @@ def _patch_rs2_mps_tta(source_path: Path) -> None:
             torch.mps.synchronize()
             del model_input
             empty_cache(x.device)
+        completed_predictions += 1
+        print(f'RS2 TTA pass {completed_predictions}/{num_predictions} complete', flush=True)
         return result
 
     prediction = forward()
     if mirror_axes is not None:
         assert max(mirror_axes) <= len(x.shape) - 3, 'mirror_axes does not match the input dimensions'
-        num_predictions = 2 ** len(mirror_axes)
         if 0 in mirror_axes:
             prediction += forward((2,))
         if 1 in mirror_axes:
@@ -714,11 +869,7 @@ def _select_device(requested: str, *, exact_tta: bool = False) -> str:
     if requested == "auto":
         if torch.cuda.is_available():
             return "cuda"
-        if (
-            not exact_tta
-            and hasattr(torch.backends, "mps")
-            and torch.backends.mps.is_available()
-        ):
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "mps"
         return "cpu"
     if requested == "mps" and not (

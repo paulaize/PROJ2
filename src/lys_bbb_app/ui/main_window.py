@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QElapsedTimer, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -59,9 +60,12 @@ from lys_bbb_app.ui.t2_manual_edit_dialog import (
 )
 from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
 from lys_bbb_app.ui.workers import (
+    AtlasMappingThread,
     InputValidationThread,
     ScanImportThread,
     T1BrainMaskThread,
+    T1EnhancementThread,
+    T1RegistrationThread,
     T2InferenceThread,
 )
 
@@ -92,6 +96,19 @@ class MainWindow(QMainWindow):
         self._t2_target_subject_ids: tuple[str, ...] | None = None
         self._t1_brain_mask_thread: T1BrainMaskThread | None = None
         self._t1_target_subject_ids: tuple[str, ...] | None = None
+        self._t1_brain_mask_elapsed = QElapsedTimer()
+        self._t1_brain_mask_heartbeat = QTimer(self)
+        self._t1_brain_mask_heartbeat.setInterval(5000)
+        self._t1_brain_mask_heartbeat.timeout.connect(
+            self._show_t1_brain_mask_heartbeat
+        )
+        self._t1_registration_thread: T1RegistrationThread | None = None
+        self._t1_registration_target_subject_ids: tuple[str, ...] | None = None
+        self._t1_enhancement_thread: T1EnhancementThread | None = None
+        self._t1_enhancement_target_subject_ids: tuple[str, ...] | None = None
+        self._atlas_mapping_thread: AtlasMappingThread | None = None
+        self._atlas_mapping_subject_id: str | None = None
+        self._atlas_mapping_action: str | None = None
         self._validation_subject_id: str | None = None
         self._validation_return_page = "workspace"
         self._scan_operation_name = "MRI import"
@@ -249,6 +266,55 @@ class MainWindow(QMainWindow):
         self.workspace_page.t1_brain_mask_approve_requested.connect(
             self.approve_t1_brain_mask
         )
+        self.workspace_page.t1_registration_run_requested.connect(
+            self.run_t1_registration_for_subject
+        )
+        self.workspace_page.t1_registration_approve_requested.connect(
+            self.approve_t1_registration
+        )
+        self.workspace_page.t1_enhancement_run_requested.connect(
+            self.run_t1_enhancement_for_subject
+        )
+        self.workspace_page.atlas_resource_requested.connect(
+            self.configure_atlas_resource
+        )
+        self.workspace_page.atlas_scheme_register_requested.connect(
+            self.register_major_region_scheme
+        )
+        self.workspace_page.atlas_scheme_approve_requested.connect(
+            self.approve_major_region_scheme
+        )
+        self.workspace_page.atlas_support_mask_import_requested.connect(
+            self.import_t2_registration_support_mask
+        )
+        self.workspace_page.atlas_support_mask_approve_requested.connect(
+            self.approve_t2_registration_support_mask
+        )
+        self.workspace_page.atlas_to_t1_run_requested.connect(
+            lambda subject_id: self.start_atlas_mapping_stage(
+                subject_id, "atlas_to_t1"
+            )
+        )
+        self.workspace_page.atlas_to_t1_approve_requested.connect(
+            self.approve_atlas_to_t1
+        )
+        self.workspace_page.t1_to_t2_run_requested.connect(
+            lambda subject_id: self.start_atlas_mapping_stage(
+                subject_id, "t1_to_t2"
+            )
+        )
+        self.workspace_page.t1_to_t2_approve_requested.connect(
+            self.approve_atlas_t1_to_t2
+        )
+        self.workspace_page.atlas_composite_create_requested.connect(
+            lambda subject_id: self.start_atlas_mapping_stage(subject_id, "composite")
+        )
+        self.workspace_page.atlas_composite_approve_requested.connect(
+            self.approve_atlas_composite
+        )
+        self.workspace_page.atlas_result_calculate_requested.connect(
+            self.calculate_atlas_result
+        )
         self.reviews_page.approve_requested.connect(
             lambda subject_id, artifact_id: self.approve_review_mask(
                 subject_id,
@@ -263,7 +329,7 @@ class MainWindow(QMainWindow):
                 return_page="reviews",
             )
         )
-        self.reviews_page.subject_requested.connect(self.open_subject)
+        self.reviews_page.subject_requested.connect(self.open_review_subject)
         self.reviews_page.qc_slices_requested.connect(
             self.prepare_review_qc_slices
         )
@@ -479,8 +545,35 @@ class MainWindow(QMainWindow):
         if subject is None:
             return
         self.workspace_page.set_subject(subject)
+        try:
+            atlas_state = self.study_service.atlas_mapping.state(subject_id)
+        except StudyStateError:
+            atlas_state = None
+        self.workspace_page.set_atlas_mapping_state(atlas_state)
         self.show_page("workspace")
         self.statusBar().showMessage(f"Opened subject {subject.label}.", 4000)
+
+    def open_review_subject(self, subject_id: str) -> None:
+        workflow_key = (
+            self.reviews_page.current_item.workflow_key
+            if self.reviews_page.current_item is not None
+            else ""
+        )
+        self.open_subject(subject_id)
+        if workflow_key == "t1_registration":
+            self.workspace_page.tabs.setCurrentWidget(
+                self.workspace_page.t1_analysis_panel
+            )
+        elif workflow_key == "t1_brain_mask":
+            self.workspace_page.tabs.setCurrentWidget(
+                self.workspace_page.t1_brain_mask_panel
+            )
+        elif workflow_key == "t2_lesion":
+            self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
+        elif workflow_key.startswith("atlas_"):
+            self.workspace_page.tabs.setCurrentWidget(
+                self.workspace_page.atlas_mapping_panel
+            )
 
     def add_subject(self) -> None:
         if self.current_study is None:
@@ -755,7 +848,7 @@ class MainWindow(QMainWindow):
             return False
         self._set_study(present_study(snapshot), page_key="subjects")
         self.statusBar().showMessage(
-            "The RS2-Net source, weights, exact TTA, and M-seam method passed validation.",
+            "The RS2-Net source, weights, and M-seam method passed validation.",
             10000,
         )
         return True
@@ -803,9 +896,11 @@ class MainWindow(QMainWindow):
         confirmation = QMessageBox.question(
             self,
             "Generate T1 brain-mask draft?",
-            "Run the frozen RS2-Net/M-seam method with exact eight-way test-time "
-            "augmentation?\n\nThis may take a while on CPU. The generated mask will "
-            "remain a draft until explicitly approved.",
+            "Run the low-impact RS2-Net/M-seam draft method without test-time "
+            "augmentation?\n\nThe measured development case took about 83 seconds "
+            "on Apple Silicon. This provisional method is designed to keep the "
+            "desktop more usable, and its generated mask will remain a draft until "
+            "explicitly reviewed and approved.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -824,6 +919,8 @@ class MainWindow(QMainWindow):
         thread.finished.connect(self._clear_t1_brain_mask_thread)
         self._t1_brain_mask_thread = thread
         self._t1_target_subject_ids = readiness.eligible_subject_ids
+        self._t1_brain_mask_elapsed.start()
+        self._t1_brain_mask_heartbeat.start()
         self._set_job_status("T1 brain-mask generation running")
         self.statusBar().showMessage("Starting T1 brain-mask generation…")
         thread.start()
@@ -856,10 +953,659 @@ class MainWindow(QMainWindow):
             StudyStateError(error),
         )
 
+    def _show_t1_brain_mask_heartbeat(self) -> None:
+        if (
+            self._t1_brain_mask_thread is None
+            or not self._t1_brain_mask_thread.isRunning()
+            or not self._t1_brain_mask_elapsed.isValid()
+        ):
+            return
+        elapsed_seconds = self._t1_brain_mask_elapsed.elapsed() // 1000
+        minutes, seconds = divmod(elapsed_seconds, 60)
+        elapsed = f"{minutes}:{seconds:02d}"
+        self._set_job_status(f"T1 brain mask running · {elapsed}")
+        self.statusBar().showMessage(
+            f"Low-impact no-TTA draft generation is running · elapsed {elapsed}"
+        )
+
     def _clear_t1_brain_mask_thread(self) -> None:
+        self._t1_brain_mask_heartbeat.stop()
+        self._t1_brain_mask_elapsed.invalidate()
         self._t1_brain_mask_thread = None
         self._t1_target_subject_ids = None
         self._set_job_status()
+
+    def run_t1_registration_for_subject(self, subject_id: str) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a persistent study before running T1 registration."
+            )
+            return
+        if self._background_job_running():
+            self._show_status_message("Another MRI background job is already running.")
+            return
+        snapshot = self.study_service.current_study
+        if snapshot.active_t1_registration_method is None:
+            try:
+                self.study_service.register_t1_registration_method(
+                    actor=self._reviewer_identity()
+                )
+            except StudyStateError as exc:
+                self._show_error(
+                    "The frozen T1 registration method could not be registered.",
+                    exc,
+                )
+                return
+        try:
+            readiness = self.study_service.t1_registration_readiness((subject_id,))
+        except StudyStateError as exc:
+            self._show_error("T1 registration readiness could not be calculated.", exc)
+            return
+        if not readiness.eligible_subject_ids:
+            self._show_error(
+                "This subject is not ready for T1 registration.",
+                StudyStateError(
+                    readiness.blocked_reasons[0][1]
+                    if readiness.blocked_reasons
+                    else "Validate the pre/post pair and approve the brain mask first."
+                ),
+            )
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Run T1 registration?",
+            "Register the post-Gd T1 to native pre-Gd space using the frozen rigid "
+            "method?\n\nThe registered image and transform will remain awaiting "
+            "human review before enhancement can be calculated.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        thread = T1RegistrationThread(
+            self.study_service,
+            actor=self._reviewer_identity(),
+            subject_ids=readiness.eligible_subject_ids,
+        )
+        thread.progress_changed.connect(self._show_t1_registration_progress)
+        thread.registration_completed.connect(self._t1_registration_completed)
+        thread.registration_failed.connect(self._t1_registration_failed)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_t1_registration_thread)
+        self._t1_registration_thread = thread
+        self._t1_registration_target_subject_ids = readiness.eligible_subject_ids
+        self._set_job_status("T1 registration running")
+        self.statusBar().showMessage("Starting post-to-pre T1 registration…")
+        thread.start()
+
+    def _show_t1_registration_progress(
+        self,
+        current: int,
+        total: int,
+        message: str,
+    ) -> None:
+        self._set_job_status(f"T1 registration {current}/{total}")
+        self.statusBar().showMessage(message)
+
+    def _t1_registration_completed(self, snapshot: StudySnapshot) -> None:
+        targets = self._t1_registration_target_subject_ids or ()
+        self._set_study(present_study(snapshot), page_key="reviews")
+        if targets:
+            self.reviews_page.focus_subject(targets[0])
+        self.statusBar().showMessage(
+            "T1 registration completed. Inspect and approve the registration QC.",
+            12000,
+        )
+
+    def _t1_registration_failed(self, error: str) -> None:
+        snapshot = self.study_service.current_study
+        if snapshot is not None:
+            self._set_study(present_study(snapshot), page_key="subjects")
+        self._show_error("T1 registration did not complete.", StudyStateError(error))
+
+    def _clear_t1_registration_thread(self) -> None:
+        self._t1_registration_thread = None
+        self._t1_registration_target_subject_ids = None
+        self._set_job_status()
+
+    def approve_t1_registration(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        return_page: str = "workspace",
+    ) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a persistent study before approving a T1 registration."
+            )
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Approve T1 registration?",
+            "Approve this exact registered post-Gd image, transform, and QC bundle?"
+            "\n\nAny changed input or mask will make this approval and dependent "
+            "results outdated.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            snapshot = self.study_service.approve_t1_registration(
+                subject_id,
+                artifact_id,
+                reviewer=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The T1 registration could not be approved.", exc)
+            return
+        self._refresh_after_t1_registration_review(
+            snapshot,
+            subject_id,
+            return_page=return_page,
+        )
+        self.statusBar().showMessage(
+            "T1 registration approved. Provisional enhancement can now be calculated.",
+            12000,
+        )
+
+    def _refresh_after_t1_registration_review(
+        self,
+        snapshot: StudySnapshot,
+        subject_id: str,
+        *,
+        return_page: str,
+    ) -> None:
+        if return_page == "reviews":
+            self._set_study(present_study(snapshot), page_key="reviews")
+            self.reviews_page.focus_subject(subject_id)
+            return
+        self._set_study(present_study(snapshot), page_key="subjects")
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(
+            self.workspace_page.t1_analysis_panel
+        )
+
+    def run_t1_enhancement_for_subject(self, subject_id: str) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a persistent study before calculating T1 enhancement."
+            )
+            return
+        if self._background_job_running():
+            self._show_status_message("Another MRI background job is already running.")
+            return
+        snapshot = self.study_service.current_study
+        if snapshot.active_t1_enhancement_method is None:
+            try:
+                self.study_service.register_t1_enhancement_method(
+                    actor=self._reviewer_identity()
+                )
+            except StudyStateError as exc:
+                self._show_error(
+                    "The provisional T1 enhancement method could not be registered.",
+                    exc,
+                )
+                return
+        try:
+            readiness = self.study_service.t1_enhancement_readiness((subject_id,))
+        except StudyStateError as exc:
+            self._show_error("T1 enhancement readiness could not be calculated.", exc)
+            return
+        if not readiness.eligible_subject_ids:
+            self._show_error(
+                "This subject is not ready for T1 enhancement calculation.",
+                StudyStateError(
+                    readiness.blocked_reasons[0][1]
+                    if readiness.blocked_reasons
+                    else "Approve the current T1 registration and brain mask first."
+                ),
+            )
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Calculate provisional T1 enhancement?",
+            "Calculate semi-quantitative T1-weighted gadolinium enhancement from "
+            "the exact approved registration and mask?\n\nThe result will be labelled "
+            "Provisional because signal-preservation validation is still pending.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        thread = T1EnhancementThread(
+            self.study_service,
+            actor=self._reviewer_identity(),
+            subject_ids=readiness.eligible_subject_ids,
+        )
+        thread.progress_changed.connect(self._show_t1_enhancement_progress)
+        thread.calculation_completed.connect(self._t1_enhancement_completed)
+        thread.calculation_failed.connect(self._t1_enhancement_failed)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_t1_enhancement_thread)
+        self._t1_enhancement_thread = thread
+        self._t1_enhancement_target_subject_ids = readiness.eligible_subject_ids
+        self._set_job_status("T1 enhancement running")
+        self.statusBar().showMessage("Starting provisional T1 enhancement calculation…")
+        thread.start()
+
+    def _show_t1_enhancement_progress(
+        self,
+        current: int,
+        total: int,
+        message: str,
+    ) -> None:
+        self._set_job_status(f"T1 enhancement {current}/{total}")
+        self.statusBar().showMessage(message)
+
+    def _t1_enhancement_completed(self, snapshot: StudySnapshot) -> None:
+        targets = self._t1_enhancement_target_subject_ids or ()
+        self._set_study(present_study(snapshot), page_key="results")
+        if targets:
+            self.open_subject(targets[0])
+            self.workspace_page.tabs.setCurrentWidget(
+                self.workspace_page.t1_analysis_panel
+            )
+        self.statusBar().showMessage(
+            "Provisional T1 enhancement calculated and saved with exact dependencies.",
+            12000,
+        )
+
+    def _t1_enhancement_failed(self, error: str) -> None:
+        snapshot = self.study_service.current_study
+        if snapshot is not None:
+            self._set_study(present_study(snapshot), page_key="subjects")
+        self._show_error(
+            "The provisional T1 enhancement calculation did not complete.",
+            StudyStateError(error),
+        )
+
+    def _clear_t1_enhancement_thread(self) -> None:
+        self._t1_enhancement_thread = None
+        self._t1_enhancement_target_subject_ids = None
+        self._set_job_status()
+
+    def configure_atlas_resource(self, subject_id: str) -> None:
+        if self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a persistent study before registering atlas resources."
+            )
+            return
+        template = QFileDialog.getOpenFileName(
+            self,
+            "Select AIDAmri MRI template",
+            str(Path.home()),
+            "NIfTI images (*.nii *.nii.gz)",
+        )[0]
+        if not template:
+            return
+        labels = QFileDialog.getOpenFileName(
+            self,
+            "Select AIDAmri Allen annotation volume",
+            str(Path(template).parent),
+            "NIfTI images (*.nii *.nii.gz)",
+        )[0]
+        if not labels:
+            return
+        lookup = QFileDialog.getOpenFileName(
+            self,
+            "Select normalized AIDAmri source-label lookup",
+            str(Path(labels).parent),
+            "CSV tables (*.csv)",
+        )[0]
+        if not lookup:
+            return
+        try:
+            self.study_service.atlas_mapping.register_aidamri_release(
+                template_path=Path(template),
+                labels_path=Path(labels),
+                source_lookup_path=Path(lookup),
+                actor=self._reviewer_identity(),
+            )
+        except Exception as exc:
+            self._show_error(
+                "The checksummed AIDAmri release could not be registered.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id)
+        self.statusBar().showMessage(
+            "AIDAmri MRI template, Allen labels, lookup, and atlas support mask "
+            "were hash-bound.",
+            10000,
+        )
+
+    def register_major_region_scheme(self, subject_id: str) -> None:
+        mapping_path = (
+            Path(__file__).resolve().parents[3]
+            / "config"
+            / "atlas"
+            / "major_regions_v1.csv"
+        )
+        try:
+            self.study_service.atlas_mapping.register_major_region_scheme(
+                mapping_path,
+                actor=self._reviewer_identity(),
+            )
+        except Exception as exc:
+            self._show_error(
+                "The proposed major-region scheme could not be registered.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id)
+        self.statusBar().showMessage(
+            "Proposed major_regions_v1 registered as DRAFT. Scientific approval is "
+            "required before regional results.",
+            11000,
+        )
+
+    def approve_major_region_scheme(
+        self,
+        subject_id: str,
+        scheme_id: str,
+        *,
+        return_page: str = "workspace",
+    ) -> None:
+        confirmation = QMessageBox.question(
+            self,
+            "Approve proposed major-region scheme?",
+            "Approve this exact checksummed source-label collapse as the study-wide "
+            "major_regions_v1 contract?\n\nThis is a scientific classification "
+            "decision, not an optimizer result.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.study_service.atlas_mapping.approve_major_region_scheme(
+                scheme_id, reviewer=self._reviewer_identity()
+            )
+        except Exception as exc:
+            self._show_error(
+                "The major-region scheme could not be approved.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id, return_page=return_page)
+
+    def import_t2_registration_support_mask(self, subject_id: str) -> None:
+        selected = QFileDialog.getOpenFileName(
+            self,
+            "Select T2 registration-support mask",
+            str(Path.home()),
+            "NIfTI images (*.nii *.nii.gz)",
+        )[0]
+        if not selected:
+            return
+        try:
+            self.study_service.atlas_mapping.import_t2_registration_support_mask(
+                subject_id,
+                Path(selected),
+                actor=self._reviewer_identity(),
+            )
+        except Exception as exc:
+            self._show_error(
+                "The T2 registration-support mask could not be imported.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id)
+        self.statusBar().showMessage(
+            "T2 registration-support mask imported as DRAFT; review is required.",
+            9000,
+        )
+
+    def approve_t2_registration_support_mask(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        return_page: str = "workspace",
+    ) -> None:
+        confirmation = QMessageBox.question(
+            self,
+            "Approve T2 registration-support mask?",
+            "Approve this exact whole-brain support mask for partial-T2 registration?"
+            "\n\nThe lesion mask is not used as the whole-brain support mask.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.study_service.atlas_mapping.approve_t2_registration_support_mask(
+                artifact_id, reviewer=self._reviewer_identity()
+            )
+        except Exception as exc:
+            self._show_error(
+                "The T2 registration-support mask could not be approved.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id, return_page=return_page)
+
+    def start_atlas_mapping_stage(self, subject_id: str, action: str) -> None:
+        if self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a persistent study before running atlas mapping."
+            )
+            return
+        if self._background_job_running():
+            self._show_status_message("Another MRI background job is already running.")
+            return
+        descriptions = {
+            "atlas_to_t1": (
+                "Run provisional rigid and affine atlas→pre-T1 candidates?",
+                "Both candidates and their QC remain DRAFT until one exact artifact "
+                "is selected and approved.",
+            ),
+            "t1_to_t2": (
+                "Run provisional rigid pre-T1→T2 registration?",
+                "The fixed image is the original T2. QC will be rendered for every "
+                "original T2 slice.",
+            ),
+            "composite": (
+                "Generate major-region labels on native T2?",
+                "Original atlas labels will be collapsed first and propagated directly "
+                "once through the approved transform composition.",
+            ),
+        }
+        if action not in descriptions:
+            return
+        title, detail = descriptions[action]
+        if action == "t1_to_t2" and self.current_study is not None:
+            subject = self.current_study.subject(subject_id)
+            pre = next(
+                (
+                    scan
+                    for scan in subject.inputs
+                    if scan.role_label == "Pre-Gd T1"
+                ),
+                None,
+            ) if subject is not None else None
+            t2 = next(
+                (scan for scan in subject.inputs if scan.role_label == "T2"),
+                None,
+            ) if subject is not None else None
+            detail += (
+                "\n\nConfirm this explicit pairing:\n"
+                f"Subject: {subject.label if subject is not None else subject_id}\n"
+                f"Pre-T1 session/timepoint: {pre.session_id if pre else 'missing'}\n"
+                f"T2 session/timepoint: {t2.session_id if t2 else 'missing'}"
+            )
+        confirmation = QMessageBox.question(
+            self,
+            title,
+            detail,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        thread = AtlasMappingThread(
+            self.study_service,
+            subject_id=subject_id,
+            action=action,
+            actor=self._reviewer_identity(),
+        )
+        thread.progress_changed.connect(self._show_atlas_mapping_progress)
+        thread.stage_completed.connect(self._atlas_mapping_completed)
+        thread.stage_failed.connect(self._atlas_mapping_failed)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_atlas_mapping_thread)
+        self._atlas_mapping_thread = thread
+        self._atlas_mapping_subject_id = subject_id
+        self._atlas_mapping_action = action
+        self._set_job_status("Atlas mapping running")
+        thread.start()
+
+    def _show_atlas_mapping_progress(
+        self, current: int, total: int, message: str
+    ) -> None:
+        self._set_job_status(f"Atlas mapping {current}/{total}")
+        self.statusBar().showMessage(message)
+
+    def _atlas_mapping_completed(self, _state) -> None:
+        subject_id = self._atlas_mapping_subject_id
+        if subject_id is not None:
+            self._refresh_atlas_mapping(subject_id)
+        self.statusBar().showMessage(
+            "Atlas stage completed as DRAFT. Inspect the required QC before approval.",
+            12000,
+        )
+
+    def _atlas_mapping_failed(self, error: str) -> None:
+        subject_id = self._atlas_mapping_subject_id
+        if subject_id is not None:
+            self._refresh_atlas_mapping(subject_id)
+        self._show_error("The atlas-mapping stage did not complete.", StudyStateError(error))
+
+    def _clear_atlas_mapping_thread(self) -> None:
+        self._atlas_mapping_thread = None
+        self._atlas_mapping_subject_id = None
+        self._atlas_mapping_action = None
+        self._set_job_status()
+
+    def approve_atlas_to_t1(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        return_page: str = "workspace",
+    ) -> None:
+        confirmation = QMessageBox.question(
+            self,
+            "Select and approve atlas→pre-T1 candidate?",
+            "Approve this exact transform, warped intensity, metadata, and QC hashes?"
+            "\n\nOptimizer success alone is not approval.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.study_service.atlas_mapping.approve_atlas_to_t1_candidate(
+                artifact_id, reviewer=self._reviewer_identity()
+            )
+        except Exception as exc:
+            self._show_error(
+                "The atlas→pre-T1 candidate could not be approved.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id, return_page=return_page)
+
+    def approve_atlas_t1_to_t2(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        return_page: str = "workspace",
+    ) -> None:
+        confirmation = QMessageBox.question(
+            self,
+            "Approve rigid pre-T1→T2 registration?",
+            "Approve this exact rigid transform after inspecting all original T2 slices?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.study_service.atlas_mapping.approve_t1_to_t2(
+                artifact_id, reviewer=self._reviewer_identity()
+            )
+        except Exception as exc:
+            self._show_error(
+                "The rigid pre-T1→T2 mapping could not be approved.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id, return_page=return_page)
+
+    def approve_atlas_composite(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        *,
+        return_page: str = "workspace",
+    ) -> None:
+        confirmation = QMessageBox.question(
+            self,
+            "Approve major labels on native T2?",
+            "Approve this exact composite after inspecting major-region boundaries and "
+            "the native lesion on every original T2 slice?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.study_service.atlas_mapping.approve_composite(
+                artifact_id, reviewer=self._reviewer_identity()
+            )
+        except Exception as exc:
+            self._show_error(
+                "The composite labels could not be approved.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id, return_page=return_page)
+
+    def calculate_atlas_result(self, subject_id: str) -> None:
+        try:
+            self.study_service.atlas_mapping.calculate_result(
+                subject_id, actor=self._reviewer_identity()
+            )
+        except Exception as exc:
+            self._show_error(
+                "The approved major-region overlap could not be calculated.",
+                StudyStateError(str(exc)),
+            )
+            return
+        self._refresh_atlas_mapping(subject_id)
+        self.statusBar().showMessage(
+            "Approved native-grid overlap and ±0.5 mm AP sensitivity saved.",
+            10000,
+        )
+
+    def _refresh_atlas_mapping(
+        self, subject_id: str, *, return_page: str = "workspace"
+    ) -> None:
+        snapshot = self.study_service.current_study
+        if snapshot is None:
+            return
+        self._set_study(present_study(snapshot), page_key=return_page)
+        if return_page == "reviews":
+            self.reviews_page.focus_subject(subject_id)
+            return
+        self.open_subject(subject_id)
+        self.workspace_page.tabs.setCurrentWidget(
+            self.workspace_page.atlas_mapping_panel
+        )
 
     def select_t2_model_release(self) -> bool:
         if self.current_study is None or self.study_service.current_study is None:
@@ -993,7 +1739,20 @@ class MainWindow(QMainWindow):
         *,
         return_page: str = "reviews",
     ) -> None:
-        if self._review_workflow_key(artifact_id) == "t1_brain_mask":
+        workflow_key = self._review_workflow_key(artifact_id)
+        if workflow_key.startswith("atlas_"):
+            self._show_status_message(
+                "Atlas mappings are reviewed from their immutable QC and cannot be "
+                "manually edited as lesion masks."
+            )
+            return
+        if workflow_key == "t1_registration":
+            self._show_status_message(
+                "Registrations are reviewed from their QC bundle and cannot be "
+                "manually edited as masks."
+            )
+            return
+        if workflow_key == "t1_brain_mask":
             self.manually_edit_t1_brain_mask(
                 subject_id,
                 artifact_id,
@@ -1013,7 +1772,40 @@ class MainWindow(QMainWindow):
         *,
         return_page: str = "reviews",
     ) -> None:
-        if self._review_workflow_key(artifact_id) == "t1_brain_mask":
+        workflow_key = self._review_workflow_key(artifact_id)
+        if workflow_key == "atlas_scheme":
+            self.approve_major_region_scheme(
+                subject_id, artifact_id, return_page=return_page
+            )
+            return
+        if workflow_key == "atlas_t2_support":
+            self.approve_t2_registration_support_mask(
+                subject_id, artifact_id, return_page=return_page
+            )
+            return
+        if workflow_key == "atlas_to_t1":
+            self.approve_atlas_to_t1(
+                subject_id, artifact_id, return_page=return_page
+            )
+            return
+        if workflow_key == "atlas_t1_to_t2":
+            self.approve_atlas_t1_to_t2(
+                subject_id, artifact_id, return_page=return_page
+            )
+            return
+        if workflow_key == "atlas_composite":
+            self.approve_atlas_composite(
+                subject_id, artifact_id, return_page=return_page
+            )
+            return
+        if workflow_key == "t1_registration":
+            self.approve_t1_registration(
+                subject_id,
+                artifact_id,
+                return_page=return_page,
+            )
+            return
+        if workflow_key == "t1_brain_mask":
             self.approve_t1_brain_mask(
                 subject_id,
                 artifact_id,
@@ -1031,7 +1823,12 @@ class MainWindow(QMainWindow):
         subject_id: str,
         artifact_id: str,
     ) -> None:
-        if self._review_workflow_key(artifact_id) == "t1_brain_mask":
+        workflow_key = self._review_workflow_key(artifact_id)
+        if workflow_key.startswith("atlas_"):
+            return
+        if workflow_key == "t1_registration":
+            return
+        if workflow_key == "t1_brain_mask":
             self.prepare_t1_brain_mask_review_qc_slices(subject_id, artifact_id)
             return
         self.prepare_t2_review_qc_slices(subject_id, artifact_id)
@@ -1658,6 +2455,18 @@ class MainWindow(QMainWindow):
             or (
                 self._t1_brain_mask_thread is not None
                 and self._t1_brain_mask_thread.isRunning()
+            )
+            or (
+                self._t1_registration_thread is not None
+                and self._t1_registration_thread.isRunning()
+            )
+            or (
+                self._t1_enhancement_thread is not None
+                and self._t1_enhancement_thread.isRunning()
+            )
+            or (
+                self._atlas_mapping_thread is not None
+                and self._atlas_mapping_thread.isRunning()
             )
         )
 

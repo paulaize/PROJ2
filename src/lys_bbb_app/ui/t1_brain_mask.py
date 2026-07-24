@@ -147,7 +147,7 @@ class T1BrainMaskPanel(QWidget):
         )
         self.run_subject.setToolTip(subject.t1_brain_mask_blocked_reason or "")
         self.readiness.setText(
-            "Ready to generate an automatic draft. Human review will still be required."
+            "Ready to generate a draft. Human review will still be required."
             if subject.can_run_t1_brain_mask
             else subject.t1_brain_mask_blocked_reason
             or "This subject is not ready for T1 brain-mask generation."

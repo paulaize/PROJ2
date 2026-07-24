@@ -13,12 +13,18 @@ Subject
 │   native T2 ── frozen release ──> draft mask ── human approval
 │                                  └─────────────> native lesion volume
 │
+├── Major-region Atlas Mapping
+│   AIDAmri MRI/Allen ── approved atlas→pre transform ──> native pre-Gd T1
+│   native pre-Gd T1 ── approved rigid transform ───────> original native T2
+│   untouched native lesion + approved major labels ───> regional overlap
+│
 └── Combined MRI Results
     approved/provisional values + method version + explicit missingness
 ```
 
 Native pre-Gd T1 is the T1 reference. Native T2 is the lesion-volume reference. T2-to-T1
-registration is not a dependency of the MVP lesion volume.
+registration is not a dependency of the MVP lesion volume. Post→pre T1 is not a
+dependency of atlas mapping. The only atlas composition is atlas→pre-T1→native-T2.
 
 ## Repository ownership
 
@@ -96,11 +102,13 @@ Each scientific artifact/result should record:
 
 ## Canonical and transitional state
 
-Schema-v10 `StudyRepository` state is canonical for new desktop studies. It owns studies,
+Schema-v11 `StudyRepository` state is canonical for new desktop studies. It owns studies,
 subjects, input versions, validation, T2 model releases/jobs/artifacts/results, T1
 brain-mask releases/jobs/artifacts/approvals, T1 registration methods/jobs/artifacts/
 approvals, provisional enhancement methods/jobs/results, blinding/groups, and audit
-events. The T1 tables are feature-specific because their approval and dependency
+events, plus feature-specific atlas releases, major-region schemes, atlas/T2 mappings,
+composites, reviews, and results. The T1 and atlas tables are feature-specific because
+their approval and dependency
 contracts differ from the T2 ensemble and measured result. Presenters merge reviewable
 feature state into the same application presentation layer.
 
@@ -110,8 +118,9 @@ it is not a second production service or database and must not receive new featu
 
 CSV manifests in the repository-development workflow remain scientific-validation
 handoffs. Desktop T1 processing uses canonical study state through services. The
-registration and enhancement run/review controls are not yet exposed in the UI, while
-the enhancement measurement itself remains scientifically provisional.
+registration and enhancement run/review controls are connected through the subject
+workspace and general Reviews queue, while the enhancement measurement itself remains
+scientifically provisional.
 
 The T1 brain-mask slice uses `lys_bbb.t1_brain_mask_review` for native-grid binary-mask
 validation, `T1BrainMaskReviewService` for managed correction/approval, and a feature
@@ -126,6 +135,13 @@ recompute registration. It calls the typed `FlashPairRequest` backend directly; 
 argument parser is retained only as a compatibility adapter for CLI and cohort callers.
 Its outputs remain explicitly `PROVISIONAL` and are invalidated when the source input,
 mask, registration, or active method changes.
+
+`lys_bbb.atlas_release`, `atlas_registration`, `t1_t2_registration`, `atlas_mapping`,
+and `atlas_qc` own the Qt-free atlas slice. `AtlasMappingService` is the application
+orchestrator; it does not reuse the post→pre table or turn `StudyService` into a generic
+workflow engine. The app stores every candidate separately and binds reviews to exact
+hashes. The major-region scheme approval is study-wide; transform/composite approvals
+are subject-specific and appear in the existing Reviews queue.
 
 ## Storage
 

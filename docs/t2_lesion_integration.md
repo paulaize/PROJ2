@@ -10,6 +10,11 @@ exports.
 The application never trains, tunes, chooses, or silently updates a T2 model and never
 imports Python from the live sibling checkout.
 
+The approved native lesion artifact can be consumed by atlas mapping, but it remains on
+the original T2 grid and is never a whole-brain registration mask. Changing it always
+invalidates regional overlap; it also invalidates pre-T1→T2 and the composite only when
+that exact lesion checksum was explicitly used for cost-function exclusion.
+
 ## Current frozen release
 
 Development workstation location:
@@ -120,8 +125,8 @@ value by default and requires audited unblinding before adding group columns.
 
 ## Deferred
 
-- T2-to-T1 registration and lesion-associated enhancement.
-- Atlas mapping and regional quantification.
+- Lesion-associated T1 enhancement.
+- Detailed Allen labels, Waxholm comparison, and cohort atlas exports.
 - Embedded mask editing.
 - Model release marketplaces or arbitrary parameter editing.
 

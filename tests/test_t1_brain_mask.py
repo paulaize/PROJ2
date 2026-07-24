@@ -1,5 +1,9 @@
 import json
+import os
 from pathlib import Path
+import signal
+import sys
+import time
 
 import nibabel as nib
 import numpy as np
@@ -8,6 +12,10 @@ import pytest
 from lys_bbb.t1_brain_mask import (
     _patch_rs2_mps_tta,
     _patch_rs2_runtime,
+    _patch_rs2_single_process,
+    _preserve_failed_rs2_log,
+    _run_logged_subprocess,
+    _select_device,
     build_t1_brain_mask_draft,
     native_to_rsa,
     rsa_to_native,
@@ -121,3 +129,113 @@ def test_rs2_mps_tta_patch_keeps_all_eight_mirrors(tmp_path: Path) -> None:
     assert "forward((2, 3, 4))" in patched
     assert "torch.mps.synchronize()" in patched
     assert "empty_cache(x.device)" in patched
+    assert "RS2 TTA pass {completed_predictions}/{num_predictions} complete" in patched
+
+
+def test_auto_device_uses_bounded_mps_for_exact_tta(monkeypatch) -> None:
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
+
+    assert _select_device("auto", exact_tta=True) == "mps"
+
+
+def test_rs2_single_process_patch_removes_per_case_worker_pools(
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "predict.py"
+    source_path.write_text(
+        "import inspect\n"
+        "from batchgenerators.dataloading.multi_threaded_augmenter import "
+        "MultiThreadedAugmenter\n"
+        "    mta = MultiThreadedAugmenter(ppa, NumpyToTensor(), num_processes, "
+        "1, None, pin_memory=device.type == 'cuda',\n"
+        "                                 timeout=1)\n"
+        "    with multiprocessing.get_context(\"spawn\").Pool("
+        "num_processes_segmentation_export) as export_pool:\n"
+        "        r = []\n"
+        "                r.append(\n"
+        "                    export_pool.starmap_async(\n"
+        "                        export_prediction_from_sigmoid, ((prediction, "
+        "properties, configuration_manager, plans_manager,\n"
+        "                                                          dataset_json, "
+        "ofile, save_probabilities),)\n"
+        "                    )\n"
+        "                )\n"
+        "                print(f'done with {os.path.basename(ofile)}')\n"
+        "        [i.get() for i in r]\n"
+    )
+
+    _patch_rs2_single_process(source_path)
+    _patch_rs2_single_process(source_path)
+
+    patched = source_path.read_text()
+    assert "SingleThreadedAugmenter(ppa, NumpyToTensor())" in patched
+    assert "with nullcontext(None) as export_pool" in patched
+    assert "export_pool.starmap_async" not in patched
+    assert "export_prediction_from_sigmoid(" in patched
+    assert "[i.get() for i in r]" not in patched
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group behavior is POSIX-only")
+def test_rs2_parent_failure_does_not_wait_for_orphaned_stdout(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "rs2.log"
+    script = (
+        "import os, signal, subprocess, sys; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); "
+        "print('spawned orphan', flush=True); "
+        "os.kill(os.getpid(), signal.SIGKILL)"
+    )
+
+    started = time.monotonic()
+    return_code = _run_logged_subprocess(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        environment=os.environ.copy(),
+        log_path=log_path,
+        timeout_seconds=5.0,
+    )
+
+    assert return_code == -signal.SIGKILL
+    assert time.monotonic() - started < 3.0
+    assert "spawned orphan" in log_path.read_text()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group behavior is POSIX-only")
+def test_rs2_timeout_terminates_process_group(tmp_path: Path) -> None:
+    started = time.monotonic()
+
+    with pytest.raises(RuntimeError, match="safety timeout"):
+        _run_logged_subprocess(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            cwd=tmp_path,
+            environment=os.environ.copy(),
+            log_path=tmp_path / "timeout.log",
+            timeout_seconds=0.1,
+        )
+
+    assert time.monotonic() - started < 3.0
+
+
+def test_failed_rs2_log_is_preserved_outside_temporary_workdir(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "cases" / "subject-id"
+    output_root.parent.mkdir()
+    temporary_log = tmp_path / "work" / "rs2.log"
+    temporary_log.parent.mkdir()
+    temporary_log.write_text("failure detail\n")
+
+    preserved = _preserve_failed_rs2_log(
+        temporary_log,
+        output_root,
+        "subject-id",
+    )
+
+    assert preserved == tmp_path / "cases" / "subject-id_rs2_failed.log"
+    assert preserved.read_text() == "failure detail\n"
+    with pytest.raises(FileExistsError, match="Refusing to overwrite"):
+        _preserve_failed_rs2_log(temporary_log, output_root, "subject-id")

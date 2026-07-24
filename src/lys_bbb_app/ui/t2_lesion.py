@@ -161,10 +161,9 @@ class T2LesionPanel(QScrollArea):
         )
         self.run_subject.setToolTip(subject.t2_inference_blocked_reason or "")
         self.readiness.setText(
-            "The T2 input is ready. Select the frozen model release to continue."
+            "The T2 input is ready. Select the frozen release to continue."
             if subject.can_run_t2_inference and subject.t2_release_label is None
-            else "Ready to run the frozen ensemble. The existing draft will be preserved as "
-            "an older version."
+            else "Ready to run the frozen ensemble. The existing draft will be preserved."
             if subject.can_run_t2_inference and subject.t2_artifact is not None
             else "Ready to run the frozen ensemble on this validated native T2."
             if subject.can_run_t2_inference

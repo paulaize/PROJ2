@@ -16,9 +16,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from lys_bbb_app.domain.atlas_mapping import AtlasMappingState
 from lys_bbb_app.domain.view_models import SubjectViewModel
+from lys_bbb_app.ui.atlas_mapping import AtlasMappingPanel
 from lys_bbb_app.ui.layout_helpers import clear_layout
 from lys_bbb_app.ui.subject_inputs import SubjectInputsPanel
+from lys_bbb_app.ui.t1_analysis import T1AnalysisPanel
 from lys_bbb_app.ui.t1_brain_mask import T1BrainMaskPanel
 from lys_bbb_app.ui.t2_lesion import T2LesionPanel
 from lys_bbb_app.ui.widgets import (
@@ -46,6 +49,21 @@ class SubjectWorkspacePage(QScrollArea):
     t1_brain_mask_run_requested = Signal(str)
     t1_brain_mask_manual_edit_requested = Signal(str, str)
     t1_brain_mask_approve_requested = Signal(str, str)
+    t1_registration_run_requested = Signal(str)
+    t1_registration_approve_requested = Signal(str, str)
+    t1_enhancement_run_requested = Signal(str)
+    atlas_resource_requested = Signal(str)
+    atlas_scheme_register_requested = Signal(str)
+    atlas_scheme_approve_requested = Signal(str, str)
+    atlas_support_mask_import_requested = Signal(str)
+    atlas_support_mask_approve_requested = Signal(str, str)
+    atlas_to_t1_run_requested = Signal(str)
+    atlas_to_t1_approve_requested = Signal(str, str)
+    t1_to_t2_run_requested = Signal(str)
+    t1_to_t2_approve_requested = Signal(str, str)
+    atlas_composite_create_requested = Signal(str)
+    atlas_composite_approve_requested = Signal(str, str)
+    atlas_result_calculate_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -95,7 +113,7 @@ class SubjectWorkspacePage(QScrollArea):
         next_action_layout.setSpacing(18)
         next_action_copy = QVBoxLayout()
         next_action_copy.setSpacing(3)
-        next_action_label = QLabel("NEXT ACTION")
+        next_action_label = QLabel("Primary action")
         next_action_label.setObjectName("metadata")
         self.next_action_title = QLabel()
         self.next_action_title.setObjectName("cardTitle")
@@ -129,7 +147,7 @@ class SubjectWorkspacePage(QScrollArea):
         workflow_layout.addLayout(self.t2_status_layout)
         self.layout.addWidget(self.workflow_summary)
 
-        self.technical_details = CollapsibleSection("Technical subject details")
+        self.technical_details = CollapsibleSection("Technical details")
         self.metadata_layout = self.technical_details.content_layout
         self.metadata_value_labels: list[ElidedLabel] = []
         self.layout.addWidget(self.technical_details)
@@ -157,6 +175,16 @@ class SubjectWorkspacePage(QScrollArea):
         self.t1_brain_mask_panel.approve_requested.connect(
             self.t1_brain_mask_approve_requested.emit
         )
+        self.t1_analysis_panel = T1AnalysisPanel()
+        self.t1_analysis_panel.run_registration_requested.connect(
+            self.t1_registration_run_requested.emit
+        )
+        self.t1_analysis_panel.approve_registration_requested.connect(
+            self.t1_registration_approve_requested.emit
+        )
+        self.t1_analysis_panel.run_enhancement_requested.connect(
+            self.t1_enhancement_run_requested.emit
+        )
         self.t2_panel = T2LesionPanel()
         self.t2_panel.select_release_requested.connect(self.t2_release_requested.emit)
         self.t2_panel.run_subject_requested.connect(self.t2_run_subject_requested.emit)
@@ -165,10 +193,49 @@ class SubjectWorkspacePage(QScrollArea):
             self.t2_manual_edit_requested.emit
         )
         self.t2_panel.approve_requested.connect(self.t2_approve_requested.emit)
+        self.atlas_mapping_panel = AtlasMappingPanel()
+        self.atlas_mapping_panel.configure_resource_requested.connect(
+            self.atlas_resource_requested.emit
+        )
+        self.atlas_mapping_panel.register_scheme_requested.connect(
+            self.atlas_scheme_register_requested.emit
+        )
+        self.atlas_mapping_panel.approve_scheme_requested.connect(
+            self.atlas_scheme_approve_requested.emit
+        )
+        self.atlas_mapping_panel.import_support_mask_requested.connect(
+            self.atlas_support_mask_import_requested.emit
+        )
+        self.atlas_mapping_panel.approve_support_mask_requested.connect(
+            self.atlas_support_mask_approve_requested.emit
+        )
+        self.atlas_mapping_panel.run_atlas_to_t1_requested.connect(
+            self.atlas_to_t1_run_requested.emit
+        )
+        self.atlas_mapping_panel.approve_atlas_to_t1_requested.connect(
+            self.atlas_to_t1_approve_requested.emit
+        )
+        self.atlas_mapping_panel.run_t1_to_t2_requested.connect(
+            self.t1_to_t2_run_requested.emit
+        )
+        self.atlas_mapping_panel.approve_t1_to_t2_requested.connect(
+            self.t1_to_t2_approve_requested.emit
+        )
+        self.atlas_mapping_panel.create_composite_requested.connect(
+            self.atlas_composite_create_requested.emit
+        )
+        self.atlas_mapping_panel.approve_composite_requested.connect(
+            self.atlas_composite_approve_requested.emit
+        )
+        self.atlas_mapping_panel.calculate_result_requested.connect(
+            self.atlas_result_calculate_requested.emit
+        )
         self.history_list = QListWidget()
         self.tabs.addTab(self.inputs_panel, "Inputs")
         self.tabs.addTab(self.t1_brain_mask_panel, "T1 Brain Mask")
+        self.tabs.addTab(self.t1_analysis_panel, "T1 Registration & Result")
         self.tabs.addTab(self.t2_panel, "T2 Lesion")
+        self.tabs.addTab(self.atlas_mapping_panel, "Atlas Mapping")
         self.tabs.addTab(self.history_list, "History")
         self.tabs.setMinimumHeight(390)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -181,7 +248,9 @@ class SubjectWorkspacePage(QScrollArea):
         self._refresh_subject_subtitle()
         self.inputs_panel.set_subject(subject)
         self.t1_brain_mask_panel.set_subject(subject)
+        self.t1_analysis_panel.set_subject(subject)
         self.t2_panel.set_subject(subject)
+        self.atlas_mapping_panel.set_subject(subject, None)
         self.technical_details.set_expanded(False)
 
         clear_layout(self.t1_status_layout)
@@ -193,9 +262,6 @@ class SubjectWorkspacePage(QScrollArea):
         clear_layout(self.metadata_layout)
         self.metadata_value_labels.clear()
         metadata_header = QHBoxLayout()
-        metadata_title = QLabel("Stored subject information")
-        metadata_title.setObjectName("cardTitle")
-        metadata_header.addWidget(metadata_title)
         metadata_header.addStretch()
         metadata_header.addWidget(StatusBadge(subject.overall))
         self.metadata_layout.addLayout(metadata_header)
@@ -216,6 +282,10 @@ class SubjectWorkspacePage(QScrollArea):
         self.history_list.clear()
         self.history_list.addItems(subject.history or ("No history recorded.",))
 
+    def set_atlas_mapping_state(self, state: AtlasMappingState | None) -> None:
+        if self.current_subject is not None:
+            self.atlas_mapping_panel.set_subject(self.current_subject, state)
+
     def _set_next_action(self, subject: SubjectViewModel) -> None:
         action = subject.next_action
         self.next_action_title.setText(action.label)
@@ -234,11 +304,11 @@ class SubjectWorkspacePage(QScrollArea):
             self.next_action_button.setText("Open inputs")
             detail = "Review the affected scan and replace it if needed."
         elif subject.brain_mask.kind == "review":
-            self._next_action_code = "t1"
+            self._next_action_code = "t1_mask"
             detail = "Inspect the current mask, correct it if needed, then approve it."
         elif subject.registration.kind == "review":
-            self._next_action_code = "t1"
-            self.next_action_button.setText("Open T1 workflow")
+            self._next_action_code = "t1_analysis"
+            self.next_action_button.setText("Review registration")
             detail = "The registered post-Gd image is awaiting explicit review."
         elif subject.t2_lesion.kind == "review":
             self._next_action_code = "t2"
@@ -255,10 +325,15 @@ class SubjectWorkspacePage(QScrollArea):
         elif action.label == "Run T2 segmentation":
             self._next_action_code = "run_t2"
             detail = "Generate a lesion-mask draft for explicit human review."
-        elif action.label in {"Run T1 registration", "Calculate T1 enhancement"}:
-            self._next_action_code = "t1"
-            self.next_action_button.setText("Open T1 workflow")
-            detail = "The subject is ready for the next T1 analysis step."
+        elif action.label == "Run T1 registration":
+            self._next_action_code = "run_t1_registration"
+            detail = "Register post-Gd T1 to native pre-Gd space for explicit review."
+        elif action.label == "Calculate T1 enhancement":
+            self._next_action_code = "run_t1_enhancement"
+            detail = "Calculate an explicitly provisional result from approved inputs."
+        elif action.label == "View provisional T1 result":
+            self._next_action_code = "t1_analysis"
+            detail = "Inspect the provisional value, QC, and method status."
         elif action.kind == "processing":
             self._next_action_code = "none"
             detail = "The current background operation must finish before continuing."
@@ -282,14 +357,20 @@ class SubjectWorkspacePage(QScrollArea):
             self.input_validation_requested.emit(subject.subject_id)
         elif self._next_action_code == "inputs":
             self._show_inputs()
-        elif self._next_action_code == "t1":
-            self._show_t1()
+        elif self._next_action_code == "t1_mask":
+            self._show_t1_mask()
+        elif self._next_action_code == "t1_analysis":
+            self._show_t1_analysis()
         elif self._next_action_code == "t2":
             self._show_t2()
         elif self._next_action_code == "select_t1":
             self.t1_brain_mask_release_requested.emit()
         elif self._next_action_code == "run_t1":
             self.t1_brain_mask_run_requested.emit(subject.subject_id)
+        elif self._next_action_code == "run_t1_registration":
+            self.t1_registration_run_requested.emit(subject.subject_id)
+        elif self._next_action_code == "run_t1_enhancement":
+            self.t1_enhancement_run_requested.emit(subject.subject_id)
         elif self._next_action_code == "select_t2":
             self.t2_release_requested.emit()
         elif self._next_action_code == "run_t2":
@@ -324,5 +405,8 @@ class SubjectWorkspacePage(QScrollArea):
     def _show_t2(self) -> None:
         self.tabs.setCurrentWidget(self.t2_panel)
 
-    def _show_t1(self) -> None:
+    def _show_t1_mask(self) -> None:
         self.tabs.setCurrentWidget(self.t1_brain_mask_panel)
+
+    def _show_t1_analysis(self) -> None:
+        self.tabs.setCurrentWidget(self.t1_analysis_panel)

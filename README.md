@@ -1,32 +1,34 @@
 # LYS BBB MRI
 
 LYS BBB is a subject-centred desktop application and scientific backend for mouse MRI.
-It owns two workflows:
+It owns three connected workflows:
 
 ```text
 T1: pre/post import → brain-mask review → registration review → enhancement
 T2: native T2 → frozen-model draft mask → human review → lesion volume
+Atlas: AIDAmri MRI/Allen → pre-T1 → native T2 → major-region lesion overlap
 ```
 
 The repository is a working development checkpoint, not a finished scientific product.
 The desktop application completes the reviewed T2 path through an approved native-space
 lesion volume and CSV export. T1 mask review is connected to the desktop study. T1
 registration and provisional enhancement now have typed backends, persistent jobs,
-exact dependency records, approval/invalidation state, and subject-result presentation;
-their run/review controls and scientific validation are still incomplete.
+exact dependency records, approval/invalidation state, connected desktop controls, and
+subject-result presentation. A provisional atlas-mapping vertical slice now adds native
+ANTs registration, staged review, direct major-label propagation, native-lesion overlap,
+and restart-safe state. Real-case T1/atlas smoke testing and scientific validation remain.
 
 ## Immediate goal
 
-Development is frozen horizontally. The next goal is to smoke-test the T1 mask path on
-a real case, then expose the existing registration and provisional-enhancement service
-actions inside the current workspace and Reviews page:
+Atlas scope was explicitly authorized for this milestone. The next goal is to smoke-test
+the connected atlas path on one explicitly matched real case:
 
-> Approve the exact native pre-Gd brain mask, review and approve the durable post-to-pre
-> registration, calculate provisional enhancement from that exact artifact, and recover
-> the same dependency state after reopening.
+> Confirm the exact app subject/session pairing, approve the exact native pre-Gd brain
+> mask and T2 support mask, review atlas→pre and pre→T2 independently, approve the
+> native-T2 composite, calculate only major-region overlap, and reopen unchanged.
 
-Do not add unrelated pages, modalities, models, atlas features, or general-purpose
-framework code before that smoke test passes.
+Do not add unrelated pages, modalities, models, detailed atlas outputs, Waxholm
+comparators, SyN tuning, or general-purpose framework code before that smoke test passes.
 
 ## Repository ownership
 
@@ -82,6 +84,7 @@ and writes derived files under the chosen study root; it does not overwrite sour
 | Frozen T2 release and review handoff | [T2 lesion integration](docs/t2_lesion_integration.md) |
 | Current T1 mask decision and review rules | [T1 brain extraction](docs/brain_extraction.md) |
 | Meaning and limitations of T1 measurements | [Enhancement quantification](docs/enhancement_quantification.md) |
+| AIDAmri atlas mapping, approvals, and remaining validation | [Atlas mapping](docs/atlas_mapping.md) |
 | Commands and developer workflow | [Development guide](docs/development.md) |
 
 `AGENT.md` is the compact operating brief for coding agents. It should point to these

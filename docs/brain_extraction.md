@@ -62,8 +62,9 @@ conda run --no-capture-output -n lys-bbb lys-bbb-t1-mask \
 ```
 
 The reviewed method uses eight-way test-time mirroring. In `auto` mode it uses CUDA when
-available and otherwise CPU, because exact eight-way TTA exceeded the tested M1's MPS
-memory. For a faster local draft variant, explicitly use:
+available, otherwise the bounded-memory MPS adapter on Apple Silicon, and CPU only as a
+fallback. The MPS adapter transfers each completed mirrored prediction to CPU and clears
+the Metal cache before the next pass. For a faster local draft variant, explicitly use:
 
 ```bash
 conda run --no-capture-output -n lys-bbb lys-bbb-t1-mask \
@@ -80,10 +81,32 @@ runtime, the tested M1 completed one case in approximately 83 seconds. Its raw m
 Dice 0.980 against the Colab TTA mask for that case, which is useful compatibility
 evidence but not equivalence.
 
+The desktop application intentionally runs this explicit no-TTA variant as its normal
+interactive draft generator. This decision was made on 2026-07-22 because exact
+eight-way MPS inference made the 8 GB development Mac unusable during a run. The app
+records a distinct no-TTA method version and specification hash in the durable job and
+artifact; it does not rewrite the installed release identity or any earlier exact-TTA
+artifact. Exact TTA remains available through the command-line backend for controlled
+comparison or unattended batch execution.
+
 The command never overwrites its output directory. It preserves raw RS2 and the final
 draft as separate native-grid masks and writes a QC PNG, change masks, checksums, method
 settings, regularity results, and `metadata.json`. A Metal or MPS memory error in the log
 invalidates the run even if the upstream process returns success.
+
+For the one-case desktop invocation, the temporary reviewed-source copy performs the
+same preprocessing and export functions sequentially instead of spawning additional
+torch-bearing workers. This bounds RAM on 8 GB Macs without changing the release,
+or weights. The app separately and explicitly disables TTA as described above. RS2 runs
+in an isolated process group with unbuffered file logging and a 30-minute safety timeout.
+A failed parent cannot leave a child holding the application open; descendants are
+terminated, the durable job becomes `FAILED`, and the failure log is preserved beside
+the case output target.
+
+On 2026-07-22, an exact eight-way MPS smoke run on the validated `C23S3_D1` pre-T1
+completed in approximately seven minutes on the development Mac. It produced an
+unapproved draft and three regularity warnings, so that timing proof is not anatomical
+approval.
 
 To apply the selected refinement to an existing raw RS2 output without rerunning the
 network:
@@ -175,6 +198,15 @@ brain, brainstem, anterior/posterior endpoints, and every regularity warning. Ap
 must record reviewer, time, source prediction, correction method, and checksum.
 
 A legacy `_done` filename is not approval.
+
+## Atlas MVP mask policy
+
+Atlas registration reuses only the exact current reviewed/approved RS2/M-seam pre-T1
+mask bound to the source T1 checksum. It does not invoke AIDAmri/FSL BET,
+`antsBrainExtraction.sh`, or silently substitute another extraction. The AIDAmri
+template has a separate checksummed registration-support mask. Partial-T2 registration
+requires its own reviewed support mask or an explicitly versioned future unmasked
+method; the T2 lesion mask is never treated as whole-brain support.
 
 ## Selection criteria
 

@@ -362,7 +362,7 @@ class SubjectsPage(QWidget):
         self.open_mri = secondary_button("Open MRI in ITK-SNAP")
         self.open_mri.setEnabled(False)
         self.open_mri.clicked.connect(self._open_selected_mri)
-        self.validate_selected = QPushButton("Validate converted MRI")
+        self.validate_selected = QPushButton("Validate selected conversion")
         self.validate_selected.setEnabled(False)
         self.validate_selected.clicked.connect(self._validate_selected)
         self.flip_subjects = secondary_button("Create flipped versions…")
@@ -449,6 +449,9 @@ class SubjectsPage(QWidget):
             one_subject is not None and one_subject.mri_input_count > 0
         )
         self.validate_selected.setEnabled(
+            one_subject is not None and one_subject.needs_input_validation
+        )
+        self.validate_selected.setVisible(
             one_subject is not None and one_subject.needs_input_validation
         )
         self.validate_selected.setToolTip(
@@ -545,10 +548,10 @@ class ResultsPage(QScrollArea):
         results_layout.addWidget(result_title)
 
         controls = QHBoxLayout()
-        self.approved_only = QCheckBox("Show subjects with at least one approved result")
+        self.approved_only = QCheckBox("Show approved results only")
         controls.addWidget(self.approved_only)
         controls.addStretch()
-        self.show_method_details = QCheckBox("Show method details")
+        self.show_method_details = QCheckBox("Show technical details")
         controls.addWidget(self.show_method_details)
         results_layout.addLayout(controls)
 
@@ -568,7 +571,7 @@ class ResultsPage(QScrollArea):
         self.results_stack.setMinimumHeight(214)
         self.results_empty = EmptyState(
             "No subject results yet",
-            "Measurements will appear after a scientific workflow produces them.",
+            "Run a workflow to generate results.",
             embedded=True,
         )
         self.results_stack.addWidget(self.table)
@@ -585,7 +588,7 @@ class ResultsPage(QScrollArea):
         export_layout = QVBoxLayout(self.export_card)
         export_layout.setContentsMargins(14, 14, 14, 14)
         export_layout.setSpacing(10)
-        export_title = QLabel("Approved exports")
+        export_title = QLabel("Exports")
         export_title.setObjectName("cardTitle")
         export_layout.addWidget(export_title)
         self.approved_csv = QPushButton("Export approved T2 results CSV…")

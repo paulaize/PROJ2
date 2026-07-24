@@ -29,6 +29,9 @@ from lys_bbb_app.infrastructure.database_support import (
     utc_now,
 )
 from lys_bbb_app.infrastructure.t2_review_repository import invalidate_t2_results
+from lys_bbb_app.infrastructure.atlas_mapping_repository import (
+    invalidate_atlas_for_lesion_change,
+)
 
 
 ARTIFACT_TYPE = T2_LESION_MASK_ARTIFACT_TYPE
@@ -367,6 +370,13 @@ def complete_job(
                         reason="A new automatic T2 lesion mask was generated.",
                         changed_at=now,
                     )
+                    invalidated_atlas = invalidate_atlas_for_lesion_change(
+                        connection,
+                        subject_id=draft.subject_id,
+                        lesion_artifact_id=previous["id"] if previous is not None else None,
+                        reason="A new automatic T2 lesion mask was generated.",
+                        changed_at=now,
+                    )
                     connection.execute(
                         "UPDATE subjects SET updated_at = ? WHERE id = ?",
                         (now, draft.subject_id),
@@ -386,6 +396,7 @@ def complete_job(
                             "mask_sha256": draft.mask_sha256,
                             "human_review_required": True,
                             "results_invalidated": invalidated_results,
+                            "atlas_mapping_invalidated": invalidated_atlas,
                         },
                         created_at=now,
                     )

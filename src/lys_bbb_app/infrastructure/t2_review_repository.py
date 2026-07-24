@@ -29,6 +29,9 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study,
     utc_now,
 )
+from lys_bbb_app.infrastructure.atlas_mapping_repository import (
+    invalidate_atlas_for_lesion_change,
+)
 
 
 class StudyDatabaseContext(Protocol):
@@ -162,6 +165,13 @@ def create_corrected_t2_artifact(
                     reason="A corrected T2 lesion mask was imported.",
                     changed_at=now,
                 )
+                invalidated_atlas = invalidate_atlas_for_lesion_change(
+                    connection,
+                    subject_id=draft.subject_id,
+                    lesion_artifact_id=source["id"],
+                    reason="A corrected T2 lesion mask was imported.",
+                    changed_at=now,
+                )
                 connection.execute(
                     "UPDATE subjects SET updated_at = ? WHERE id = ?",
                     (now, draft.subject_id),
@@ -181,6 +191,7 @@ def create_corrected_t2_artifact(
                         "lesion_voxel_count": draft.lesion_voxel_count,
                         "provisional_volume_mm3": draft.provisional_volume_mm3,
                         "results_invalidated": invalidated,
+                        "atlas_mapping_invalidated": invalidated_atlas,
                         "human_review_required": True,
                     },
                     created_at=now,

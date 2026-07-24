@@ -105,11 +105,11 @@ The desktop uses the default local release at:
 ```
 
 After importing and validating the native pre-Gd T1, open the subject's `T1 Brain Mask`
-tab and choose `Generate draft`. Generation runs off the GUI thread with exact TTA. A
-successful draft appears in the study-level `Reviews` queue, where it can be approved
-or corrected through a managed ITK-SNAP copy. The application records the exact release,
-method-spec hash, source input, mask checksums, run state, immutable versions, reviewer,
-approval time, and blinding state.
+tab and choose `Generate draft`. Generation runs off the GUI thread using the explicit
+no-TTA low-impact draft method. A successful draft appears in the study-level `Reviews`
+queue, where it can be approved or corrected through a managed ITK-SNAP copy. The
+application records the exact release, no-TTA method-spec hash, source input, mask
+checksums, run state, immutable versions, reviewer, approval time, and blinding state.
 
 ### Transitional T1 backend
 

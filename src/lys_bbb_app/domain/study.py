@@ -30,6 +30,7 @@ from lys_bbb_app.domain.t2_lesion import (
     T2ModelReleaseRecord,
     T2ApprovalRecord,
 )
+from lys_bbb_app.domain.atlas_mapping import AtlasMappingState
 
 
 LEGACY_PROJECT_FILE_SUFFIX = ".lysbbb"
@@ -116,6 +117,7 @@ class StudySnapshot:
     t1_enhancement_methods: tuple[T1EnhancementMethodRecord, ...] = ()
     t1_enhancement_jobs: tuple[T1EnhancementJobRecord, ...] = ()
     t1_enhancement_results: tuple[T1EnhancementResultRecord, ...] = ()
+    atlas_mapping_states: tuple[tuple[str, AtlasMappingState], ...] = ()
     archived_subjects: tuple[SubjectRecord, ...] = ()
     mri_input_folder: Path | None = None
     t1_input_folder: Path | None = None
@@ -210,6 +212,12 @@ class StudySnapshot:
                 for result in self.t1_enhancement_results
                 if result.subject_id == subject_id and result.active
             ),
+            None,
+        )
+
+    def atlas_mapping_for_subject(self, subject_id: str) -> AtlasMappingState | None:
+        return next(
+            (state for identifier, state in self.atlas_mapping_states if identifier == subject_id),
             None,
         )
 

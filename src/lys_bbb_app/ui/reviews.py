@@ -22,7 +22,7 @@ from lys_bbb_app.domain.view_models import (
     StudyViewModel,
 )
 from lys_bbb_app.ui.layout_helpers import clear_layout, page_heading
-from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
+from lys_bbb_app.ui.widgets import CollapsibleSection, StatusBadge, secondary_button
 
 
 class ReviewsPage(QWidget):
@@ -68,20 +68,28 @@ class ReviewsPage(QWidget):
         self.modality_group = QButtonGroup(self)
         self.modality_group.setExclusive(True)
         self.modality_buttons: dict[str, QPushButton] = {}
-        for modality in ("T1", "T2"):
-            button = QPushButton(modality)
-            button.setCheckable(True)
-            button.setProperty("kind", "reviewFilter")
-            button.clicked.connect(
-                lambda checked, selected=modality: self._modality_changed(selected)
-                if checked
-                else None
-            )
-            self.modality_group.addButton(button)
-            self.modality_buttons[modality] = button
-            layout.addWidget(button)
+        self.modality_layout = layout
         layout.addStretch()
+        for modality in ("T1", "T2"):
+            self._add_modality_button(modality)
         return panel
+
+    def _add_modality_button(self, modality: str) -> None:
+        if modality in self.modality_buttons:
+            return
+        button = QPushButton(modality)
+        button.setCheckable(True)
+        button.setProperty("kind", "reviewFilter")
+        button.clicked.connect(
+            lambda checked, selected=modality: self._modality_changed(selected)
+            if checked
+            else None
+        )
+        self.modality_group.addButton(button)
+        self.modality_buttons[modality] = button
+        self.modality_layout.insertWidget(
+            max(1, self.modality_layout.count() - 1), button
+        )
 
     def _build_queue(self) -> QWidget:
         panel = QFrame()
@@ -157,10 +165,11 @@ class ReviewsPage(QWidget):
         self.review_reason = QLabel()
         self.review_reason.setObjectName("muted")
         self.review_reason.setWordWrap(True)
+        self.technical_details = CollapsibleSection()
         self.review_qc = QLabel()
-        self.review_qc.setObjectName("infoBanner")
         self.review_qc.setWordWrap(True)
-        self.review_qc.setMaximumHeight(90)
+        self.review_qc.setObjectName("muted")
+        self.technical_details.content_layout.addWidget(self.review_qc)
         self.review_status_holder = QHBoxLayout()
 
         self.approve = QPushButton("Approve current mask")
@@ -174,7 +183,7 @@ class ReviewsPage(QWidget):
         layout.addWidget(self.review_subject)
         layout.addWidget(self.review_artifact)
         layout.addWidget(self.review_reason)
-        layout.addWidget(self.review_qc)
+        layout.addWidget(self.technical_details)
         layout.addLayout(self.review_status_holder)
         layout.addStretch()
         layout.addWidget(self.approve)
@@ -185,9 +194,16 @@ class ReviewsPage(QWidget):
 
     def set_study(self, study: StudyViewModel) -> None:
         self.reviews = study.reviews
-        default_modality = "T2" if any(
-            _review_modality(item) == "T2" for item in self.reviews
-        ) else "T1"
+        if any(_review_modality(item) == "Atlas" for item in self.reviews):
+            self._add_modality_button("Atlas")
+        default_modality = next(
+            (
+                modality
+                for modality in ("Atlas", "T2", "T1")
+                if any(_review_modality(item) == modality for item in self.reviews)
+            ),
+            "T1",
+        )
         self.modality_buttons[default_modality].setChecked(True)
         self._populate_queue(default_modality)
 
@@ -253,6 +269,17 @@ class ReviewsPage(QWidget):
         self.review_artifact.setText(review.artifact_name)
         self.review_reason.setText(review.reason)
         self.review_qc.setText(review.automatic_qc)
+        self.technical_details.set_expanded(False)
+        self.approve.setText(review.approve_label)
+        self.manual_edit.setText(review.manual_edit_label)
+        self.manual_edit.setVisible(review.can_manual_edit)
+        self.empty_viewer.setText(
+            "Registration QC preview is unavailable. Open the subject to inspect "
+            "the stored registration details."
+            if review.workflow_key == "t1_registration"
+            else "No QC preview is available. Open the current mask in ITK-SNAP "
+            "for full review."
+        )
         clear_layout(self.review_status_holder)
         self.review_status_holder.addWidget(StatusBadge(review.status))
         self.review_status_holder.addStretch()
@@ -277,7 +304,8 @@ class ReviewsPage(QWidget):
                 )
                 self.viewer_stack.setCurrentWidget(self.qc_image)
                 if (
-                    review.artifact_id is not None
+                    review.supports_slice_qc
+                    and review.artifact_id is not None
                     and review.artifact_id not in self.requested_qc_artifacts
                 ):
                     self.requested_qc_artifacts.add(review.artifact_id)
@@ -301,6 +329,10 @@ class ReviewsPage(QWidget):
             "Run an eligible workflow to create a review item for this modality."
         )
         self.review_qc.clear()
+        self.technical_details.set_expanded(False)
+        self.approve.setText("Approve current mask")
+        self.manual_edit.setText("Manually edit in ITK-SNAP…")
+        self.manual_edit.show()
         clear_layout(self.review_status_holder)
         self.viewer_stack.setCurrentWidget(self.empty_viewer)
         self.previous_slice.hide()
@@ -315,7 +347,11 @@ class ReviewsPage(QWidget):
             and self.current_item.artifact_id is not None
         )
         self.approve.setEnabled(actionable)
-        self.manual_edit.setEnabled(actionable)
+        self.manual_edit.setEnabled(
+            actionable
+            and self.current_item is not None
+            and self.current_item.can_manual_edit
+        )
         self.open_subject.setEnabled(selected)
 
     def _move_slice(self, delta: int) -> None:
@@ -376,16 +412,30 @@ class ReviewsPage(QWidget):
 
 def _review_modality(review: ReviewItemViewModel) -> str:
     if review.workflow_key:
+        if review.workflow_key.startswith("atlas_"):
+            return "Atlas"
         return "T2" if review.workflow_key == "t2_lesion" else "T1"
     text = f"{review.category} {review.artifact_name}".casefold()
     return "T2" if "t2" in text or "lesion" in text else "T1"
 
 
 def _review_workflow_label(review: ReviewItemViewModel) -> str:
+    if review.workflow_key == "atlas_scheme":
+        return "Major-region scheme"
+    if review.workflow_key == "atlas_t2_support":
+        return "T2 support mask"
+    if review.workflow_key == "atlas_to_t1":
+        return "Atlas → pre-T1"
+    if review.workflow_key == "atlas_t1_to_t2":
+        return "Pre-T1 → T2"
+    if review.workflow_key == "atlas_composite":
+        return "Major labels on T2"
     if review.workflow_key == "t2_lesion":
         return "T2 lesion"
     if review.workflow_key == "t1_brain_mask":
         return "T1 brain mask"
+    if review.workflow_key == "t1_registration":
+        return "T1 registration"
     text = f"{review.category} {review.artifact_name}".casefold()
     if "t2" in text or "lesion" in text:
         return "T2 lesion"

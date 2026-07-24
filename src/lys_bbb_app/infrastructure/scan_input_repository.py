@@ -33,6 +33,9 @@ from lys_bbb_app.infrastructure.database_support import (
 from lys_bbb_app.domain.t2_lesion import T2_LESION_MASK_ARTIFACT_TYPE
 from lys_bbb_app.infrastructure.t2_review_repository import invalidate_t2_results
 from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_analysis
+from lys_bbb_app.infrastructure.atlas_mapping_repository import (
+    invalidate_atlas_for_input_change,
+)
 
 
 class StudyDatabaseContext(Protocol):
@@ -274,6 +277,13 @@ def complete_scan_import(
                 invalidated_t1_brain_masks = 0
                 invalidated_t1_registrations = 0
                 invalidated_t1_results = 0
+                invalidated_atlas = invalidate_atlas_for_input_change(
+                    connection,
+                    subject_id=row["subject_id"],
+                    role=row["role"],
+                    reason=f"The active {row['role']} input changed.",
+                    changed_at=now,
+                )
                 if row["role"] == ScanRole.T2.value:
                     invalidated_artifacts = connection.execute(
                         """
@@ -342,6 +352,7 @@ def complete_scan_import(
                         "t1_brain_masks_invalidated": invalidated_t1_brain_masks,
                         "t1_registrations_invalidated": invalidated_t1_registrations,
                         "t1_enhancement_results_invalidated": invalidated_t1_results,
+                        "atlas_mapping_invalidated": invalidated_atlas,
                     },
                     created_at=now,
                 )

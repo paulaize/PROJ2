@@ -56,6 +56,9 @@ class InputScanViewModel:
     validation: StatusValue
     managed_path: Path | None
     source_path: Path
+    session_id: str
+    scan_id: int | None
+    protocol: str
     shape_text: str
     spacing_text: str
     orientation_text: str
@@ -111,6 +114,39 @@ class T1BrainMaskArtifactViewModel:
 
 
 @dataclass(frozen=True)
+class T1RegistrationArtifactViewModel:
+    artifact_id: str
+    version: int
+    state: StatusValue
+    registered_post_path: Path
+    transform_path: Path
+    qc_preview_path: Path
+    before_xcorr: float
+    after_xcorr: float
+    registration_metric: float
+    optimizer_stop: str
+    method_label: str
+    created_at: str
+    can_review: bool
+    reviewer: str | None = None
+    reviewed_at: str | None = None
+
+
+@dataclass(frozen=True)
+class T1EnhancementResultViewModel:
+    result_id: str
+    version: int
+    state: StatusValue
+    value_text: str
+    qc_preview_path: Path
+    percent_enhancement_map: Path
+    summary_csv: Path
+    metadata_path: Path
+    method_label: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class SubjectViewModel:
     subject_id: str
     group: str | None
@@ -136,6 +172,14 @@ class SubjectViewModel:
     can_run_t1_brain_mask: bool = False
     t1_brain_mask_blocked_reason: str | None = None
     t1_brain_mask_release_label: str | None = None
+    t1_registration_artifact: T1RegistrationArtifactViewModel | None = None
+    can_run_t1_registration: bool = False
+    t1_registration_blocked_reason: str | None = None
+    t1_registration_method_label: str | None = None
+    t1_enhancement_result: T1EnhancementResultViewModel | None = None
+    can_run_t1_enhancement: bool = False
+    t1_enhancement_blocked_reason: str | None = None
+    t1_enhancement_method_label: str | None = None
 
     @property
     def label(self) -> str:
@@ -167,7 +211,7 @@ class SubjectViewModel:
         if not self.inputs:
             return StatusValue("Add MRI inputs", "review")
         if self.needs_input_validation:
-            return StatusValue("Validate converted MRI", "review")
+            return StatusValue("Validate selected conversion", "review")
         if self.t1_data.kind == "failed" or self.t2_data.kind == "failed":
             return StatusValue("Resolve input problem", "failed")
         if self.brain_mask.kind == "review":
@@ -176,6 +220,8 @@ class SubjectViewModel:
             return StatusValue("Review T1 registration", "review")
         if self.t2_lesion.kind == "review":
             return StatusValue("Review T2 lesion mask", "review")
+        if self.t1_result.label == "Provisional enhancement":
+            return StatusValue("View provisional T1 result", "review")
         if self.brain_mask.kind == "processing" or self.t2_lesion.kind == "processing":
             return StatusValue("Processing", "processing")
         if self.registration.label == "Ready for registration":
@@ -222,6 +268,10 @@ class ReviewItemViewModel:
     qc_preview_path: Path | None = None
     qc_slice_paths: tuple[Path, ...] = ()
     workflow_key: str = ""
+    approve_label: str = "Approve current mask"
+    can_manual_edit: bool = True
+    manual_edit_label: str = "Manually edit in ITK-SNAP…"
+    supports_slice_qc: bool = True
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,10 @@ Post-Gd T1 is rigidly registered to native pre-Gd T1. The same approved pre-spac
 mask is applied to both images. MRI intensities use linear interpolation; masks use
 nearest-neighbour interpolation.
 
+This post→pre transform belongs only to enhancement. Atlas mapping independently uses
+MRI-atlas→pre-T1 and pre-T1→native-T2 branches and must never consume the post-Gd image
+or post→pre artifact.
+
 The full approved brain mask defines whole-brain analysis. Coronal slices 50–170 are a
 standardized QC display range only. They do not crop the mask or define an anatomical
 analysis slab.

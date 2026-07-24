@@ -10,6 +10,9 @@ from lys_bbb_app.domain.t2_lesion import ArtifactState, ProcessingJobState
 
 
 T1_BRAIN_MASK_METHOD_VERSION = "rs2net_m_seam_continuity_v1"
+T1_BRAIN_MASK_APP_GENERATION_METHOD_VERSION = (
+    "rs2net_m_seam_continuity_no_tta_local_draft_v1"
+)
 
 
 @dataclass(frozen=True)

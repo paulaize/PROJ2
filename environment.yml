@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
+  - ants=2.6.5
   - matplotlib
   - nibabel
   - numpy

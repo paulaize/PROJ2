@@ -17,10 +17,11 @@ A non-technical researcher must be able to:
 7. inspect subject and cohort results without hiding missing or provisional data; and
 8. export approved measurements with QC and reproducibility provenance.
 
-The application owns two workflows only:
+The application owns three workflows:
 
 - semi-quantitative T1-weighted gadolinium enhancement;
 - T2 lesion segmentation and native-space lesion volume.
+- provisional major-region AIDAmri/Allen mapping and native-T2 lesion overlap.
 
 It is a workflow runner and review system, not a model-development interface.
 
@@ -34,6 +35,7 @@ Study
     ├── Inputs
     ├── T1 Enhancement
     ├── T2 Lesion
+    ├── Atlas Mapping
     ├── Results
     └── History
 ```
@@ -108,7 +110,7 @@ study-root/
 - The SQLite study should live on a reliable local or locally mounted filesystem.
 - Multi-machine concurrent editing and remote clusters are outside the MVP.
 
-Schema-v8 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
+Schema-v11 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
 legacy inputs supported only for non-destructive inspection and migration.
 
 ## Current application shell
@@ -125,7 +127,7 @@ Settings
 
 ### Launcher
 
-Create a study, open a schema-v10 study root, resume a recent study, or migrate a legacy
+Create a study, open a schema-v11 study root, resume a recent study, or migrate a legacy
 `.lysbbb` file. Creation must refuse an existing target directory and leave source MRI
 untouched.
 
@@ -158,12 +160,13 @@ results. Mask correction routes through ITK-SNAP:
 7. approve that exact version explicitly when it is acceptable.
 
 The study-level Reviews page is the primary work queue. Subject workspaces may expose
-the same actions for context, but must not become a separate review system. The current
-persistent queue contains T1 brain-mask and T2 lesion-mask drafts and corrections. Both
-use the same queue interaction while retaining feature-specific services and state.
+the same actions for context, but must not become a separate review system. The
+persistent queue contains T1 brain-mask and T2 lesion-mask drafts/corrections plus
+reviewable T1 and atlas registration/composite artifacts. They use the same queue
+interaction while retaining feature-specific services and state.
 
-The Reviews page uses fixed modality buttons (`T1`, `T2`) rather than dynamically named
-category lists. Pending work is shown as one concise `Subject — workflow` button per
+The Reviews page uses stable modality buttons (`T1`, `T2`) and adds `Atlas` when atlas
+review work exists. Pending work is shown as one concise `Subject — workflow` button per
 artifact. Mask QC must provide every native slice with previous/next navigation; display
 orientation changes affect only rendered QC images and never the NIfTI artifact.
 
@@ -212,17 +215,35 @@ registered post-Gd images. The UI must say `Semi-quantitative T1-weighted gadoli
 enhancement`; never permeability, absolute T1, `Ktrans`, or `Ki`.
 
 The connected brain-mask slice validates and stores the frozen local RS2-Net/M-seam
-method, runs exact eight-way TTA off the GUI thread, commits the automatic result as an
-immutable draft only after job success, and supports managed ITK-SNAP correction plus
-approval of the exact active native-grid mask. Approval does not create a T1
-enhancement result; registration and enhancement remain separate downstream gates.
+release, then runs an explicitly versioned no-TTA low-impact draft method off the GUI
+thread. It commits the automatic result as an immutable draft only after job success and
+supports managed ITK-SNAP correction plus approval of the exact active native-grid mask.
+The job and artifact record that TTA was disabled; the result remains provisional until
+review. Approval does not create a T1 enhancement result; registration and enhancement
+remain separate downstream gates.
 
 The application service now persists a rigid-registration job and immutable registered
 image/transform/QC bundle tied to the exact pre/post inputs and approved mask. A separate
 approval record gates enhancement. Enhancement consumes that exact approved registered
 image, never recomputes registration, and persists a `PROVISIONAL` result with exact
-checksums and dependencies. Desktop controls for these service actions remain to be
-added to the existing workspace and general Reviews queue.
+checksums and dependencies. The subject workspace runs both jobs off the GUI thread,
+registration review is also available through the general Reviews queue, and the
+provisional result appears in the subject and Results views.
+
+### Major-region atlas mapping
+
+```text
+checksummed AIDAmri release + proposed scheme
+→ rigid/affine atlas→pre candidates → exact candidate approval
+→ rigid pre→T2 with reviewed support mask → approval on every T2 slice
+→ direct native-T2 major labels → composite approval
+→ native-lesion major-region overlap and ±0.5 mm AP stress test
+```
+
+The subject workspace exposes five sequential cards and no arbitrary ANTs tuning. The
+general Reviews queue remains the primary approval route. Draft outputs say `DRAFT` or
+`PROVISIONAL`; optimizer success never approves an artifact. Detailed Allen labels do
+not appear in UI results. See `atlas_mapping.md` for the scientific and resource contract.
 
 ## State and provenance requirements
 
@@ -255,7 +276,7 @@ presence alone never proves success.
 
 - T2 model training, tuning, or checkpoint selection.
 - Embedded mask painting or an ITK-SNAP replacement.
-- Atlas registration or atlas-region quantification.
+- Detailed Allen-region outputs, Waxholm comparison, or atlas parameter search.
 - T2-to-T1 quantitative dependency.
 - Arbitrary workflow builders, plugins, or scientific parameter editors.
 - Inferential statistics without a pre-approved plan.
@@ -266,8 +287,9 @@ presence alone never proves success.
 
 1. Smoke-test the completed T2 review-to-export slice on a real unseen case.
 2. Finish T1 mask and exact-registration review, then provisional enhancement.
-3. Connect combined results and reproducibility exports.
-4. Package the application for non-developer users.
+3. Run the connected major-region atlas slice on one explicitly matched real case.
+4. Connect combined results and reproducibility exports.
+5. Package the application for non-developer users.
 
 The current acceptance criteria are in `current_state.md`. No additional visual screen
 is required to complete the next milestone.

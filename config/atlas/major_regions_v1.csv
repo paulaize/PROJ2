@@ -1,0 +1,99 @@
+source_label_id,major_region_id,major_region_acronym,major_region_name,hemisphere,mapping_version,mapping_status
+22,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+31,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+44,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+95,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+184,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+247,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+254,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+275,106,SEPAMY,Septal and amygdalar complex,left,major_regions_v1,PROPOSED
+278,106,SEPAMY,Septal and amygdalar complex,left,major_regions_v1,PROPOSED
+313,109,MB,Midbrain,left,major_regions_v1,PROPOSED
+329,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+337,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+345,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+353,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+354,111,MY,Medulla,left,major_regions_v1,PROPOSED
+361,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+369,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+378,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+485,104,STR,Striatum,left,major_regions_v1,PROPOSED
+493,104,STR,Striatum,left,major_regions_v1,PROPOSED
+519,112,CB,Cerebellum,left,major_regions_v1,PROPOSED
+528,112,CB,Cerebellum,left,major_regions_v1,PROPOSED
+541,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+583,114,CTXSP,Claustrum and cortical subplate,left,major_regions_v1,PROPOSED
+669,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+677,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+698,102,OLF,Olfactory system,left,major_regions_v1,PROPOSED
+703,114,CTXSP,Claustrum and cortical subplate,left,major_regions_v1,PROPOSED
+714,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+771,110,P,Pons,left,major_regions_v1,PROPOSED
+776,113,WM,Major white matter systems,left,major_regions_v1,PROPOSED
+784,113,WM,Major white matter systems,left,major_regions_v1,PROPOSED
+803,105,PAL,Pallidum,left,major_regions_v1,PROPOSED
+822,103,HPF,Hippocampal formation,left,major_regions_v1,PROPOSED
+856,107,TH,Thalamus,left,major_regions_v1,PROPOSED
+864,107,TH,Thalamus,left,major_regions_v1,PROPOSED
+895,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+896,113,WM,Major white matter systems,left,major_regions_v1,PROPOSED
+922,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+967,113,WM,Major white matter systems,left,major_regions_v1,PROPOSED
+972,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+985,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+991,113,WM,Major white matter systems,left,major_regions_v1,PROPOSED
+993,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+1000,113,WM,Major white matter systems,left,major_regions_v1,PROPOSED
+1057,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+1080,103,HPF,Hippocampal formation,left,major_regions_v1,PROPOSED
+1097,108,HY,Hypothalamus,left,major_regions_v1,PROPOSED
+1098,101,NCX,Neocortex,left,major_regions_v1,PROPOSED
+2022,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2031,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2044,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2095,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2184,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2247,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2254,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2275,206,SEPAMY,Septal and amygdalar complex,right,major_regions_v1,PROPOSED
+2278,206,SEPAMY,Septal and amygdalar complex,right,major_regions_v1,PROPOSED
+2313,209,MB,Midbrain,right,major_regions_v1,PROPOSED
+2329,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2337,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2345,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2353,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2354,211,MY,Medulla,right,major_regions_v1,PROPOSED
+2361,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2369,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2378,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2485,204,STR,Striatum,right,major_regions_v1,PROPOSED
+2493,204,STR,Striatum,right,major_regions_v1,PROPOSED
+2519,212,CB,Cerebellum,right,major_regions_v1,PROPOSED
+2528,212,CB,Cerebellum,right,major_regions_v1,PROPOSED
+2541,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2583,214,CTXSP,Claustrum and cortical subplate,right,major_regions_v1,PROPOSED
+2669,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2677,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2698,202,OLF,Olfactory system,right,major_regions_v1,PROPOSED
+2703,214,CTXSP,Claustrum and cortical subplate,right,major_regions_v1,PROPOSED
+2714,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2771,210,P,Pons,right,major_regions_v1,PROPOSED
+2776,213,WM,Major white matter systems,right,major_regions_v1,PROPOSED
+2784,213,WM,Major white matter systems,right,major_regions_v1,PROPOSED
+2803,205,PAL,Pallidum,right,major_regions_v1,PROPOSED
+2822,203,HPF,Hippocampal formation,right,major_regions_v1,PROPOSED
+2856,207,TH,Thalamus,right,major_regions_v1,PROPOSED
+2864,207,TH,Thalamus,right,major_regions_v1,PROPOSED
+2895,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2896,213,WM,Major white matter systems,right,major_regions_v1,PROPOSED
+2922,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2967,213,WM,Major white matter systems,right,major_regions_v1,PROPOSED
+2972,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2985,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+2991,213,WM,Major white matter systems,right,major_regions_v1,PROPOSED
+2993,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+3000,213,WM,Major white matter systems,right,major_regions_v1,PROPOSED
+3057,201,NCX,Neocortex,right,major_regions_v1,PROPOSED
+3080,203,HPF,Hippocampal formation,right,major_regions_v1,PROPOSED
+3097,208,HY,Hypothalamus,right,major_regions_v1,PROPOSED
+3098,201,NCX,Neocortex,right,major_regions_v1,PROPOSED

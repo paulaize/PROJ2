@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import nibabel as nib
@@ -63,7 +64,7 @@ def _build_service_with_t1_draft(
         device_name: str,
         disable_tta: bool,
     ) -> T1BrainMaskOutput:
-        assert disable_tta is False
+        assert disable_tta is True
         output_root.mkdir(parents=True)
         reference = nib.load(input_path)
         raw = np.zeros(reference.shape, dtype=np.uint8)
@@ -83,7 +84,8 @@ def _build_service_with_t1_draft(
                 {
                     "generation": {
                         "device": device_name,
-                        "test_time_augmentation": True,
+                        "test_time_augmentation": False,
+                        "generation_variant": "explicit_no_tta_local_draft",
                     },
                     "human_review_required": True,
                 }
@@ -283,7 +285,16 @@ def test_reviewed_registration_and_provisional_enhancement_reopen_exact_dependen
     assert registration.active
     assert registration.source_brain_mask_artifact_id == mask_id
     assert registration.registered_post_path.is_file()
-    assert present_study(registered).subject(subject_id).registration.kind == "review"
+    presented_registration = present_study(registered)
+    presented_subject = presented_registration.subject(subject_id)
+    assert presented_subject.registration.kind == "review"
+    assert presented_subject.t1_registration_artifact.artifact_id == registration.id
+    assert presented_subject.t1_registration_artifact.can_review
+    assert not presented_subject.can_run_t1_enhancement
+    assert len(presented_registration.reviews) == 1
+    assert presented_registration.reviews[0].workflow_key == "t1_registration"
+    assert presented_registration.reviews[0].approve_label == "Approve registration"
+    assert not presented_registration.reviews[0].can_manual_edit
     assert service.t1_enhancement_readiness((subject_id,)).eligible_count == 0
     service.register_t1_enhancement_method(actor="Reviewer A")
     with pytest.raises(StudyStateError, match="approved T1 registration"):
@@ -300,6 +311,7 @@ def test_reviewed_registration_and_provisional_enhancement_reopen_exact_dependen
     assert approved.t1_registrations_for_subject(subject_id)[0].state is (
         T1RegistrationState.APPROVED
     )
+    assert present_study(approved).subject(subject_id).can_run_t1_enhancement
     quantified = service.run_t1_enhancement(
         actor="Reviewer A",
         subject_ids=(subject_id,),
@@ -316,6 +328,10 @@ def test_reviewed_registration_and_provisional_enhancement_reopen_exact_dependen
     presented = present_study(quantified)
     assert presented.subject(subject_id).registration.kind == "approved"
     assert presented.subject(subject_id).t1_result.label == "Provisional enhancement"
+    assert presented.subject(subject_id).t1_enhancement_result.value_text == (
+        "Median 12.500%"
+    )
+    assert not presented.subject(subject_id).can_run_t1_enhancement
     assert presented.results[0].t1_value == "Median 12.500% · provisional"
     assert presented.results[0].t1_state.kind == "review"
 
@@ -330,6 +346,76 @@ def test_reviewed_registration_and_provisional_enhancement_reopen_exact_dependen
     )
     assert reopened_result.state is T1EnhancementResultState.PROVISIONAL
     assert reopened_result.source_registration_artifact_id == registration.id
+
+
+def test_desktop_connects_registration_review_to_provisional_t1_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from lys_bbb_app.services.recent_studies_service import RecentStudiesService
+    from lys_bbb_app.ui.main_window import MainWindow
+
+    app = QApplication.instance() or QApplication([])
+    seen: dict[str, object] = {}
+    service, subject_id, mask_id, _reference = _build_service_with_t1_draft(
+        tmp_path,
+        registration_runner=_fake_registration_runner(seen),
+        enhancement_runner=_fake_enhancement_runner(seen),
+    )
+    service.approve_t1_brain_mask(subject_id, mask_id, reviewer="Reviewer A")
+    study_root = service.current_study.root_path
+    window = MainWindow(
+        study_service=service,
+        recent_studies=RecentStudiesService(tmp_path / "preferences" / "recent.json"),
+    )
+    assert window.open_project_path(study_root)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    window.open_subject(subject_id)
+    subject = window.current_study.subject(subject_id)
+    assert subject.next_action.label == "Run T1 registration"
+    assert window.workspace_page.t1_analysis_panel.run_registration.isEnabled()
+    window.workspace_page.next_action_button.click()
+    registration_thread = window._t1_registration_thread
+    assert registration_thread is not None
+    assert registration_thread.wait(5000)
+    for _ in range(20):
+        app.processEvents()
+
+    assert window.current_study.reviews[0].workflow_key == "t1_registration"
+    assert window.reviews_page.approve.text() == "Approve registration"
+    assert window.reviews_page.manual_edit.isHidden()
+    window.reviews_page.approve.click()
+    app.processEvents()
+
+    approved = service.current_study
+    registration = approved.t1_registrations_for_subject(subject_id)[0]
+    assert registration.state is T1RegistrationState.APPROVED
+    window.open_subject(subject_id)
+    panel = window.workspace_page.t1_analysis_panel
+    assert panel.run_enhancement.isEnabled()
+    panel.run_enhancement.click()
+    enhancement_thread = window._t1_enhancement_thread
+    assert enhancement_thread is not None
+    assert enhancement_thread.wait(5000)
+    for _ in range(20):
+        app.processEvents()
+
+    result = service.current_study.active_t1_enhancement_result_for_subject(subject_id)
+    assert result is not None
+    assert result.state is T1EnhancementResultState.PROVISIONAL
+    assert window.current_study.results[0].t1_value == "Median 12.500% · provisional"
+    assert not panel.enhancement_result.isHidden()
+    assert panel.enhancement_value.text() == "Median 12.500% · provisional"
+    window.close()
 
 
 def test_replacing_post_t1_invalidates_registration_and_enhancement(
@@ -414,6 +500,14 @@ def test_t1_draft_approval_and_reopen_preserve_exact_artifact(tmp_path: Path) ->
     assert artifact.active
     assert generated.t1_brain_mask_jobs[0].state is ProcessingJobState.SUCCEEDED
     assert generated.active_t1_brain_mask_release is not None
+    assert generated.t1_brain_mask_jobs[0].metadata["generation_method"][
+        "generation_variant"
+    ] == "explicit_no_tta_local_draft"
+    assert generated.t1_brain_mask_jobs[0].metadata["generation_method"][
+        "test_time_augmentation"
+    ] is False
+    assert artifact.metadata["generation_variant"] == "explicit_no_tta_local_draft"
+    assert artifact.metadata["test_time_augmentation"] is False
     presented = present_study(generated)
     assert len(presented.reviews) == 1
     assert presented.reviews[0].workflow_key == "t1_brain_mask"
@@ -443,7 +537,15 @@ def test_t1_draft_approval_and_reopen_preserve_exact_artifact(tmp_path: Path) ->
 
     service.close_study()
     reopened = service.open_study(approved.root_path)
-    assert reopened.t1_brain_masks_for_subject(subject_id)[0].state is ArtifactState.APPROVED
+    reopened_artifact = reopened.t1_brain_masks_for_subject(subject_id)[0]
+    assert reopened_artifact.state is ArtifactState.APPROVED
+    assert reopened_artifact.metadata["generation_variant"] == (
+        "explicit_no_tta_local_draft"
+    )
+    assert reopened_artifact.metadata["test_time_augmentation"] is False
+    assert reopened.t1_brain_mask_jobs[0].metadata["generation_method"][
+        "test_time_augmentation"
+    ] is False
     assert (
         reopened.t1_brain_mask_approval_for_artifact(artifact_id).reviewer
         == "Reviewer A"

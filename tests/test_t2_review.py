@@ -620,7 +620,7 @@ def test_schema_six_draft_migrates_non_destructively_to_review_schema(
         )
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(6,), (8,), (9,), (10,)]
+        ).fetchall() == [(6,), (8,), (9,), (10,), (11,)]
 
 
 def test_schema_seven_review_migrates_to_approval_without_notes_or_issue_type(

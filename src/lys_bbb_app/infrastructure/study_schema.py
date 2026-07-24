@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from lys_bbb_app.infrastructure.atlas_mapping_repository import create_atlas_schema
+
 
 def create_schema(
     connection: sqlite3.Connection,
@@ -11,7 +13,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 10:
+    if schema_version != 11:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -472,6 +474,7 @@ def create_schema(
         CREATE INDEX idx_audit_events_study_time ON audit_events(study_id, created_at DESC);
         """
     )
+    create_atlas_schema(connection)
     connection.execute(
         "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
         (schema_version, applied_at),
@@ -1063,6 +1066,14 @@ def migrate_schema(
         version = 10
         connection.execute(
             "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 10:
+        create_atlas_schema(connection)
+        version = 11
+        connection.execute(
+            "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),
         )
         connection.execute(f"PRAGMA user_version = {version}")

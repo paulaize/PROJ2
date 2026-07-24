@@ -140,3 +140,113 @@ class T1BrainMaskThread(QThread):
             self.generation_failed.emit(str(exc))
             return
         self.generation_completed.emit(snapshot)
+
+
+class T1RegistrationThread(QThread):
+    progress_changed = Signal(int, int, str)
+    registration_completed = Signal(object)
+    registration_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: StudyService,
+        *,
+        actor: str,
+        subject_ids: tuple[str, ...],
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._actor = actor
+        self._subject_ids = subject_ids
+
+    def run(self) -> None:
+        try:
+            snapshot = self._service.run_t1_registration(
+                actor=self._actor,
+                subject_ids=self._subject_ids,
+                progress=self.progress_changed.emit,
+            )
+        except Exception as exc:
+            self.registration_failed.emit(str(exc))
+            return
+        self.registration_completed.emit(snapshot)
+
+
+class T1EnhancementThread(QThread):
+    progress_changed = Signal(int, int, str)
+    calculation_completed = Signal(object)
+    calculation_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: StudyService,
+        *,
+        actor: str,
+        subject_ids: tuple[str, ...],
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._actor = actor
+        self._subject_ids = subject_ids
+
+    def run(self) -> None:
+        try:
+            snapshot = self._service.run_t1_enhancement(
+                actor=self._actor,
+                subject_ids=self._subject_ids,
+                progress=self.progress_changed.emit,
+            )
+        except Exception as exc:
+            self.calculation_failed.emit(str(exc))
+            return
+        self.calculation_completed.emit(snapshot)
+
+
+class AtlasMappingThread(QThread):
+    """Run one durable atlas stage without blocking the Qt event loop."""
+
+    progress_changed = Signal(int, int, str)
+    stage_completed = Signal(object)
+    stage_failed = Signal(str)
+
+    def __init__(
+        self,
+        service: StudyService,
+        *,
+        subject_id: str,
+        action: str,
+        actor: str,
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._subject_id = subject_id
+        self._action = action
+        self._actor = actor
+
+    def run(self) -> None:
+        try:
+            if self._action == "atlas_to_t1":
+                state = self._service.atlas_mapping.run_atlas_to_t1(
+                    self._subject_id,
+                    actor=self._actor,
+                    progress=self.progress_changed.emit,
+                )
+            elif self._action == "t1_to_t2":
+                state = self._service.atlas_mapping.run_t1_to_t2(
+                    self._subject_id,
+                    actor=self._actor,
+                    progress=self.progress_changed.emit,
+                )
+            elif self._action == "composite":
+                self.progress_changed.emit(0, 1, "Propagating major labels")
+                state = self._service.atlas_mapping.create_composite(
+                    self._subject_id,
+                    actor=self._actor,
+                )
+                self.progress_changed.emit(1, 1, "Composite QC ready")
+            else:
+                raise ValueError(f"Unknown atlas action: {self._action}")
+        except Exception as exc:
+            self.stage_failed.emit(str(exc))
+            return
+        self.stage_completed.emit(state)

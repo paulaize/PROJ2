@@ -147,6 +147,7 @@ def test_persistent_review_queue_emits_connected_t2_actions(
     assert page.approve.isEnabled()
     assert not page.previous_slice.isHidden()
     assert page.slice_label.text() == "Slice 2 / 3"
+    assert not page.technical_details.is_expanded
     page.next_slice.click()
     assert page.slice_label.text() == "Slice 3 / 3"
 
@@ -158,6 +159,54 @@ def test_persistent_review_queue_emits_connected_t2_actions(
     assert approvals == [("stable-subject-id", "artifact-t2-v1")]
     assert edits == [("stable-subject-id", "artifact-t2-v1")]
     assert subjects == ["stable-subject-id"]
+    page.close()
+
+
+def test_registration_review_uses_qc_approval_without_mask_editing(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    qc_path = tmp_path / "registration_qc.png"
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.GlobalColor.black)
+    assert pixmap.save(str(qc_path))
+    review = ReviewItemViewModel(
+        subject_id="stable-subject-id",
+        subject_label="Mouse-001",
+        category="T1 registrations",
+        artifact_name="Post-Gd to pre-Gd registration · v1",
+        reason="Inspect registration QC before approval.",
+        automatic_qc="Cross-correlation 0.500 → 0.800",
+        status=StatusValue("Registration · human review required", "review"),
+        artifact_id="registration-v1",
+        qc_preview_path=qc_path,
+        workflow_key="t1_registration",
+        approve_label="Approve registration",
+        can_manual_edit=False,
+        supports_slice_qc=False,
+    )
+    base = present_legacy_project(
+        LegacyProjectRecord("study", "Study", tmp_path / "project.sqlite", 1)
+    )
+    page = ReviewsPage()
+    page.set_study(replace(base, reviews=(review,)))
+    approvals: list[tuple[str, str]] = []
+    qc_requests: list[tuple[str, str]] = []
+    page.approve_requested.connect(
+        lambda subject_id, artifact_id: approvals.append((subject_id, artifact_id))
+    )
+    page.qc_slices_requested.connect(
+        lambda subject_id, artifact_id: qc_requests.append((subject_id, artifact_id))
+    )
+    qt_app.processEvents()
+
+    assert page.queue_buttons[0].text() == "Mouse-001 — T1 registration"
+    assert page.approve.text() == "Approve registration"
+    assert page.manual_edit.isHidden()
+    assert page.previous_slice.isHidden()
+    assert qc_requests == []
+    page.approve.click()
+    assert approvals == [("stable-subject-id", "registration-v1")]
     page.close()
 
 
@@ -211,6 +260,8 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
         window.results_page.results_stack.currentWidget()
         is window.results_page.results_empty
     )
+    assert window.results_page.approved_only.text() == "Show approved results only"
+    assert window.results_page.show_method_details.text() == "Show technical details"
     assert not window.results_page.approved_csv.isEnabled()
     assert window.results_page.approved_only.isHidden()
     assert window.results_page.export_card.isHidden()
@@ -241,7 +292,14 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.workspace_page.next_action_title.text() == "Add MRI inputs"
     assert window.workspace_page.next_action_button.text() == "Add MRI inputs"
     assert not window.workspace_page.technical_details.is_expanded
-    assert window.workspace_page.tabs.count() == 4
+    assert window.workspace_page.tabs.count() == 6
+    assert window.workspace_page.tabs.tabText(4) == "Atlas Mapping"
+    atlas_panel = window.workspace_page.atlas_mapping_panel
+    assert atlas_panel.configure_resource.isEnabled()
+    assert not atlas_panel.run_atlas.isEnabled()
+    assert not atlas_panel.run_t1_t2.isEnabled()
+    assert not atlas_panel.create_composite.isEnabled()
+    assert not atlas_panel.calculate_result.isEnabled()
     assert window.subjects_page.model.columnCount() == 5
     assert window.subjects_page.group_filter.isHidden()
 
@@ -343,7 +401,7 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     assert window.subjects_page.model.data(
         window.subjects_page.model.index(0, 1),
         Qt.DisplayRole,
-    ) == "Validate converted MRI"
+    ) == "Validate selected conversion"
     assert window.subjects_page.model.data(
         window.subjects_page.model.index(0, 3),
         Qt.DisplayRole,

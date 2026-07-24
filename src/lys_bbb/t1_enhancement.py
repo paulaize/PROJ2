@@ -17,7 +17,6 @@ from lys_bbb.hashing import sha256_file
 
 T1_ENHANCEMENT_METHOD_VERSION = "relative_t1w_enhancement_provisional_v1"
 
-
 @dataclass(frozen=True)
 class T1EnhancementConfig:
     bias_method: str = "smooth"

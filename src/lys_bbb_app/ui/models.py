@@ -12,9 +12,9 @@ from lys_bbb_app.ui.widgets import STATUS_COLOURS
 SUBJECT_COLUMNS = (
     "Subject",
     "Next action",
-    "T1 workflow",
-    "T2 workflow",
-    "Overall",
+    "T1",
+    "T2",
+    "State",
 )
 
 
