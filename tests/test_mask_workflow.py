@@ -7,7 +7,12 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 
-from scripts.masks.open_manual_mask_editor import find_cases
+from scripts.masks.open_manual_mask_editor import (
+    find_cases,
+    read_prelabel_checksums,
+    sha256,
+    validate_checksums,
+)
 from lys_bbb.mask_workflow import (
     build_manual_worklist_rows,
     build_nnunet_manifest_rows,
@@ -238,6 +243,28 @@ def test_editor_queue_prefers_existing_done_mask(tmp_path):
 
     assert cases[0]["manual_mask"] == done_mask
     assert cases[0]["manual_mask_is_done"] is True
+
+
+def test_editor_validates_colab_input_and_prelabel_checksums(tmp_path):
+    image = tmp_path / "pre_coronal.nii.gz"
+    mask = tmp_path / "C25S1_D1_rs2_m_seam_mask.nii.gz"
+    image.write_bytes(b"native pre T1")
+    mask.write_bytes(b"automatic mask")
+    manifest = tmp_path / "itksnap_prelabels_manifest.csv"
+    manifest.write_text(
+        "case_id,input_sha256,mask_sha256,mask\n"
+        f"C25S1_D1,{sha256(image)},{sha256(mask)},"
+        "itksnap_prelabels/C25S1_D1_rs2_m_seam_mask.nii.gz\n"
+    )
+
+    checksums = read_prelabel_checksums(manifest)
+    validate_checksums("C25S1_D1", image, mask, checksums)
+
+    mask.write_bytes(b"changed mask")
+    with np.testing.assert_raises_regex(
+        ValueError, "Downloaded prelabel checksum mismatch"
+    ):
+        validate_checksums("C25S1_D1", image, mask, checksums)
 
 
 def test_nnunet_prepare_dry_run_validates_train_grid(tmp_path):

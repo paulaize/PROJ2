@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -48,6 +49,47 @@ def validate_grid(image_path: Path, mask_path: Path) -> None:
         )
     if not np.allclose(image_affine, mask_affine, atol=1e-3):
         raise ValueError(f"Affine mismatch for {mask_path.name}")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_prelabel_checksums(path: Path) -> dict[str, dict[str, str]]:
+    with path.open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    checksums: dict[str, dict[str, str]] = {}
+    for row in rows:
+        case_id = row.get("case_id", "").strip()
+        if not case_id:
+            raise ValueError(f"Manifest row has no case_id: {path}")
+        if case_id in checksums:
+            raise ValueError(f"Duplicate case_id {case_id} in {path}")
+        checksums[case_id] = row
+    return checksums
+
+
+def validate_checksums(
+    case_id: str,
+    image_path: Path,
+    prelabel_path: Path,
+    checksums: dict[str, dict[str, str]],
+) -> None:
+    if case_id not in checksums:
+        raise ValueError(f"{case_id} is missing from the prelabel manifest")
+    row = checksums[case_id]
+    expected_input = row.get("input_sha256", "").strip().lower()
+    expected_mask = row.get("mask_sha256", "").strip().lower()
+    if len(expected_input) != 64 or len(expected_mask) != 64:
+        raise ValueError(f"Invalid checksum fields for {case_id}")
+    if sha256(image_path) != expected_input:
+        raise ValueError(f"Local pre_coronal input checksum mismatch for {case_id}")
+    if sha256(prelabel_path) != expected_mask:
+        raise ValueError(f"Downloaded prelabel checksum mismatch for {case_id}")
 
 
 def copy_prelabel(prelabel: Path, manual_mask: Path, overwrite: bool) -> str:
@@ -116,6 +158,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="glob used to find prelabel masks")
     parser.add_argument("--prelabel-suffix", default="_mousebrainextractor_mask.nii.gz",
                         help="filename suffix removed to infer case id")
+    parser.add_argument(
+        "--prelabel-manifest",
+        type=Path,
+        default=None,
+        help=(
+            "optional Colab handoff manifest whose input_sha256 and mask_sha256 "
+            "must match before editing"
+        ),
+    )
     parser.add_argument("--manual-dir", type=Path, default=Path("derivatives/brain_seg/manual"),
                         help="folder where editable manual masks are stored")
     parser.add_argument("--case", action="append", default=[],
@@ -145,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
     prelabel_dir = args.prelabel_dir.expanduser()
     manual_dir = args.manual_dir.expanduser()
     manifest = args.manifest.expanduser() if args.manifest else manual_dir / "manual_mask_editing_queue.csv"
+    prelabel_checksums = (
+        read_prelabel_checksums(args.prelabel_manifest.expanduser())
+        if args.prelabel_manifest
+        else None
+    )
 
     cases = find_cases(
         prelabel_dir,
@@ -185,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise FileNotFoundError(f"missing image: {image}")
             if not prelabel.exists():
                 raise FileNotFoundError(f"missing prelabel: {prelabel}")
+            if prelabel_checksums is not None:
+                validate_checksums(case_id, image, prelabel, prelabel_checksums)
             if args.dry_run:
                 validate_grid(image, prelabel)
                 if manual_mask.exists():

@@ -1,0 +1,25 @@
+LYS BBB POUR WINDOWS 11
+=======================
+
+1. Decompressez completement le fichier ZIP.
+2. Double-cliquez sur Setup-LYS-BBB.cmd.
+3. Acceptez la demande administrateur si Windows doit activer WSL2.
+4. Si Windows demande un redemarrage, redemarrez puis relancez le meme fichier.
+5. A la fin, utilisez l'icone "LYS BBB" creee sur le Bureau.
+
+Prevoir une connexion Internet, 12 Gio d'espace libre et 20 a 45 minutes pour la
+premiere installation. Les lancements suivants utilisent simplement l'icone.
+
+Le programme limite les traitements a deux threads sur cette machine de 8 Gio. Les
+inferences et registrations seront donc fonctionnelles mais plus lentes que sur une
+station de calcul.
+
+Le paquet installe le logiciel et le modele T1 verifie. Le modele T2 gele et les
+ressources d'atlas AIDAmri ne sont pas publics dans ce depot: il faut les transmettre
+separement, puis les selectionner dans l'application.
+
+Les fichiers du dossier Telechargements Windows sont visibles dans le selecteur de
+fichiers Linux sous /home/lysbbb/Downloads. Les autres disques Windows sont visibles
+sous /mnt/c, /mnt/d, etc.
+
+Ne jamais ouvrir le meme dossier d'etude simultanement sur deux ordinateurs.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import shutil
@@ -17,6 +18,14 @@ DEFAULT_REFERENCE_PATTERNS = (
     "{case_id}_pre_manual_mask_done.nii.gz",
     "{case_id}_pre_manual_mask.nii.gz",
 )
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def discover_cases(input_root: Path) -> list[str]:
@@ -103,23 +112,36 @@ def build_package(
             raise FileNotFoundError(f"no reference-mask candidate found for {case_id}")
 
         reference_rel = ""
+        reference_sha256 = ""
         if reference is not None:
             reference_out = package_root / "references" / f"{case_id}_brain_mask.nii.gz"
             reference_out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(reference, reference_out)
             reference_rel = str(reference_out.relative_to(package_root))
+            reference_sha256 = sha256(reference_out)
 
         rows.append(
             {
                 "case_id": case_id,
                 "image": str(image_out.relative_to(package_root)),
+                "image_sha256": sha256(image_out),
                 "reference_mask": reference_rel,
+                "reference_mask_sha256": reference_sha256,
             }
         )
 
     manifest = package_root / "benchmark_manifest.csv"
     with manifest.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=["case_id", "image", "reference_mask"])
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=[
+                "case_id",
+                "image",
+                "image_sha256",
+                "reference_mask",
+                "reference_mask_sha256",
+            ],
+        )
         writer.writeheader()
         writer.writerows(rows)
 

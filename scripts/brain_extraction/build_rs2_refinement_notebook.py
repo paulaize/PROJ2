@@ -64,13 +64,82 @@ CELLS = [
         ## Run instructions
 
         1. In Colab choose **Runtime → Change runtime type → T4 GPU**.
-        2. Run every cell in order.
-        3. Upload `t1_brain_extraction_benchmark_10.zip` when prompted.
-        4. Use the interactive viewer and saved montages to compare all four masks.
-        5. Download `t1_brain_extraction_rs2_refinement_results.zip` from the final cell.
+        2. Run the dependency-bootstrap cell. On its first run, Colab restarts once.
+        3. After Colab reconnects, select **Runtime → Run all**.
+        4. Upload `t1_brain_extraction_benchmark_10.zip` when prompted.
+        5. Use the interactive viewer and saved montages to compare all four masks.
+        6. Download `t1_brain_extraction_rs2_refinement_results.zip` from the final cell.
 
         The untouched RS2 mask is preserved. Correction outputs are experimental and
         separately named; nothing is silently selected as the winner.
+        """,
+    ),
+    code(
+        "runtime-bootstrap",
+        r"""
+        # Create a dependency set compatible with legacy RS2/MONAI, before importing torch.
+        import importlib.metadata
+        import os, signal, subprocess, sys
+
+        CORE_VERSIONS = {
+            'numpy': '1.26.4',
+            'scipy': '1.15.3',
+            'monai': '1.4.0',
+        }
+        packages = [
+            'numpy==1.26.4', 'scipy==1.15.3',
+            'monai==1.4.0', 'nibabel>=5.3,<6', 'nilearn>=0.12,<1',
+            'scikit-image>=0.23,<1', 'einops>=0.8,<1', 'gdown>=5.2,<6',
+            'acvl_utils==0.2.1', 'batchgenerators>=0.25,<1',
+            'SimpleITK>=2.4,<3', 'tifffile', 'imageio', 'pandas', 'ipywidgets'
+        ]
+
+        def installed_version(distribution):
+            try:
+                return importlib.metadata.version(distribution)
+            except importlib.metadata.PackageNotFoundError:
+                return None
+
+        observed_core = {
+            name: installed_version(name)
+            for name in CORE_VERSIONS
+        }
+        if observed_core != CORE_VERSIONS:
+            print('Installing the pinned RS2 runtime:', CORE_VERSIONS, flush=True)
+            subprocess.check_call([
+                sys.executable, '-m', 'pip', 'install',
+                '--no-cache-dir', '--upgrade', '--upgrade-strategy', 'only-if-needed',
+                *packages,
+            ])
+            runtime_preflight = (
+                "import monai, numpy, scipy, torch; "
+                "from scipy import ndimage; "
+                "assert numpy.__version__ == '1.26.4', numpy.__version__; "
+                "assert scipy.__version__ == '1.15.3', scipy.__version__; "
+                "assert monai.__version__ == '1.4.0', monai.__version__; "
+                "print('Installed NumPy', numpy.__version__, "
+                "'| SciPy', scipy.__version__, '| MONAI', monai.__version__)"
+            )
+            subprocess.check_call([sys.executable, '-c', runtime_preflight])
+            print(
+                'Dependency installation passed. Colab will restart once. '
+                'After it reconnects, choose Runtime → Run all.',
+                flush=True,
+            )
+            os.kill(os.getpid(), signal.SIGKILL)
+
+        import monai
+        import numpy
+        import scipy
+        from scipy import ndimage
+
+        assert numpy.__version__ == CORE_VERSIONS['numpy']
+        assert scipy.__version__ == CORE_VERSIONS['scipy']
+        assert monai.__version__ == CORE_VERSIONS['monai']
+        print(
+            'Runtime ready: NumPy', numpy.__version__,
+            '| SciPy', scipy.__version__, '| MONAI', monai.__version__,
+        )
         """,
     ),
     code(
@@ -149,19 +218,17 @@ CELLS = [
     code(
         "install-rs2",
         r"""
-        # Install the known-working RS2 environment, pin its source, and fetch official weights.
-        packages = [
-            'monai==1.4.0', 'nibabel>=5.3,<6', 'nilearn>=0.12,<1',
-            'scikit-image>=0.23,<1', 'einops>=0.8,<1', 'gdown>=5.2,<6',
-            'acvl_utils==0.2.1', 'batchgenerators>=0.25,<1',
-            'SimpleITK>=2.4,<3', 'tifffile', 'imageio', 'pandas', 'ipywidgets'
-        ]
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', *packages])
+        # Pin the RS2 source and fetch its official weights.
         runtime_preflight = (
-            "import monai, torch; "
-            "assert monai.__version__.startswith('1.4.'), monai.__version__; "
+            "import monai, numpy, scipy, torch; "
+            "from scipy import ndimage; "
+            "assert numpy.__version__ == '1.26.4', numpy.__version__; "
+            "assert scipy.__version__ == '1.15.3', scipy.__version__; "
+            "assert monai.__version__ == '1.4.0', monai.__version__; "
             "assert torch.cuda.is_available(), 'GPU unavailable to subprocess'; "
-            "print('Runtime preflight: MONAI', monai.__version__, '| GPU', torch.cuda.get_device_name(0))"
+            "print('Runtime preflight: NumPy', numpy.__version__, "
+            "'| SciPy', scipy.__version__, '| MONAI', monai.__version__, "
+            "'| GPU', torch.cuda.get_device_name(0))"
         )
         subprocess.check_call([sys.executable, '-c', runtime_preflight])
 

@@ -5,6 +5,9 @@ from pathlib import Path
 NOTEBOOK = Path("notebooks/brain_extraction_colab_benchmark.ipynb")
 EXTRA_NOTEBOOK = Path("notebooks/brain_extraction_colab_extra_baselines.ipynb")
 REFINEMENT_NOTEBOOK = Path("notebooks/brain_extraction_rs2_refinement_colab.ipynb")
+ALL_MICE_NOTEBOOK = Path(
+    "notebooks/brain_extraction_rs2_m_seam_all_mice_colab.ipynb"
+)
 
 
 def test_colab_notebook_is_clean_valid_json_with_compilable_code() -> None:
@@ -89,7 +92,7 @@ def test_extra_colab_notebook_pins_controls_and_declares_domain_mismatch() -> No
 def test_refinement_colab_notebook_is_clean_valid_json_with_compilable_code() -> None:
     notebook = json.loads(REFINEMENT_NOTEBOOK.read_text())
     assert notebook["nbformat"] == 4
-    assert len(notebook["cells"]) == 11
+    assert len(notebook["cells"]) == 12
     assert all(cell.get("id") for cell in notebook["cells"])
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
@@ -108,6 +111,13 @@ def test_refinement_notebook_is_pinned_gated_and_self_contained() -> None:
         "src/lys_bbb/brain_mask_refinement.py"
     ).read_text()
     assert "144b032df4885a3da00e0d1824fdd777b3cd304f" in source
+    assert "numpy==1.26.4" in source
+    assert "scipy==1.15.3" in source
+    assert "from scipy import ndimage" in source
+    assert "os.kill(os.getpid(), signal.SIGKILL)" in source
+    cell_ids = [cell["id"] for cell in notebook["cells"]]
+    assert cell_ids.index("runtime-bootstrap") < cell_ids.index("configuration")
+    assert cell_ids.index("runtime-bootstrap") < cell_ids.index("upload-package")
     assert "monai==1.4.0" in source
     assert "weights_only=False" in source
     assert "rs2net_raw" in source
@@ -123,3 +133,39 @@ def test_refinement_notebook_is_pinned_gated_and_self_contained() -> None:
     assert "widgets.interactive_output" in source
     assert "t1_brain_extraction_rs2_refinement_results.zip" in source
     assert "human review required" in source.lower()
+
+
+def test_all_mice_rs2_notebook_is_clean_pinned_and_lightweight() -> None:
+    notebook = json.loads(ALL_MICE_NOTEBOOK.read_text())
+    source = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
+
+    assert notebook["nbformat"] == 4
+    assert len(notebook["cells"]) == 12
+    assert all(cell.get("id") for cell in notebook["cells"])
+    for index, cell in enumerate(notebook["cells"]):
+        if cell["cell_type"] == "code":
+            assert cell["execution_count"] is None
+            assert cell["outputs"] == []
+            compile("".join(cell["source"]), f"all-mice-notebook-cell-{index}", "exec")
+
+    algorithm_cell = next(
+        cell for cell in notebook["cells"] if cell["id"] == "refinement-algorithms"
+    )
+    assert "".join(algorithm_cell["source"]) == Path(
+        "src/lys_bbb/brain_mask_refinement.py"
+    ).read_text()
+    assert "EXPECTED_CASE_COUNT = 34" in source
+    assert "numpy==1.26.4" in source
+    assert "scipy==1.15.3" in source
+    assert "from scipy import ndimage" in source
+    assert "os.kill(os.getpid(), signal.SIGKILL)" in source
+    cell_ids = [cell["id"] for cell in notebook["cells"]]
+    assert cell_ids.index("runtime-bootstrap") < cell_ids.index("configuration")
+    assert cell_ids.index("runtime-bootstrap") < cell_ids.index("upload-package")
+    assert "RS2_USE_TTA = True" in source
+    assert "RUN_ALTERNATIVE_REFINEMENTS = False" in source
+    assert "f7fef315d77c8568cd6d19867445ff51587505586c19b273087b65ccf3659371" in source
+    assert "itksnap_prelabels_manifest.csv" in source
+    assert "Path('/content/t1_brain_masks_all_mice_itksnap_handoff')" in source
+    assert "shutil.copytree(RESULTS / 'inputs'" not in source
+    assert "approval_status': 'none; all outputs require human review'" in source

@@ -1,0 +1,52 @@
+name: Build Windows handoff
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the selected snapshot
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Validate installer syntax
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem packaging/windows/*.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$($_.Extent): $($_.Message)" }
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+          bash -n packaging/windows/Install-LYS-BBB.sh
+
+      - name: Build the verified colleague bundle
+        run: python scripts/packaging/build_windows_handoff.py
+
+      - name: Upload the downloadable ZIP
+        uses: actions/upload-artifact@v6
+        with:
+          name: LYS-BBB-Windows-${{ github.sha }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 30

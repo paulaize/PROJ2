@@ -29,6 +29,10 @@ from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import ScanImportAssignment
 from lys_bbb_app.domain.study import LEGACY_PROJECT_FILE_SUFFIX, StudySnapshot
 from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
+from lys_bbb_app.platform_paths import (
+    default_t1_brain_mask_release_path,
+    default_t2_model_release_suggestion,
+)
 from lys_bbb_app.services.recent_studies_service import RecentStudiesService
 from lys_bbb_app.services.study_service import StudyService
 from lys_bbb_app.ui.dialogs import (
@@ -817,14 +821,7 @@ class MainWindow(QMainWindow):
                 "Open a persistent study before selecting a T1 brain-mask release."
             )
             return False
-        suggested = (
-            Path.home()
-            / "Library"
-            / "Application Support"
-            / "LYS BBB"
-            / "models"
-            / "rs2net-m-seam-v1"
-        )
+        suggested = default_t1_brain_mask_release_path()
         selected = QFileDialog.getExistingDirectory(
             self,
             "Select frozen RS2-Net/M-seam release folder",
@@ -863,14 +860,7 @@ class MainWindow(QMainWindow):
             self._show_status_message("Another MRI background job is already running.")
             return
         if self.current_study.active_t1_brain_mask_release_label is None:
-            default_release = (
-                Path.home()
-                / "Library"
-                / "Application Support"
-                / "LYS BBB"
-                / "models"
-                / "rs2net-m-seam-v1"
-            )
+            default_release = default_t1_brain_mask_release_path()
             if not default_release.is_dir() or not self._register_t1_brain_mask_release(
                 default_release
             ):
@@ -1613,7 +1603,7 @@ class MainWindow(QMainWindow):
                 "Open a persistent study before selecting a T2 model release."
             )
             return False
-        suggested = Path.home() / "Downloads" / "LYS_v1_RatLesNetV2_mac_inference"
+        suggested = default_t2_model_release_suggestion()
         selected = QFileDialog.getExistingDirectory(
             self,
             "Select frozen RatLesNetV2 release folder",

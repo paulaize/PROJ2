@@ -55,7 +55,13 @@ def test_build_package_copies_images_and_reviewed_reference(tmp_path: Path) -> N
         {
             "case_id": "C1S1_D1",
             "image": "images/C1S1_D1_pre_t1.nii.gz",
+            "image_sha256": (
+                "6105d6cc76af400325e94d588ce511be5bfdbb73b437dc51eca43917d7a43e3d"
+            ),
             "reference_mask": "references/C1S1_D1_brain_mask.nii.gz",
+            "reference_mask_sha256": (
+                "48bf9b4f142ab45cac6f33cf99415bca6ca8e07608a031237aa76560fec2204b"
+            ),
         }
     ]
     assert (package / "benchmark_manifest.csv").is_file()

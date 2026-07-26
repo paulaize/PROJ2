@@ -64,6 +64,9 @@ conda run -n lys-bbb python -m pip install --no-deps -e .
 conda run -n lys-bbb lys-bbb-desktop
 ```
 
+For the supported one-click Windows 11 colleague bundle, see the
+[Windows handoff guide](docs/windows_handoff.md).
+
 Run the complete test suite with:
 
 ```bash

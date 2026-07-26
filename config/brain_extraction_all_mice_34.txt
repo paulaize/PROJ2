@@ -1,0 +1,37 @@
+# Every currently available native pre-Gd T1 under output/all_mice.
+# C23S3_D1 and C23S3_D1_bis are both retained for mask review; select only
+# the scientifically correct session before longitudinal quantification.
+C23S2_D7
+C23S3_D1
+C23S3_D1_bis
+C23S3_D7
+C23S4_D1
+C23S4_D7
+C23S5_D1
+C23S5_D7
+C24S1_D1
+C24S1_D7
+C24S2_D1
+C24S2_D7
+C24S3_D1
+C24S3_D7
+C24S4_D1
+C24S4_D7
+C24S5_D1
+C24S5_D7
+C25S1_D1
+C25S1_D7
+C25S2_D1
+C25S2_D7
+C25S3_D1
+C25S3_D7
+C25S5_D1
+C25S5_D7
+C26S1_D1
+C26S1_D7
+C26S2_D1
+C26S2_D7
+C26S3_D1
+C26S3_D7
+C26S4_D1
+C26S4_D7

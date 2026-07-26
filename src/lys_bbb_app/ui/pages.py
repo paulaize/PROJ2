@@ -33,6 +33,7 @@ from lys_bbb_app.ui.models import (
     SubjectFilterProxyModel,
     SubjectTableModel,
 )
+from lys_bbb_app.platform_paths import default_itksnap_editor_path
 from lys_bbb_app.ui.layout_helpers import (
     clear_layout as _clear_layout,
     page_heading as _page_heading,
@@ -705,7 +706,7 @@ class SettingsPage(QScrollArea):
         standard = QGroupBox("Standard settings")
         form = QFormLayout(standard)
         self.reviewer = QLineEdit("Paul-Andréas")
-        self.external_editor = QLineEdit("/Applications/ITK-SNAP.app")
+        self.external_editor = QLineEdit(default_itksnap_editor_path())
         self.external_editor.setPlaceholderText(
             "Leave blank to find ITK-SNAP automatically"
         )

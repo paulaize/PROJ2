@@ -21,7 +21,7 @@ class ViewerLaunch:
 
 
 def find_itksnap(explicit_path: Path | str | None = None) -> Path:
-    """Resolve ITK-SNAP from a configured path, PATH, or the macOS app bundle."""
+    """Resolve ITK-SNAP from a configured path, PATH, or a common app bundle."""
 
     if explicit_path is not None and str(explicit_path).strip():
         configured = Path(explicit_path).expanduser()

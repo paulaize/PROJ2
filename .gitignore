@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 *.egg-info/
+dist/
 
 # Generated local outputs
 output/

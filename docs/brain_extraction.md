@@ -37,6 +37,115 @@ review the full posterior-anterior extent.
 
 ## Active reproducible workflow
 
+### Lightweight local MouseBSE trial
+
+MouseBSE is available as an isolated desktop experiment for comparing a classical,
+CPU-only extraction with RS2/M-seam. It is not the selected production method and its
+output is always an unapproved draft.
+
+From the project root, run:
+
+```bash
+conda run --no-capture-output -n lys-bbb \
+  python scripts/brain_extraction/run_mousebse_test.py
+```
+
+The first run clones the official MouseBSE source at pinned commit
+`ef3039c68dde4f3649e454f365a883e2b1c48d2f` and compiles it with at most two build
+jobs. It then processes `C23S3_D1_bis/pre_coronal.nii.gz` with the official v25a
+defaults and `--norotate`, validates that the output remains on the native image grid,
+creates a 0/1 editable copy, writes provenance and per-slice QC, and opens that copy
+over the T1 in ITK-SNAP. It does not overwrite the source image, raw MouseBSE output,
+or any production manual mask.
+
+To test a different coronal T1:
+
+```bash
+conda run --no-capture-output -n lys-bbb \
+  python scripts/brain_extraction/run_mousebse_test.py --case C25S1_D1
+```
+
+Every invocation creates a new timestamped directory under
+`derivatives/brain_extraction/mousebse_tests/<case>/`. In ITK-SNAP, edit only the
+loaded file under that run's `editable/` folder and save it in place. Review all slices,
+especially the olfactory bulbs, superior cortex, inferior surface, cerebellum,
+brainstem, and anterior/posterior endpoints. The mask remains unsuitable for
+quantification until it is manually reviewed and explicitly approved.
+
+### Exact-TTA all-mice Colab handoff
+
+Use
+[`notebooks/brain_extraction_rs2_m_seam_all_mice_colab.ipynb`](../notebooks/brain_extraction_rs2_m_seam_all_mice_colab.ipynb)
+to generate correction-ready masks for every current
+`output/all_mice/<case>/pre_coronal.nii.gz`. The frozen case list is
+`config/brain_extraction_all_mice_34.txt`; it currently contains 34 images. It includes
+both `C23S3_D1` and `C23S3_D1_bis` for mask review, although only the scientifically
+correct acquisition may later enter longitudinal quantification.
+
+The ready-to-upload package is
+`derivatives/brain_extraction/colab/t1_brain_extraction_all_mice_34.zip`. Rebuild it
+without silently changing the cohort with:
+
+```bash
+conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py \
+  --input-root output/all_mice \
+  --case-file config/brain_extraction_all_mice_34.txt \
+  --out-dir derivatives/brain_extraction/colab \
+  --package-name t1_brain_extraction_all_mice_34 \
+  --overwrite
+```
+
+In a fresh Google Colab session:
+
+1. Upload and open the all-mice notebook.
+2. Select **Runtime → Change runtime type → T4 GPU**.
+3. Select **Runtime → Run all**.
+4. When the upload picker appears, upload only
+   `t1_brain_extraction_all_mice_34.zip`.
+5. Leave the runtime connected until
+   `t1_brain_masks_all_mice_itksnap_handoff.zip` downloads.
+
+The notebook checks the 34 input hashes, exact RS2 source commit, exact weight hash,
+CUDA availability, native output grids, binary masks, non-empty masks, and the
+M-seam subset constraint. It runs exact eight-way TTA and only the selected M-seam
+refinement. The downloaded handoff intentionally excludes duplicate T1 volumes; it
+contains flat ITK-SNAP pre-labels, their checksums, QC montages, validation tables, and
+provenance.
+
+Extract the handoff into a new run directory:
+
+```bash
+mkdir -p derivatives/brain_extraction/colab_results/all_mice_rs2_m_seam_run_01
+ditto -x -k \
+  "$HOME/Downloads/t1_brain_masks_all_mice_itksnap_handoff.zip" \
+  derivatives/brain_extraction/colab_results/all_mice_rs2_m_seam_run_01
+```
+
+First validate all 34 local image/pre-label pairs without copying or opening anything:
+
+```bash
+conda run -n lys-bbb python scripts/masks/open_manual_mask_editor.py \
+  --input-root output/all_mice \
+  --prelabel-dir derivatives/brain_extraction/colab_results/all_mice_rs2_m_seam_run_01/t1_brain_masks_all_mice_itksnap_handoff/itksnap_prelabels \
+  --prelabel-glob '*_rs2_m_seam_mask.nii.gz' \
+  --prelabel-suffix '_rs2_m_seam_mask.nii.gz' \
+  --prelabel-manifest derivatives/brain_extraction/colab_results/all_mice_rs2_m_seam_run_01/t1_brain_masks_all_mice_itksnap_handoff/itksnap_prelabels_manifest.csv \
+  --manual-dir derivatives/brain_seg/manual_rs2_m_seam \
+  --dry-run
+```
+
+The dry run must report 34 `dry_run` cases and no failures. Then repeat the same command
+without `--dry-run`. It creates a separate editable
+`<case>_pre_manual_mask.nii.gz` and opens one case at a time in ITK-SNAP. Save the
+segmentation in place, close its window, and press Enter in the terminal for the next
+case. Do not edit the downloaded pre-labels themselves.
+
+Inspect the entire 3-D brain, not only the montage-selected slices: olfactory bulbs,
+superior cortex, inferior surface, cerebellum, brainstem, anterior/posterior endpoints,
+and every discontinuity or QC warning. These corrected files remain working masks until
+they are explicitly reviewed and approved; neither a successful Colab run nor a
+filename marks approval.
+
 ### Local macOS inference
 
 Install the exact reviewed RS2 source and weight once:

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from lys_bbb_app.ui.main_window import MainWindow
@@ -30,6 +32,9 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication([sys.argv[0]])
     app.setApplicationName("LYS BBB Scientific Workflows")
     app.setOrganizationName("LYS BBB")
+    icon_path = Path(os.environ.get("LYS_BBB_ICON", ""))
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
     apply_theme(app)
 
     window = MainWindow()
