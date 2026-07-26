@@ -21,6 +21,7 @@ from lys_bbb_app.domain.view_models import (
     ReviewItemViewModel,
     StudyViewModel,
 )
+from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.ui.layout_helpers import clear_layout, page_heading
 from lys_bbb_app.ui.widgets import CollapsibleSection, StatusBadge, secondary_button
 
@@ -33,8 +34,9 @@ class ReviewsPage(QWidget):
     subject_requested = Signal(str)
     qc_slices_requested = Signal(str, str)
 
-    def __init__(self) -> None:
+    def __init__(self, *, features: AppFeatures = FULL_FEATURES) -> None:
         super().__init__()
+        self.features = features
         self.reviews: tuple[ReviewItemViewModel, ...] = ()
         self.filtered: list[ReviewItemViewModel] = []
         self.current_item: ReviewItemViewModel | None = None
@@ -193,7 +195,12 @@ class ReviewsPage(QWidget):
         return panel
 
     def set_study(self, study: StudyViewModel) -> None:
-        self.reviews = study.reviews
+        self.reviews = tuple(
+            review
+            for review in study.reviews
+            if self.features.atlas_mapping
+            or not review.workflow_key.startswith("atlas_")
+        )
         if any(_review_modality(item) == "Atlas" for item in self.reviews):
             self._add_modality_button("Atlas")
         default_modality = next(

@@ -11,21 +11,60 @@ import subprocess
 import sys
 import tomllib
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 
-BUNDLE_ROOT = PurePosixPath("LYS-BBB-Windows")
-TEMPLATE_FILES = (
-    "Setup-LYS-BBB.cmd",
-    "Setup-LYS-BBB.ps1",
-    "Launch-LYS-BBB.ps1",
-    "Install-LYS-BBB.sh",
-    "LISEZ-MOI.txt",
-)
 PAYLOAD_ROOT_FILES = ("pyproject.toml", "README.md")
 PAYLOAD_PREFIXES = ("src/",)
-ENVIRONMENT_FILE = "packaging/windows/environment-wsl.yml"
+
+
+@dataclass(frozen=True, slots=True)
+class BundleTarget:
+    bundle_root: PurePosixPath
+    template_directory: str
+    template_files: tuple[str, ...]
+    environment_file: str
+    archive_label: str
+    runtime: str
+    graphics: str
+    feature_profile: str
+
+
+TARGETS = {
+    "wsl": BundleTarget(
+        bundle_root=PurePosixPath("LYS-BBB-Windows"),
+        template_directory="packaging/windows",
+        template_files=(
+            "Setup-LYS-BBB.cmd",
+            "Setup-LYS-BBB.ps1",
+            "Launch-LYS-BBB.ps1",
+            "Install-LYS-BBB.sh",
+            "LISEZ-MOI.txt",
+        ),
+        environment_file="packaging/windows/environment-wsl.yml",
+        archive_label="LYS-BBB-Windows",
+        runtime="WSL2/Ubuntu with WSLg",
+        graphics="integrated Windows desktop via WSLg",
+        feature_profile="full",
+    ),
+    "native-no-ants": BundleTarget(
+        bundle_root=PurePosixPath("LYS-BBB-Windows-Native-No-ANTs-v1"),
+        template_directory="packaging/windows-native",
+        template_files=(
+            "Setup-LYS-BBB.cmd",
+            "Setup-LYS-BBB.ps1",
+            "Launch-LYS-BBB.ps1",
+            "LISEZ-MOI.txt",
+        ),
+        environment_file="packaging/windows-native/environment-win64.yml",
+        archive_label="LYS-BBB-Windows-Native-No-ANTs",
+        runtime="native Windows CPython via Miniforge",
+        graphics="native Windows desktop",
+        feature_profile="windows_native_no_ants_v1",
+    ),
+}
 
 
 def _git(source: Path, *args: str) -> str:
@@ -43,7 +82,7 @@ def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def _payload_files(source: Path) -> tuple[str, ...]:
+def _payload_files(source: Path, environment_file: str) -> tuple[str, ...]:
     output = _git(
         source,
         "ls-files",
@@ -56,7 +95,7 @@ def _payload_files(source: Path) -> tuple[str, ...]:
         path
         for path in candidates
         if path in PAYLOAD_ROOT_FILES
-        or path == ENVIRONMENT_FILE
+        or path == environment_file
         or path.startswith(PAYLOAD_PREFIXES)
     )
     return tuple(sorted(selected))
@@ -177,9 +216,11 @@ def build_bundle(
     output_directory: Path,
     *,
     allow_dirty: bool = False,
+    target_name: str = "wsl",
 ) -> Path:
     source = source.resolve()
     output_directory = output_directory.resolve()
+    target = TARGETS[target_name]
     status = _git(source, "status", "--porcelain", "--untracked-files=all")
     if status and not allow_dirty:
         raise RuntimeError(
@@ -192,22 +233,26 @@ def build_bundle(
     project = tomllib.loads((source / "pyproject.toml").read_text())
     version = str(project["project"]["version"])
     suffix = "-dirty" if status else ""
-    bundle_name = f"LYS-BBB-Windows-{version}-{commit[:8]}{suffix}.zip"
+    bundle_name = (
+        f"{target.archive_label}-{version}-{commit[:8]}{suffix}.zip"
+    )
     output_directory.mkdir(parents=True, exist_ok=True)
     output_path = output_directory / bundle_name
 
     entries: dict[PurePosixPath, bytes] = {}
-    template_directory = source / "packaging" / "windows"
-    for name in TEMPLATE_FILES:
-        entries[BUNDLE_ROOT / name] = (template_directory / name).read_bytes()
-    entries[BUNDLE_ROOT / "lys-bbb.ico"] = windows_icon_bytes()
-    for relative in _payload_files(source):
-        entries[BUNDLE_ROOT / "app" / PurePosixPath(relative)] = (
+    template_directory = source / target.template_directory
+    for name in target.template_files:
+        entries[target.bundle_root / name] = (
+            template_directory / name
+        ).read_bytes()
+    entries[target.bundle_root / "lys-bbb.ico"] = windows_icon_bytes()
+    for relative in _payload_files(source, target.environment_file):
+        entries[target.bundle_root / "app" / PurePosixPath(relative)] = (
             source / relative
         ).read_bytes()
 
     tracked_hashes = {
-        str(path.relative_to(BUNDLE_ROOT)): _sha256(content)
+        str(path.relative_to(target.bundle_root)): _sha256(content)
         for path, content in sorted(entries.items(), key=lambda item: str(item[0]))
     }
     manifest = {
@@ -220,20 +265,21 @@ def build_bundle(
         "built_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "target": {
             "host": "Windows 11 x86_64",
-            "runtime": "WSL2/Ubuntu with WSLg",
-            "graphics": "integrated Windows desktop via WSLg",
+            "runtime": target.runtime,
+            "graphics": target.graphics,
             "ml_device": "CPU",
+            "feature_profile": target.feature_profile,
         },
         "files": tracked_hashes,
     }
     manifest_content = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
-    entries[BUNDLE_ROOT / "handoff-manifest.json"] = manifest_content
+    entries[target.bundle_root / "handoff-manifest.json"] = manifest_content
 
     checksum_lines = tuple(
-        f"{_sha256(content)}  {path.relative_to(BUNDLE_ROOT)}"
+        f"{_sha256(content)}  {path.relative_to(target.bundle_root)}"
         for path, content in sorted(entries.items(), key=lambda item: str(item[0]))
     )
-    entries[BUNDLE_ROOT / "SHA256SUMS.txt"] = (
+    entries[target.bundle_root / "SHA256SUMS.txt"] = (
         "\n".join(checksum_lines) + "\n"
     ).encode()
 
@@ -258,6 +304,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--output-directory", type=Path, default=Path("dist"))
     parser.add_argument(
+        "--target",
+        choices=tuple(TARGETS),
+        default="wsl",
+        help="distribution target; defaults to the original WSL handoff",
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="create a test bundle even when the source snapshot is not committed",
@@ -272,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
             args.source,
             args.output_directory,
             allow_dirty=args.allow_dirty,
+            target_name=args.target,
         )
     except (OSError, KeyError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)

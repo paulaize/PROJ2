@@ -1,0 +1,42 @@
+LYS BBB - TEST WINDOWS NATIF SANS ANTs
+=====================================
+
+Ce paquet fonctionne directement sous Windows 11. Il n'installe ni Ubuntu, ni WSL2,
+ni ANTs.
+
+1. Decompressez completement le fichier ZIP.
+2. Double-cliquez sur Setup-LYS-BBB.cmd.
+3. Laissez la fenetre ouverte pendant le telechargement des dependances.
+4. ITK-SNAP est facultatif. Si vous acceptez son installation, Windows demandera
+   une autorisation administrateur pour ce logiciel uniquement.
+5. A la fin, double-cliquez sur "LYS BBB - test Windows" sur le Bureau.
+
+Prevoir une connexion Internet, 8 Gio d'espace libre et environ 15 a 40 minutes
+pour la premiere installation. Les lancements suivants utilisent l'icone.
+
+FONCTIONS INCLUSES
+------------------
+
+- creation, ouverture et persistance des etudes;
+- import et validation des IRM;
+- masque cerebral T1, examen humain et correction avec ITK-SNAP;
+- registration post-Gd vers pre-Gd T1 avec SimpleITK;
+- calcul provisoire du rehaussement T1;
+- inference et examen des lesions T2 en espace T2 natif;
+- resultats et export CSV approuve.
+
+FONCTION RETIREE DE CE TEST
+---------------------------
+
+Le module Atlas Mapping est masque. Les registrations atlas vers T1, T1 vers T2 et
+la propagation des etiquettes anatomiques utilisent ANTs dans la version actuelle
+et ne peuvent donc pas etre lancees par ce paquet.
+
+Le modele T1 examine est telecharge par l'installateur. Le modele T2 gele n'est pas
+public dans ce depot: transmettez-le separement, puis selectionnez son dossier dans
+l'application.
+
+Les donnees et le logiciel sont stockes dans:
+  %LOCALAPPDATA%\LYS_BBB
+
+Ne jamais ouvrir le meme dossier d'etude simultanement sur deux ordinateurs.

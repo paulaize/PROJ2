@@ -64,8 +64,10 @@ conda run -n lys-bbb python -m pip install --no-deps -e .
 conda run -n lys-bbb lys-bbb-desktop
 ```
 
-For the supported one-click Windows 11 colleague bundle, see the
-[Windows handoff guide](docs/windows_handoff.md).
+For the first native Windows 11 colleague test bundle, which deliberately omits the
+ANTs-dependent atlas workflow, see the
+[native Windows no-ANTs handoff guide](docs/windows_native_handoff.md). The frozen
+[full WSL/ANTs handoff](docs/windows_handoff.md) remains documented separately.
 
 Run the complete test suite with:
 

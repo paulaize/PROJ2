@@ -1,8 +1,11 @@
-# Windows 11 colleague handoff
+# Full Windows 11 WSL/ANTs handoff
 
-The supported Windows handoff is a verified source-bootstrap ZIP. It presents a normal
-Desktop and Start-menu shortcut, while running the scientific application in Ubuntu on
-WSL2/WSLg.
+This is the frozen full-profile handoff. It presents a normal Desktop and Start-menu
+shortcut, while running the scientific application in Ubuntu on WSL2/WSLg.
+
+For the first colleague test, use the
+[native Windows no-ANTs handoff](windows_native_handoff.md) instead. That package runs
+directly on Windows and deliberately removes the atlas workflow.
 
 WSL2 is required because the exact registration contract invokes native
 `antsRegistration` and `antsApplyTransforms` from ANTs 2.6.5. Conda-forge publishes

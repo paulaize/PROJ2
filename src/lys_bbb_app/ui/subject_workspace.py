@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from lys_bbb_app.domain.atlas_mapping import AtlasMappingState
 from lys_bbb_app.domain.view_models import SubjectViewModel
+from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.ui.atlas_mapping import AtlasMappingPanel
 from lys_bbb_app.ui.layout_helpers import clear_layout
 from lys_bbb_app.ui.subject_inputs import SubjectInputsPanel
@@ -65,8 +66,9 @@ class SubjectWorkspacePage(QScrollArea):
     atlas_composite_approve_requested = Signal(str, str)
     atlas_result_calculate_requested = Signal(str)
 
-    def __init__(self) -> None:
+    def __init__(self, *, features: AppFeatures = FULL_FEATURES) -> None:
         super().__init__()
+        self.features = features
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -193,49 +195,53 @@ class SubjectWorkspacePage(QScrollArea):
             self.t2_manual_edit_requested.emit
         )
         self.t2_panel.approve_requested.connect(self.t2_approve_requested.emit)
-        self.atlas_mapping_panel = AtlasMappingPanel()
-        self.atlas_mapping_panel.configure_resource_requested.connect(
-            self.atlas_resource_requested.emit
+        self.atlas_mapping_panel = (
+            AtlasMappingPanel() if self.features.atlas_mapping else None
         )
-        self.atlas_mapping_panel.register_scheme_requested.connect(
-            self.atlas_scheme_register_requested.emit
-        )
-        self.atlas_mapping_panel.approve_scheme_requested.connect(
-            self.atlas_scheme_approve_requested.emit
-        )
-        self.atlas_mapping_panel.import_support_mask_requested.connect(
-            self.atlas_support_mask_import_requested.emit
-        )
-        self.atlas_mapping_panel.approve_support_mask_requested.connect(
-            self.atlas_support_mask_approve_requested.emit
-        )
-        self.atlas_mapping_panel.run_atlas_to_t1_requested.connect(
-            self.atlas_to_t1_run_requested.emit
-        )
-        self.atlas_mapping_panel.approve_atlas_to_t1_requested.connect(
-            self.atlas_to_t1_approve_requested.emit
-        )
-        self.atlas_mapping_panel.run_t1_to_t2_requested.connect(
-            self.t1_to_t2_run_requested.emit
-        )
-        self.atlas_mapping_panel.approve_t1_to_t2_requested.connect(
-            self.t1_to_t2_approve_requested.emit
-        )
-        self.atlas_mapping_panel.create_composite_requested.connect(
-            self.atlas_composite_create_requested.emit
-        )
-        self.atlas_mapping_panel.approve_composite_requested.connect(
-            self.atlas_composite_approve_requested.emit
-        )
-        self.atlas_mapping_panel.calculate_result_requested.connect(
-            self.atlas_result_calculate_requested.emit
-        )
+        if self.atlas_mapping_panel is not None:
+            self.atlas_mapping_panel.configure_resource_requested.connect(
+                self.atlas_resource_requested.emit
+            )
+            self.atlas_mapping_panel.register_scheme_requested.connect(
+                self.atlas_scheme_register_requested.emit
+            )
+            self.atlas_mapping_panel.approve_scheme_requested.connect(
+                self.atlas_scheme_approve_requested.emit
+            )
+            self.atlas_mapping_panel.import_support_mask_requested.connect(
+                self.atlas_support_mask_import_requested.emit
+            )
+            self.atlas_mapping_panel.approve_support_mask_requested.connect(
+                self.atlas_support_mask_approve_requested.emit
+            )
+            self.atlas_mapping_panel.run_atlas_to_t1_requested.connect(
+                self.atlas_to_t1_run_requested.emit
+            )
+            self.atlas_mapping_panel.approve_atlas_to_t1_requested.connect(
+                self.atlas_to_t1_approve_requested.emit
+            )
+            self.atlas_mapping_panel.run_t1_to_t2_requested.connect(
+                self.t1_to_t2_run_requested.emit
+            )
+            self.atlas_mapping_panel.approve_t1_to_t2_requested.connect(
+                self.t1_to_t2_approve_requested.emit
+            )
+            self.atlas_mapping_panel.create_composite_requested.connect(
+                self.atlas_composite_create_requested.emit
+            )
+            self.atlas_mapping_panel.approve_composite_requested.connect(
+                self.atlas_composite_approve_requested.emit
+            )
+            self.atlas_mapping_panel.calculate_result_requested.connect(
+                self.atlas_result_calculate_requested.emit
+            )
         self.history_list = QListWidget()
         self.tabs.addTab(self.inputs_panel, "Inputs")
         self.tabs.addTab(self.t1_brain_mask_panel, "T1 Brain Mask")
         self.tabs.addTab(self.t1_analysis_panel, "T1 Registration & Result")
         self.tabs.addTab(self.t2_panel, "T2 Lesion")
-        self.tabs.addTab(self.atlas_mapping_panel, "Atlas Mapping")
+        if self.atlas_mapping_panel is not None:
+            self.tabs.addTab(self.atlas_mapping_panel, "Atlas Mapping")
         self.tabs.addTab(self.history_list, "History")
         self.tabs.setMinimumHeight(390)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -250,7 +256,8 @@ class SubjectWorkspacePage(QScrollArea):
         self.t1_brain_mask_panel.set_subject(subject)
         self.t1_analysis_panel.set_subject(subject)
         self.t2_panel.set_subject(subject)
-        self.atlas_mapping_panel.set_subject(subject, None)
+        if self.atlas_mapping_panel is not None:
+            self.atlas_mapping_panel.set_subject(subject, None)
         self.technical_details.set_expanded(False)
 
         clear_layout(self.t1_status_layout)
@@ -283,7 +290,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.history_list.addItems(subject.history or ("No history recorded.",))
 
     def set_atlas_mapping_state(self, state: AtlasMappingState | None) -> None:
-        if self.current_subject is not None:
+        if self.current_subject is not None and self.atlas_mapping_panel is not None:
             self.atlas_mapping_panel.set_subject(self.current_subject, state)
 
     def _set_next_action(self, subject: SubjectViewModel) -> None:

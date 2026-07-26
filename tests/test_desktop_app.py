@@ -35,6 +35,12 @@ from lys_bbb_app.domain.view_models import (  # noqa: E402
     ReviewItemViewModel,
     StatusValue,
 )
+from lys_bbb_app.features import (  # noqa: E402
+    FULL_FEATURES,
+    WINDOWS_NATIVE_NO_ANTS_V1_FEATURES,
+    active_features,
+    features_for_profile,
+)
 from lys_bbb_app.main import parse_args  # noqa: E402
 from lys_bbb_app.services.recent_studies_service import (  # noqa: E402
     RecentStudiesService,
@@ -62,6 +68,65 @@ def qt_app():
 def test_launcher_accepts_only_an_optional_project_path() -> None:
     assert parse_args([]).project is None
     assert parse_args(["/tmp/study"]).project == Path("/tmp/study")
+
+
+def test_native_windows_profile_removes_all_atlas_entry_points(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    assert active_features({}) is FULL_FEATURES
+    assert (
+        features_for_profile("windows_native_no_ants_v1")
+        is WINDOWS_NATIVE_NO_ANTS_V1_FEATURES
+    )
+    with pytest.raises(ValueError, match="Unknown LYS BBB feature profile"):
+        features_for_profile("unexpected")
+
+    atlas_review = ReviewItemViewModel(
+        subject_id="stable-subject-id",
+        subject_label="Mouse-001",
+        category="Atlas mappings",
+        artifact_name="Atlas to pre-T1 candidate",
+        reason="Human review required",
+        automatic_qc="Stored registration candidate.",
+        status=StatusValue("Awaiting review", "review"),
+        artifact_id="atlas-v1",
+        workflow_key="atlas_to_t1",
+    )
+    t1_review = replace(
+        atlas_review,
+        artifact_id="registration-v1",
+        workflow_key="t1_registration",
+        category="T1 registrations",
+        artifact_name="Post-Gd to pre-Gd registration",
+    )
+    study = replace(
+        present_legacy_project(
+            LegacyProjectRecord("study", "Study", tmp_path / "project.sqlite", 1)
+        ),
+        reviews=(atlas_review, t1_review),
+    )
+
+    window = MainWindow(features=WINDOWS_NATIVE_NO_ANTS_V1_FEATURES)
+    window._set_study(study)
+    qt_app.processEvents()
+
+    assert "Native Windows test" in window.windowTitle()
+    assert "WSL2" in window.study_banner.text()
+    assert window.workspace_page.atlas_mapping_panel is None
+    assert [
+        window.workspace_page.tabs.tabText(index)
+        for index in range(window.workspace_page.tabs.count())
+    ] == [
+        "Inputs",
+        "T1 Brain Mask",
+        "T1 Registration & Result",
+        "T2 Lesion",
+        "History",
+    ]
+    assert set(window.reviews_page.modality_buttons) == {"T1", "T2"}
+    assert window.reviews_page.reviews == (t1_review,)
+    window.close()
 
 
 def test_elided_label_preserves_and_reveals_the_complete_value(

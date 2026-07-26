@@ -29,6 +29,7 @@ from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import ScanImportAssignment
 from lys_bbb_app.domain.study import LEGACY_PROJECT_FILE_SUFFIX, StudySnapshot
 from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
+from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.platform_paths import (
     default_t1_brain_mask_release_path,
     default_t2_model_release_suggestion,
@@ -86,8 +87,11 @@ class MainWindow(QMainWindow):
         self,
         study_service: StudyService | None = None,
         recent_studies: RecentStudiesService | None = None,
+        *,
+        features: AppFeatures = FULL_FEATURES,
     ) -> None:
         super().__init__()
+        self.features = features
         self.study_service = study_service or StudyService()
         self.recent_studies = recent_studies or RecentStudiesService()
         self.current_study: StudyViewModel | None = None
@@ -117,12 +121,17 @@ class MainWindow(QMainWindow):
         self._validation_return_page = "workspace"
         self._scan_operation_name = "MRI import"
 
-        self.setWindowTitle("LYS BBB Scientific Workflows")
+        window_title = "LYS BBB Scientific Workflows"
+        if self.features.window_title_suffix:
+            window_title = f"{window_title} — {self.features.window_title_suffix}"
+        self.setWindowTitle(window_title)
         self.resize(1440, 900)
         self.setMinimumSize(1180, 760)
         self._build_actions()
         self._build_ui()
-        self.statusBar().showMessage("Choose or create a study.")
+        self.statusBar().showMessage(
+            self.features.runtime_notice or "Choose or create a study."
+        )
 
     def _build_actions(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -189,10 +198,10 @@ class MainWindow(QMainWindow):
         self.content_stack = QStackedWidget()
         self.overview_page = OverviewPage()
         self.subjects_page = SubjectsPage()
-        self.reviews_page = ReviewsPage()
+        self.reviews_page = ReviewsPage(features=self.features)
         self.results_page = ResultsPage()
         self.settings_page = SettingsPage()
-        self.workspace_page = SubjectWorkspacePage()
+        self.workspace_page = SubjectWorkspacePage(features=self.features)
         pages = (
             ("overview", self.overview_page),
             ("subjects", self.subjects_page),
@@ -279,46 +288,49 @@ class MainWindow(QMainWindow):
         self.workspace_page.t1_enhancement_run_requested.connect(
             self.run_t1_enhancement_for_subject
         )
-        self.workspace_page.atlas_resource_requested.connect(
-            self.configure_atlas_resource
-        )
-        self.workspace_page.atlas_scheme_register_requested.connect(
-            self.register_major_region_scheme
-        )
-        self.workspace_page.atlas_scheme_approve_requested.connect(
-            self.approve_major_region_scheme
-        )
-        self.workspace_page.atlas_support_mask_import_requested.connect(
-            self.import_t2_registration_support_mask
-        )
-        self.workspace_page.atlas_support_mask_approve_requested.connect(
-            self.approve_t2_registration_support_mask
-        )
-        self.workspace_page.atlas_to_t1_run_requested.connect(
-            lambda subject_id: self.start_atlas_mapping_stage(
-                subject_id, "atlas_to_t1"
+        if self.features.atlas_mapping:
+            self.workspace_page.atlas_resource_requested.connect(
+                self.configure_atlas_resource
             )
-        )
-        self.workspace_page.atlas_to_t1_approve_requested.connect(
-            self.approve_atlas_to_t1
-        )
-        self.workspace_page.t1_to_t2_run_requested.connect(
-            lambda subject_id: self.start_atlas_mapping_stage(
-                subject_id, "t1_to_t2"
+            self.workspace_page.atlas_scheme_register_requested.connect(
+                self.register_major_region_scheme
             )
-        )
-        self.workspace_page.t1_to_t2_approve_requested.connect(
-            self.approve_atlas_t1_to_t2
-        )
-        self.workspace_page.atlas_composite_create_requested.connect(
-            lambda subject_id: self.start_atlas_mapping_stage(subject_id, "composite")
-        )
-        self.workspace_page.atlas_composite_approve_requested.connect(
-            self.approve_atlas_composite
-        )
-        self.workspace_page.atlas_result_calculate_requested.connect(
-            self.calculate_atlas_result
-        )
+            self.workspace_page.atlas_scheme_approve_requested.connect(
+                self.approve_major_region_scheme
+            )
+            self.workspace_page.atlas_support_mask_import_requested.connect(
+                self.import_t2_registration_support_mask
+            )
+            self.workspace_page.atlas_support_mask_approve_requested.connect(
+                self.approve_t2_registration_support_mask
+            )
+            self.workspace_page.atlas_to_t1_run_requested.connect(
+                lambda subject_id: self.start_atlas_mapping_stage(
+                    subject_id, "atlas_to_t1"
+                )
+            )
+            self.workspace_page.atlas_to_t1_approve_requested.connect(
+                self.approve_atlas_to_t1
+            )
+            self.workspace_page.t1_to_t2_run_requested.connect(
+                lambda subject_id: self.start_atlas_mapping_stage(
+                    subject_id, "t1_to_t2"
+                )
+            )
+            self.workspace_page.t1_to_t2_approve_requested.connect(
+                self.approve_atlas_t1_to_t2
+            )
+            self.workspace_page.atlas_composite_create_requested.connect(
+                lambda subject_id: self.start_atlas_mapping_stage(
+                    subject_id, "composite"
+                )
+            )
+            self.workspace_page.atlas_composite_approve_requested.connect(
+                self.approve_atlas_composite
+            )
+            self.workspace_page.atlas_result_calculate_requested.connect(
+                self.calculate_atlas_result
+            )
         self.reviews_page.approve_requested.connect(
             lambda subject_id, artifact_id: self.approve_review_mask(
                 subject_id,
@@ -505,15 +517,20 @@ class MainWindow(QMainWindow):
         self.current_study = study
         self.study_name_label.setText(study.name)
         persistent = self.study_service.current_study is not None
-        if persistent:
-            self.study_banner.clear()
-            self.study_banner.hide()
-        else:
-            self.study_banner.setText(
+        banner_messages: list[str] = []
+        if not persistent:
+            banner_messages.append(
                 "LEGACY PROJECT — This schema-v1 file is available for inspection. "
                 "Migrate it to a study directory before adding subjects."
             )
+        if self.features.runtime_notice:
+            banner_messages.append(self.features.runtime_notice)
+        if banner_messages:
+            self.study_banner.setText("\n\n".join(banner_messages))
             self.study_banner.show()
+        else:
+            self.study_banner.clear()
+            self.study_banner.hide()
         self.overview_page.set_study(study)
         self.subjects_page.set_study(study)
         self.reviews_page.set_study(study)
@@ -549,11 +566,12 @@ class MainWindow(QMainWindow):
         if subject is None:
             return
         self.workspace_page.set_subject(subject)
-        try:
-            atlas_state = self.study_service.atlas_mapping.state(subject_id)
-        except StudyStateError:
-            atlas_state = None
-        self.workspace_page.set_atlas_mapping_state(atlas_state)
+        if self.features.atlas_mapping:
+            try:
+                atlas_state = self.study_service.atlas_mapping.state(subject_id)
+            except StudyStateError:
+                atlas_state = None
+            self.workspace_page.set_atlas_mapping_state(atlas_state)
         self.show_page("workspace")
         self.statusBar().showMessage(f"Opened subject {subject.label}.", 4000)
 
@@ -574,7 +592,11 @@ class MainWindow(QMainWindow):
             )
         elif workflow_key == "t2_lesion":
             self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
-        elif workflow_key.startswith("atlas_"):
+        elif (
+            self.features.atlas_mapping
+            and workflow_key.startswith("atlas_")
+            and self.workspace_page.atlas_mapping_panel is not None
+        ):
             self.workspace_page.tabs.setCurrentWidget(
                 self.workspace_page.atlas_mapping_panel
             )

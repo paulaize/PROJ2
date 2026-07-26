@@ -24,7 +24,8 @@ jobs:
         shell: pwsh
         run: |
           $failed = $false
-          Get-ChildItem packaging/windows/*.ps1 | ForEach-Object {
+          Get-ChildItem packaging/windows/*.ps1, packaging/windows-native/*.ps1 |
+            ForEach-Object {
             $tokens = $null
             $errors = $null
             [System.Management.Automation.Language.Parser]::ParseFile(
@@ -40,8 +41,11 @@ jobs:
           if ($failed) { exit 1 }
           bash -n packaging/windows/Install-LYS-BBB.sh
 
-      - name: Build the verified colleague bundle
-        run: python scripts/packaging/build_windows_handoff.py
+      - name: Build the verified WSL colleague bundle
+        run: python scripts/packaging/build_windows_handoff.py --target wsl
+
+      - name: Build the verified native no-ANTs colleague bundle
+        run: python scripts/packaging/build_windows_handoff.py --target native-no-ants
 
       - name: Upload the downloadable ZIP
         uses: actions/upload-artifact@v6

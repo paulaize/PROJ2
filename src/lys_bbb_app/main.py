@@ -10,6 +10,7 @@ from pathlib import Path
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from lys_bbb_app.features import active_features
 from lys_bbb_app.ui.main_window import MainWindow
 from lys_bbb_app.ui.theme import apply_theme
 
@@ -37,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         app.setWindowIcon(QIcon(str(icon_path)))
     apply_theme(app)
 
-    window = MainWindow()
+    window = MainWindow(features=active_features())
     if args.project is not None:
         window.open_project_path(args.project)
     window.show()
