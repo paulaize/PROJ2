@@ -229,6 +229,13 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
         )
         environment = archive.read(environment_path).decode().casefold()
         assert "\n  - ants=" not in environment
+        assert "scipy=1.15.2" in environment
+        assert "\n  - statsmodels" in environment
+        assert "\n  - scikit-learn" in environment
+        assert "\n  - pyyaml" in environment
+        assert "\n  - webcolors" in environment
+        assert "\n  - pillow" in environment
+        assert "\n  - requests" in environment
         assert "vc14_runtime" in environment
         setup = archive.read(
             ANTSPYX_BUNDLE_ROOT + "Setup-MRI-Tool.ps1"
@@ -242,6 +249,8 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
         assert "install-bundledmodelrelease" in setup
         assert "rs2net-m-seam-v1" in setup
         assert "ratlesnetv2-lys-v1" in setup
+        assert "import ants, simpleitk, torch, statsmodels" in setup
+        assert "import sklearn, yaml, webcolors, pil, requests" in setup
 
         manifest = json.loads(
             archive.read(

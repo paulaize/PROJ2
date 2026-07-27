@@ -500,7 +500,8 @@ try {
     if ($AntsPyxPreview) {
         Write-Step "Test de demarrage natif avec ANTsPyx"
         $smokeScript = (
-            "import ants, SimpleITK, torch; " +
+            "import ants, SimpleITK, torch, statsmodels; " +
+            "import sklearn, yaml, webcolors, PIL, requests; " +
             "assert ants.__version__ == '0.6.3'; " +
             "from PySide6.QtWidgets import QApplication; " +
             "from lys_bbb_app.features import active_features; " +
