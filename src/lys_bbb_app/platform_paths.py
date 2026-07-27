@@ -37,6 +37,12 @@ def default_t1_brain_mask_release_path() -> Path:
     return default_user_data_directory() / "models" / "rs2net-m-seam-v1"
 
 
+def default_t2_model_release_path() -> Path:
+    """Return the expected location of the bundled frozen T2 model release."""
+
+    return default_user_data_directory() / "models" / "ratlesnetv2-lys-v1"
+
+
 def default_itksnap_editor_path() -> str:
     """Return a usable ITK-SNAP default, or blank to request PATH discovery."""
 
@@ -73,6 +79,7 @@ def default_t2_model_release_suggestion() -> Path:
 
     downloads = Path.home() / "Downloads"
     candidates = (
+        default_t2_model_release_path(),
         downloads / "LYS_v1_RatLesNetV2_inference",
         downloads / "LYS_v1_RatLesNetV2_windows_inference",
         downloads / "LYS_v1_RatLesNetV2_mac_inference",

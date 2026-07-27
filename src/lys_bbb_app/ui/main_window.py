@@ -32,6 +32,7 @@ from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
 from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.platform_paths import (
     default_t1_brain_mask_release_path,
+    default_t2_model_release_path,
     default_t2_model_release_suggestion,
 )
 from lys_bbb_app.services.recent_studies_service import RecentStudiesService
@@ -1635,9 +1636,12 @@ class MainWindow(QMainWindow):
         )
         if not selected:
             return False
+        return self._register_t2_model_release(Path(selected))
+
+    def _register_t2_model_release(self, release_root: Path) -> bool:
         try:
             snapshot = self.study_service.register_t2_model_release(
-                selected,
+                release_root,
                 actor=self._reviewer_identity(),
             )
         except StudyStateError as exc:
@@ -1665,7 +1669,13 @@ class MainWindow(QMainWindow):
             self._show_status_message("Another MRI background job is already running.")
             return
         if self.current_study.active_t2_release_label is None:
-            if not self.select_t2_model_release():
+            default_release = default_t2_model_release_path()
+            registered = (
+                self._register_t2_model_release(default_release)
+                if default_release.is_dir()
+                else self.select_t2_model_release()
+            )
+            if not registered:
                 return
         try:
             readiness = self.study_service.t2_inference_readiness(subject_ids)

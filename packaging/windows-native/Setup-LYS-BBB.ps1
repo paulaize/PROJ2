@@ -127,6 +127,109 @@ function New-LysShortcut {
     $shortcut.Save()
 }
 
+function Test-ModelRelease {
+    param(
+        [string]$Python,
+        [string]$ReleasePath,
+        [ValidateSet("T1", "T2")]
+        [string]$Kind
+    )
+
+    if ($Kind -eq "T1") {
+        $validation = (
+            "import sys; from pathlib import Path; " +
+            "from lys_bbb.t1_brain_mask_release import " +
+            "validate_t1_brain_mask_release as validate; " +
+            "validate(Path(sys.argv[1]))"
+        )
+    }
+    else {
+        $validation = (
+            "import sys; from pathlib import Path; " +
+            "from lys_bbb.t2_model_release import " +
+            "validate_frozen_t2_model_release as validate; " +
+            "validate(Path(sys.argv[1]))"
+        )
+    }
+    & $Python -c $validation $ReleasePath
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Install-BundledModelRelease {
+    param(
+        [string]$Python,
+        [string]$Source,
+        [string]$Destination,
+        [ValidateSet("T1", "T2")]
+        [string]$Kind,
+        [string[]]$IdentityFiles
+    )
+
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+        return $false
+    }
+    $sameRelease = Test-Path -LiteralPath $Destination -PathType Container
+    if ($sameRelease) {
+        foreach ($relative in $IdentityFiles) {
+            $bundledFile = Join-Path $Source $relative
+            $installedFile = Join-Path $Destination $relative
+            if (-not (Test-Path -LiteralPath $installedFile -PathType Leaf)) {
+                $sameRelease = $false
+                break
+            }
+            $bundledHash = (
+                Get-FileHash -LiteralPath $bundledFile -Algorithm SHA256
+            ).Hash
+            $installedHash = (
+                Get-FileHash -LiteralPath $installedFile -Algorithm SHA256
+            ).Hash
+            if ($bundledHash -ne $installedHash) {
+                $sameRelease = $false
+                break
+            }
+        }
+    }
+    if (
+        $sameRelease -and
+        (Test-ModelRelease `
+            -Python $Python `
+            -ReleasePath $Destination `
+            -Kind $Kind)
+    ) {
+        return $true
+    }
+
+    $parent = Split-Path $Destination -Parent
+    $name = Split-Path $Destination -Leaf
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $staged = Join-Path $parent (".$name-new-" + [guid]::NewGuid().ToString("N"))
+    try {
+        Copy-Item -LiteralPath $Source -Destination $staged -Recurse
+        if (
+            -not (Test-ModelRelease `
+                -Python $Python `
+                -ReleasePath $staged `
+                -Kind $Kind)
+        ) {
+            throw "Le modele $Kind inclus n'a pas passe sa validation."
+        }
+        if (Test-Path -LiteralPath $Destination -PathType Container) {
+            $backup = (
+                "$Destination.previous." +
+                (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+            )
+            Move-Item -LiteralPath $Destination -Destination $backup
+        }
+        Move-Item -LiteralPath $staged -Destination $Destination
+        return $true
+    }
+    finally {
+        if (Test-Path -LiteralPath $staged -PathType Container) {
+            Remove-Item -LiteralPath $staged -Recurse -Force
+        }
+    }
+}
+
 $TemporaryDirectory = Join-Path (
     [IO.Path]::GetTempPath()
 ) ("LYS-BBB-Setup-" + [guid]::NewGuid().ToString("N"))
@@ -313,11 +416,21 @@ try {
         throw "L'application n'a pas pu etre installee: code $LASTEXITCODE."
     }
 
-    if (-not $SkipT1ModelDownload) {
-        Write-Step "Installation du modele T1 examine"
-        $t1ModelDirectory = Join-Path (
-            $env:LOCALAPPDATA
-        ) "LYS BBB\models\rs2net-m-seam-v1"
+    $modelInstallRoot = Join-Path $env:LOCALAPPDATA "LYS BBB\models"
+    $bundledModelRoot = Join-Path $PSScriptRoot "models"
+    $t1ModelDirectory = Join-Path $modelInstallRoot "rs2net-m-seam-v1"
+    $bundledT1Model = Join-Path $bundledModelRoot "rs2net-m-seam-v1"
+    if (Test-Path -LiteralPath $bundledT1Model -PathType Container) {
+        Write-Step "Installation du modele T1 inclus et verifie"
+        Install-BundledModelRelease `
+            -Python $python `
+            -Source $bundledT1Model `
+            -Destination $t1ModelDirectory `
+            -Kind "T1" `
+            -IdentityFiles @("release.json") | Out-Null
+    }
+    elseif (-not $SkipT1ModelDownload) {
+        Write-Step "Telechargement du modele T1 examine"
         if (-not (Test-Path -LiteralPath $t1ModelDirectory -PathType Container)) {
             & $python `
                 -m lys_bbb.t1_brain_mask_setup_cli `
@@ -329,6 +442,28 @@ try {
                 )
             }
         }
+    }
+
+    $t2ModelDirectory = Join-Path $modelInstallRoot "ratlesnetv2-lys-v1"
+    $bundledT2Model = Join-Path $bundledModelRoot "ratlesnetv2-lys-v1"
+    if (Test-Path -LiteralPath $bundledT2Model -PathType Container) {
+        Write-Step "Installation du modele de lesion T2 inclus et verifie"
+        Install-BundledModelRelease `
+            -Python $python `
+            -Source $bundledT2Model `
+            -Destination $t2ModelDirectory `
+            -Kind "T2" `
+            -IdentityFiles @(
+                "bundle_manifest.json",
+                "frozen_spec.json",
+                "selected_threshold.json"
+            ) | Out-Null
+    }
+    else {
+        Write-Warning (
+            "Aucun modele de lesion T2 n'est inclus dans ce paquet. " +
+            "Il devra etre selectionne manuellement."
+        )
     }
 
     if (-not $SkipITKSnapInstall -and -not (Find-ITKSnap)) {

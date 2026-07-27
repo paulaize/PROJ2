@@ -15,6 +15,11 @@ from scipy import ndimage
 from lys_bbb.atlas_mapping import major_region_boundary, validate_major_label_array
 from lys_bbb.atlas_release import inspect_nifti_geometry, require_same_physical_grid
 from lys_bbb.hashing import sha256_file
+from lys_bbb.qc_orientation import (
+    annotate_coronal_orientation,
+    coronal_display_metadata,
+    orient_native_coronal_qc_slice,
+)
 
 
 @dataclass(frozen=True)
@@ -66,14 +71,34 @@ def create_atlas_to_t1_qc(
     atlas_edges = _edges(atlas)
     vmin, vmax = _window(pre[mask])
     for axis, index in zip(axes.ravel(), slices, strict=True):
-        axis.imshow(np.rot90(pre[:, :, index]), cmap="gray", vmin=vmin, vmax=vmax)
-        axis.contour(
-            np.rot90(mask[:, :, index]), levels=[0.5], colors="lime", linewidths=0.6
+        axis.imshow(
+            orient_native_coronal_qc_slice(pre[:, :, index], pre_image.affine),
+            cmap="gray",
+            vmin=vmin,
+            vmax=vmax,
         )
-        _contour(axis, atlas_support[:, :, index], "cyan", 0.55)
-        edge = np.rot90(atlas_edges[:, :, index])
+        axis.contour(
+            orient_native_coronal_qc_slice(
+                mask[:, :, index], pre_image.affine
+            ),
+            levels=[0.5],
+            colors="lime",
+            linewidths=0.6,
+        )
+        _contour(
+            axis,
+            orient_native_coronal_qc_slice(
+                atlas_support[:, :, index], pre_image.affine
+            ),
+            "cyan",
+            0.55,
+        )
+        edge = orient_native_coronal_qc_slice(
+            atlas_edges[:, :, index], pre_image.affine
+        )
         axis.contour(edge, levels=[np.percentile(edge, 80)], colors="magenta", linewidths=0.5)
         axis.set_title(f"native pre-T1 slice {index}", fontsize=8)
+        annotate_coronal_orientation(axis, pre_image.affine)
         axis.axis("off")
     determinant = transform_summary.get("determinant", "n/a")
     figure.suptitle(
@@ -138,18 +163,47 @@ def create_t1_to_t2_all_slice_qc(
         )
         for axis, title in panels:
             axis.imshow(
-                np.rot90(t2[:, :, index]), cmap="gray", vmin=vmin, vmax=vmax
+                orient_native_coronal_qc_slice(
+                    t2[:, :, index], t2_image.affine
+                ),
+                cmap="gray",
+                vmin=vmin,
+                vmax=vmax,
             )
             axis.set_title(title, fontsize=8)
+            annotate_coronal_orientation(axis, t2_image.affine)
             axis.axis("off")
-        edge = np.rot90(t1_edges[:, :, index])
+        edge = orient_native_coronal_qc_slice(
+            t1_edges[:, :, index], t2_image.affine
+        )
         level = np.percentile(edge, 80) if np.any(edge) else 1.0
         axes[1].contour(edge, levels=[level], colors="magenta", linewidths=0.55)
-        _contour(axes[2], t1_mask[:, :, index], "lime", 0.8)
+        _contour(
+            axes[2],
+            orient_native_coronal_qc_slice(
+                t1_mask[:, :, index], t2_image.affine
+            ),
+            "lime",
+            0.8,
+        )
         if t2_support is not None:
-            _contour(axes[2], t2_support[:, :, index], "cyan", 0.65)
+            _contour(
+                axes[2],
+                orient_native_coronal_qc_slice(
+                    t2_support[:, :, index], t2_image.affine
+                ),
+                "cyan",
+                0.65,
+            )
         if lesion is not None:
-            _contour(axes[2], lesion[:, :, index], "red", 1.0)
+            _contour(
+                axes[2],
+                orient_native_coronal_qc_slice(
+                    lesion[:, :, index], t2_image.affine
+                ),
+                "red",
+                1.0,
+            )
         previous = t1_mask[:, :, index - 1] if index else None
         adjacent_consistency.append(
             _dice(previous, t1_mask[:, :, index]) if previous is not None else None
@@ -168,6 +222,7 @@ def create_t1_to_t2_all_slice_qc(
         "scientific_status": "DRAFT_REVIEW_REQUIRED",
         "native_t2_sha256": sha256_file(native_t2_path),
         "native_t2_orientation": reference_geometry.orientation,
+        "display_orientation": coronal_display_metadata(t2_image.affine),
         "original_t2_slice_count": int(t2.shape[2]),
         "all_original_slices_rendered": True,
         "slice_paths": [str(path) for path in slice_paths],
@@ -227,7 +282,8 @@ def create_composite_all_slice_qc(
             names=("native T2", name),
             affine_atol=1e-4,
         )
-    t2 = nib.load(str(native_t2_path)).get_fdata(dtype=np.float32)
+    t2_image = nib.load(str(native_t2_path))
+    t2 = t2_image.get_fdata(dtype=np.float32)
     labels = validate_major_label_array(
         np.asanyarray(nib.load(str(major_labels_path)).dataobj),
         allowed_major_region_ids,
@@ -243,13 +299,35 @@ def create_composite_all_slice_qc(
     for index in range(t2.shape[2]):
         path = slices_dir / f"slice_{index:03d}.png"
         figure, axis = plt.subplots(figsize=(5.2, 5.2))
-        axis.imshow(np.rot90(t2[:, :, index]), cmap="gray", vmin=vmin, vmax=vmax)
-        _contour(axis, boundary[:, :, index], "yellow", 0.55)
-        _contour(axis, lesion[:, :, index], "red", 1.1)
+        axis.imshow(
+            orient_native_coronal_qc_slice(
+                t2[:, :, index], t2_image.affine
+            ),
+            cmap="gray",
+            vmin=vmin,
+            vmax=vmax,
+        )
+        _contour(
+            axis,
+            orient_native_coronal_qc_slice(
+                boundary[:, :, index], t2_image.affine
+            ),
+            "yellow",
+            0.55,
+        )
+        _contour(
+            axis,
+            orient_native_coronal_qc_slice(
+                lesion[:, :, index], t2_image.affine
+            ),
+            "red",
+            1.1,
+        )
         axis.set_title(
             f"DRAFT major regions + native lesion · slice {index + 1}/{t2.shape[2]}",
             fontsize=9,
         )
+        annotate_coronal_orientation(axis, t2_image.affine)
         axis.axis("off")
         figure.tight_layout()
         figure.savefig(path, dpi=140, bbox_inches="tight")
@@ -274,6 +352,7 @@ def create_composite_all_slice_qc(
         "slice_sha256": {path.name: sha256_file(path) for path in slice_paths},
         "adjacent_slice_major_support_dice": adjacent_consistency,
         "orientation": reference_geometry.orientation,
+        "display_orientation": coronal_display_metadata(t2_image.affine),
     }
     manifest_path = output_directory / "composite_qc_manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
@@ -348,7 +427,7 @@ def _optional_binary_on_grid(path: Path | None, reference: Path) -> np.ndarray |
 def _contour(axis, data: np.ndarray, color: str, width: float) -> None:
     if np.any(data) and np.any(~data):
         axis.contour(
-            np.rot90(data.astype(np.uint8)),
+            data.astype(np.uint8),
             levels=[0.5],
             colors=color,
             linewidths=width,

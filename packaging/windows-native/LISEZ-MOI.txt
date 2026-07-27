@@ -32,11 +32,15 @@ Le module Atlas Mapping est masque. Les registrations atlas vers T1, T1 vers T2 
 la propagation des etiquettes anatomiques utilisent ANTs dans la version actuelle
 et ne peuvent donc pas etre lancees par ce paquet.
 
-Le modele T1 examine est telecharge par l'installateur. Le modele T2 gele n'est pas
-public dans ce depot: transmettez-le separement, puis selectionnez son dossier dans
-l'application.
+Les versions gelees courantes des modeles T1 RS2-Net/M-seam et T2 RatLesNetV2 sont
+incluses dans ce paquet. L'installateur verifie chaque fichier, les installe dans le
+dossier de modeles de l'utilisateur et l'application les detecte automatiquement.
+Aucun transfert manuel de poids n'est necessaire.
 
 Les donnees et le logiciel sont stockes dans:
   %LOCALAPPDATA%\LYS_BBB
+
+Les modeles sont installes dans:
+  %LOCALAPPDATA%\LYS BBB\models
 
 Ne jamais ouvrir le meme dossier d'etude simultanement sur deux ordinateurs.

@@ -18,6 +18,10 @@ from pathlib import Path, PurePosixPath
 
 PAYLOAD_ROOT_FILES = ("pyproject.toml", "README.md")
 PAYLOAD_PREFIXES = ("src/",)
+T1_MODEL_BUNDLE_DIRECTORY = PurePosixPath("models/rs2net-m-seam-v1")
+T2_MODEL_BUNDLE_DIRECTORY = PurePosixPath("models/ratlesnetv2-lys-v1")
+IGNORED_MODEL_FILE_NAMES = (".DS_Store",)
+IGNORED_MODEL_DIRECTORY_NAMES = ("__pycache__",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +120,118 @@ def _payload_files(source: Path, environment_file: str) -> tuple[str, ...]:
         or path.startswith(PAYLOAD_PREFIXES)
     )
     return tuple(sorted(selected))
+
+
+def _model_file_is_ignored(path: Path) -> bool:
+    return (
+        path.name in IGNORED_MODEL_FILE_NAMES
+        or path.suffix == ".pyc"
+        or any(part in IGNORED_MODEL_DIRECTORY_NAMES for part in path.parts)
+    )
+
+
+def _all_release_files(
+    root: Path, *, ignore_generated_files: bool = True
+) -> tuple[Path, ...]:
+    files: list[Path] = []
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise RuntimeError(f"Model release contains a symbolic link: {path}")
+        ignored = (
+            ignore_generated_files
+            and _model_file_is_ignored(path.relative_to(root))
+        )
+        if path.is_file() and not ignored:
+            files.append(path)
+    return tuple(sorted(files))
+
+
+def _add_release_files(
+    entries: dict[PurePosixPath, bytes],
+    *,
+    bundle_root: PurePosixPath,
+    bundle_directory: PurePosixPath,
+    release_root: Path,
+    files: tuple[Path, ...],
+) -> None:
+    for path in files:
+        relative = path.relative_to(release_root)
+        destination = bundle_root / bundle_directory / PurePosixPath(relative)
+        if destination in entries:
+            raise RuntimeError(f"Duplicate model bundle path: {destination}")
+        entries[destination] = path.read_bytes()
+
+
+def _bundle_t1_model_release(
+    entries: dict[PurePosixPath, bytes],
+    *,
+    source: Path,
+    bundle_root: PurePosixPath,
+    release_root: Path,
+) -> dict[str, object]:
+    sys.path.insert(0, str(source / "src"))
+    from lys_bbb.t1_brain_mask_release import validate_t1_brain_mask_release
+
+    release = validate_t1_brain_mask_release(release_root)
+    files = {
+        release.root_path / "release.json",
+        release.weights_path,
+        *_all_release_files(
+            release.source_path,
+            ignore_generated_files=False,
+        ),
+    }
+    _add_release_files(
+        entries,
+        bundle_root=bundle_root,
+        bundle_directory=T1_MODEL_BUNDLE_DIRECTORY,
+        release_root=release.root_path,
+        files=tuple(sorted(files)),
+    )
+    return {
+        "id": release.id,
+        "delivery": "bundled",
+        "bundle_path": str(T1_MODEL_BUNDLE_DIRECTORY),
+        "install_path": (
+            r"%LOCALAPPDATA%\LYS BBB\models\rs2net-m-seam-v1"
+        ),
+        "source_commit": release.source_commit,
+        "weights_sha256": release.weights_sha256,
+        "file_count": len(files),
+    }
+
+
+def _bundle_t2_model_release(
+    entries: dict[PurePosixPath, bytes],
+    *,
+    source: Path,
+    bundle_root: PurePosixPath,
+    release_root: Path,
+) -> dict[str, object]:
+    sys.path.insert(0, str(source / "src"))
+    from lys_bbb.t2_model_release import validate_frozen_t2_model_release
+
+    release = validate_frozen_t2_model_release(release_root)
+    files = _all_release_files(release.root_path)
+    _add_release_files(
+        entries,
+        bundle_root=bundle_root,
+        bundle_directory=T2_MODEL_BUNDLE_DIRECTORY,
+        release_root=release.root_path,
+        files=files,
+    )
+    return {
+        "id": release.id,
+        "version": release.version,
+        "delivery": "bundled",
+        "bundle_path": str(T2_MODEL_BUNDLE_DIRECTORY),
+        "install_path": (
+            r"%LOCALAPPDATA%\LYS BBB\models\ratlesnetv2-lys-v1"
+        ),
+        "manifest_sha256": release.manifest_sha256,
+        "model_sha256": list(release.model_sha256),
+        "file_count": len(files),
+    }
 
 
 def _rounded_square(x: int, y: int, size: int) -> bool:
@@ -234,6 +350,8 @@ def build_bundle(
     *,
     allow_dirty: bool = False,
     target_name: str = "wsl",
+    t1_model_release: Path | None = None,
+    t2_model_release: Path | None = None,
 ) -> Path:
     source = source.resolve()
     output_directory = output_directory.resolve()
@@ -267,6 +385,21 @@ def build_bundle(
         entries[target.bundle_root / "app" / PurePosixPath(relative)] = (
             source / relative
         ).read_bytes()
+    bundled_models: dict[str, dict[str, object]] = {}
+    if t1_model_release is not None:
+        bundled_models["t1_brain_mask"] = _bundle_t1_model_release(
+            entries,
+            source=source,
+            bundle_root=target.bundle_root,
+            release_root=t1_model_release.expanduser().resolve(),
+        )
+    if t2_model_release is not None:
+        bundled_models["t2_lesion_segmentation"] = _bundle_t2_model_release(
+            entries,
+            source=source,
+            bundle_root=target.bundle_root,
+            release_root=t2_model_release.expanduser().resolve(),
+        )
 
     tracked_hashes = {
         str(path.relative_to(target.bundle_root)): _sha256(content)
@@ -287,6 +420,7 @@ def build_bundle(
             "ml_device": "CPU",
             "feature_profile": target.feature_profile,
         },
+        "models": bundled_models,
         "files": tracked_hashes,
     }
     manifest_content = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
@@ -331,17 +465,50 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="create a test bundle even when the source snapshot is not committed",
     )
+    parser.add_argument(
+        "--t1-model-release",
+        type=Path,
+        help="validated RS2-Net/M-seam release to include in the archive",
+    )
+    parser.add_argument(
+        "--t2-model-release",
+        type=Path,
+        help="validated frozen RatLesNetV2 release to include in the archive",
+    )
+    parser.add_argument(
+        "--without-bundled-models",
+        action="store_true",
+        help="explicitly create a native test archive without local model releases",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    native_target = args.target in {
+        "native-no-ants",
+        "native-antspyx-preview",
+    }
+    if (
+        native_target
+        and args.t1_model_release is None
+        and args.t2_model_release is None
+        and not args.without_bundled_models
+    ):
+        print(
+            "error: native bundles require model release arguments; "
+            "use --without-bundled-models only for packaging tests",
+            file=sys.stderr,
+        )
+        return 1
     try:
         output = build_bundle(
             args.source,
             args.output_directory,
             allow_dirty=args.allow_dirty,
             target_name=args.target,
+            t1_model_release=args.t1_model_release,
+            t2_model_release=args.t2_model_release,
         )
     except (OSError, KeyError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)

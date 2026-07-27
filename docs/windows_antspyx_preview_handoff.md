@@ -39,7 +39,9 @@ Build from a clean committed snapshot:
 
 ```bash
 conda run -n lys-bbb python scripts/packaging/build_windows_handoff.py \
-  --target native-antspyx-preview
+  --target native-antspyx-preview \
+  --t1-model-release "/path/to/rs2net-m-seam-v1" \
+  --t2-model-release "/path/to/LYS_v1_RatLesNetV2_inference"
 ```
 
 The output is
@@ -48,6 +50,17 @@ records the exact commit and activates `windows_native_antspyx_preview_v1`.
 Setup accepts only the CPython 3.11 Windows x64 wheel named
 `antspyx-0.6.3-cp311-cp311-win_amd64.whl` with SHA-256
 `39a29ba5abbf3475dea70cf0d0a2472e34a5c854f99d2f08204a288f1f5aeac4`.
+
+The two model arguments are validated before packaging. The archive includes the exact
+frozen T1 RS2-Net/M-seam release and five-fold T2 RatLesNetV2 release. Setup stages and
+validates them again before installing them at:
+
+- `%LOCALAPPDATA%\LYS BBB\models\rs2net-m-seam-v1`
+- `%LOCALAPPDATA%\LYS BBB\models\ratlesnetv2-lys-v1`
+
+The application automatically registers the installed T1 release when brain extraction
+is first run and the installed T2 release when lesion inference is first run. A differing
+previous release is preserved under a timestamped `.previous` directory.
 
 The colleague fully extracts the ZIP, double-clicks `Setup-LYS-BBB.cmd`, leaves the
 terminal open for dependency downloads, and then uses the

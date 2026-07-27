@@ -16,8 +16,13 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+from scipy import ndimage
 
 from lys_bbb.hashing import sha256_file
+from lys_bbb.qc_orientation import (
+    annotate_coronal_orientation,
+    orient_native_coronal_qc_slice,
+)
 
 
 T1_REGISTRATION_METHOD_VERSION = "sitk_rigid_mattes_v1"
@@ -226,12 +231,86 @@ def _montage_slices(
     return np.linspace(first, last, count).astype(int)
 
 
-def _window(values: np.ndarray) -> tuple[float, float]:
-    finite = values[np.isfinite(values)]
-    if not finite.size:
-        return 0.0, 1.0
-    lower, upper = np.percentile(finite, [1, 99.5])
-    return float(lower), float(max(upper, lower + 1.0))
+def _alignment_qc_slices(
+    brain_mask: np.ndarray,
+    count: int,
+    start: int | None,
+    stop: int | None,
+) -> np.ndarray:
+    areas = np.count_nonzero(brain_mask, axis=(0, 1))
+    substantial = np.flatnonzero(areas >= max(1, 0.15 * float(areas.max())))
+    if not substantial.size:
+        return _montage_slices(brain_mask.shape, count, start, stop)
+    first = int(substantial.min()) if start is None else max(int(substantial.min()), start)
+    last = int(substantial.max()) if stop is None else min(int(substantial.max()), stop)
+    if first > last:
+        raise ValueError(f"empty registration QC slice range: {first}-{last}")
+    return np.linspace(first, last, count).astype(int)
+
+
+def _normalize_for_alignment_qc(
+    data: np.ndarray, brain_mask: np.ndarray
+) -> np.ndarray:
+    valid = brain_mask & np.isfinite(data)
+    values = data[valid]
+    if not values.size:
+        values = data[np.isfinite(data)]
+    if not values.size:
+        return np.zeros(data.shape, dtype=np.float32)
+    low, high = np.percentile(values, (1.0, 99.5))
+    high = max(float(high), float(low) + 1e-6)
+    normalized = (np.nan_to_num(data, nan=float(low)) - float(low)) / (
+        high - float(low)
+    )
+    return np.clip(normalized, 0.0, 1.0).astype(np.float32, copy=False)
+
+
+def _fusion_rgb(fixed: np.ndarray, moving: np.ndarray) -> np.ndarray:
+    """Encode fixed as cyan and moving as magenta; agreement becomes neutral."""
+
+    return np.stack(
+        (
+            moving,
+            fixed,
+            (fixed + moving) * 0.5,
+        ),
+        axis=-1,
+    )
+
+
+def _edge_overlap_rgb(
+    fixed: np.ndarray,
+    moving: np.ndarray,
+    brain_mask: np.ndarray,
+) -> np.ndarray:
+    fixed_gradient = ndimage.gaussian_gradient_magnitude(fixed, sigma=0.8)
+    moving_gradient = ndimage.gaussian_gradient_magnitude(moving, sigma=0.8)
+
+    def strongest_edges(gradient: np.ndarray) -> np.ndarray:
+        values = gradient[brain_mask & np.isfinite(gradient)]
+        if not values.size or float(values.max()) <= 0:
+            return np.zeros(gradient.shape, dtype=bool)
+        edges = gradient >= np.percentile(values, 85)
+        return ndimage.binary_dilation(edges & brain_mask, iterations=1)
+
+    fixed_edges = strongest_edges(fixed_gradient)
+    moving_edges = strongest_edges(moving_gradient)
+    rgb = np.zeros((*fixed.shape, 3), dtype=np.float32)
+    rgb[fixed_edges] += np.array((0.0, 1.0, 1.0), dtype=np.float32)
+    rgb[moving_edges] += np.array((1.0, 0.0, 1.0), dtype=np.float32)
+    return np.clip(rgb, 0.0, 1.0)
+
+
+def _checkerboard(
+    fixed: np.ndarray,
+    moving: np.ndarray,
+    *,
+    tiles: int = 10,
+) -> np.ndarray:
+    tile = max(4, min(fixed.shape) // tiles)
+    rows, columns = np.indices(fixed.shape)
+    choose_moving = ((rows // tile) + (columns // tile)) % 2 == 1
+    return np.where(choose_moving, moving, fixed)
 
 
 def create_registration_qc(
@@ -244,6 +323,9 @@ def create_registration_qc(
     slice_start: int | None,
     slice_stop: int | None,
     slice_count: int,
+    affine: np.ndarray | None = None,
+    before_xcorr: float | None = None,
+    after_xcorr: float | None = None,
 ) -> Path:
     cache_root = Path(tempfile.gettempdir()) / "lys_bbb_mri_cache"
     os.environ.setdefault("MPLCONFIGDIR", str(cache_root / "matplotlib"))
@@ -255,70 +337,127 @@ def create_registration_qc(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    slices = _montage_slices(
-        pre.shape,
+    slices = _alignment_qc_slices(
+        brain_mask,
         slice_count,
         slice_start,
         slice_stop,
     )
-    image_min, image_max = _window(np.concatenate((pre.ravel(), registered_post.ravel())))
-    raw_difference = np.abs(post - pre) if post.shape == pre.shape else None
-    registered_difference = np.abs(registered_post - pre)
-    difference_values = registered_difference[np.isfinite(registered_difference)]
-    difference_max = (
-        float(np.percentile(difference_values, 98))
-        if difference_values.size
-        else 1.0
+    display_affine = np.eye(4) if affine is None else affine
+    pre_normalized = _normalize_for_alignment_qc(pre, brain_mask)
+    registered_normalized = _normalize_for_alignment_qc(
+        registered_post, brain_mask
     )
-    difference_max = max(difference_max, 1.0)
+    raw_available = post.shape == pre.shape
+    raw_normalized = (
+        _normalize_for_alignment_qc(post, brain_mask)
+        if raw_available
+        else None
+    )
 
     figure, axes = plt.subplots(
         len(slices),
-        5,
-        figsize=(12, max(7, len(slices) * 2.0)),
+        6,
+        figsize=(15, max(7, len(slices) * 2.25)),
         squeeze=False,
     )
     for row, index in enumerate(slices):
-        panels = (
-            pre[:, :, index],
-            post[:, :, index] if post.shape == pre.shape else np.zeros(pre.shape[:2]),
-            registered_post[:, :, index],
+        fixed = orient_native_coronal_qc_slice(
+            pre_normalized[:, :, index], display_affine
+        )
+        registered = orient_native_coronal_qc_slice(
+            registered_normalized[:, :, index], display_affine
+        )
+        mask_slice = orient_native_coronal_qc_slice(
+            brain_mask[:, :, index], display_affine
+        )
+        raw = (
+            orient_native_coronal_qc_slice(
+                raw_normalized[:, :, index], display_affine
+            )
+            if raw_normalized is not None
+            else None
+        )
+        before_panels = (
+            _fusion_rgb(fixed, raw) if raw is not None else None,
             (
-                raw_difference[:, :, index]
-                if raw_difference is not None
-                else np.zeros(pre.shape[:2])
+                _edge_overlap_rgb(fixed, raw, mask_slice)
+                if raw is not None
+                else None
             ),
-            registered_difference[:, :, index],
+            _checkerboard(fixed, raw) if raw is not None else None,
+        )
+        after_panels = (
+            _fusion_rgb(fixed, registered),
+            _edge_overlap_rgb(fixed, registered, mask_slice),
+            _checkerboard(fixed, registered),
+        )
+        panels = (
+            before_panels[0],
+            after_panels[0],
+            before_panels[1],
+            after_panels[1],
+            before_panels[2],
+            after_panels[2],
         )
         for column, panel in enumerate(panels):
             axis = axes[row, column]
-            difference_panel = column >= 3
-            axis.imshow(
-                np.rot90(panel),
-                cmap="magma" if difference_panel else "gray",
-                vmin=0.0 if difference_panel else image_min,
-                vmax=difference_max if difference_panel else image_max,
-            )
-            axis.contour(
-                np.rot90(brain_mask[:, :, index]),
-                levels=[0.5],
-                colors="lime",
-                linewidths=0.45,
-            )
+            if panel is None:
+                axis.set_facecolor("black")
+                axis.text(
+                    0.5,
+                    0.5,
+                    "Before QC unavailable\n(different native grids)",
+                    color="white",
+                    fontsize=7,
+                    ha="center",
+                    va="center",
+                    transform=axis.transAxes,
+                )
+            else:
+                axis.imshow(
+                    panel,
+                    cmap="gray" if panel.ndim == 2 else None,
+                    vmin=0.0,
+                    vmax=1.0,
+                )
+                if panel.ndim == 2 and np.any(mask_slice) and np.any(~mask_slice):
+                    axis.contour(
+                        mask_slice,
+                        levels=[0.5],
+                        colors="lime",
+                        linewidths=0.45,
+                    )
+            annotate_coronal_orientation(axis, display_affine)
             axis.set_xticks([])
             axis.set_yticks([])
-        axes[row, 0].set_ylabel(f"k={index}", fontsize=8)
+        axes[row, 0].set_ylabel(f"native k={index}", fontsize=8)
     for axis, title in zip(
         axes[0],
-        ("pre", "post raw", "post registered", "|raw-pre|", "|registered-pre|"),
+        (
+            "BEFORE fusion",
+            "AFTER fusion",
+            "BEFORE edges",
+            "AFTER edges",
+            "BEFORE checkerboard",
+            "AFTER checkerboard",
+        ),
         strict=True,
     ):
         axis.set_title(title, fontsize=8)
+    correlation_summary = ""
+    if before_xcorr is not None and after_xcorr is not None:
+        correlation_summary = (
+            f" · brain correlation {before_xcorr:.3f} → {after_xcorr:.3f}"
+        )
     figure.suptitle(
-        "Post-Gd to native pre-Gd rigid registration · approved mask outline",
+        "Post-Gd→pre-Gd rigid registration alignment QC"
+        f"{correlation_summary}\n"
+        "Fusion/edges: pre cyan, post magenta, agreement white · "
+        "checkerboard boundaries should be continuous",
         fontsize=10,
     )
-    figure.tight_layout()
+    figure.tight_layout(rect=(0, 0, 1, 0.96))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(figure)
@@ -371,6 +510,9 @@ def run_t1_registration(request: T1RegistrationRequest) -> T1RegistrationOutput:
         slice_start=request.qc_slice_start,
         slice_stop=request.qc_slice_stop,
         slice_count=request.qc_slice_count,
+        affine=pre_image.affine,
+        before_xcorr=before_xcorr,
+        after_xcorr=after_xcorr,
     )
     metadata: dict[str, object] = {
         "pre_t1_path": str(request.pre_t1_path),

@@ -23,7 +23,9 @@ Build only from a clean release snapshot:
 
 ```bash
 conda run -n lys-bbb python scripts/packaging/build_windows_handoff.py \
-  --target native-no-ants
+  --target native-no-ants \
+  --t1-model-release "/path/to/rs2net-m-seam-v1" \
+  --t2-model-release "/path/to/LYS_v1_RatLesNetV2_inference"
 ```
 
 The command writes
@@ -48,16 +50,17 @@ administrator elevation. Setup requires Internet access, at least 8 GiB free, an
 typically 15–40 minutes.
 
 The installer verifies the bundle, checksum-pins Miniforge and ITK-SNAP downloads,
-creates a native `win-64` CPU-only environment, installs the reviewed T1 model when its
-upstream downloads are available, runs an offscreen no-ANTs startup smoke test, and
-creates Desktop and Start-menu shortcuts. It caps ITK/OpenMP/MKL processing at two
-threads for the 8 GiB ZenBook.
+creates a native `win-64` CPU-only environment, stages and validates both frozen model
+releases, runs an offscreen no-ANTs startup smoke test, and creates Desktop and
+Start-menu shortcuts. It caps ITK/OpenMP/MKL processing at two threads for the 8 GiB
+ZenBook.
 
-## External releases and updates
+## Model releases and updates
 
-The private frozen T2 model is not included. Transfer it separately and select its
-release directory through the existing application flow. Atlas resources are not needed
-because atlas mapping is disabled.
+The frozen T1 and T2 releases are included and installed under
+`%LOCALAPPDATA%\LYS BBB\models`. The app detects them automatically. Model files are
+covered by the archive checksums and by their scientific release validators. Atlas
+resources are not included or needed because atlas mapping is disabled.
 
 Installing a later ZIP preserves the previous application source as
 `%LOCALAPPDATA%\LYS_BBB\app.previous.<UTC timestamp>`. Study data is separate from the

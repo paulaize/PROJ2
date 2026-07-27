@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QUrl, Qt, Signal
+from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -87,6 +87,14 @@ class T1AnalysisPanel(QScrollArea):
             _qc_viewer("Registration QC preview is unavailable.")
         )
         artifact_layout.addWidget(self.registration_viewer)
+        qc_action_row = QHBoxLayout()
+        qc_action_row.addStretch()
+        self.open_registration_qc = QPushButton("Open QC full size")
+        self.open_registration_qc.clicked.connect(
+            self._open_registration_qc_full_size
+        )
+        qc_action_row.addWidget(self.open_registration_qc)
+        artifact_layout.addLayout(qc_action_row)
         self.registration_stats = QGridLayout()
         self.registration_stats.setHorizontalSpacing(20)
         artifact_layout.addLayout(self.registration_stats)
@@ -267,6 +275,16 @@ class T1AnalysisPanel(QScrollArea):
             self.approve_registration_requested.emit(
                 subject.subject_id,
                 subject.t1_registration_artifact.artifact_id,
+            )
+
+    def _open_registration_qc_full_size(self) -> None:
+        subject = self.current_subject
+        artifact = (
+            subject.t1_registration_artifact if subject is not None else None
+        )
+        if artifact is not None and artifact.qc_preview_path.is_file():
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(artifact.qc_preview_path.resolve()))
             )
 
     def _run_enhancement(self) -> None:

@@ -12,6 +12,7 @@ output_conda_check/
 reports/inventory/*.csv
 reports/inventory/*.json
 reports/qc/
+qc_examples/
 derivatives/*
 !derivatives/README.md
 

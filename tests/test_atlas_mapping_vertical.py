@@ -38,6 +38,10 @@ from lys_bbb.atlas_release import (
     validate_atlas_release,
 )
 from lys_bbb.hashing import sha256_file
+from lys_bbb.qc_orientation import (
+    coronal_display_metadata,
+    orient_native_coronal_qc_slice,
+)
 from lys_bbb.t1_t2_registration import (
     T1ToT2Request,
     run_t1_to_t2_registration,
@@ -483,3 +487,65 @@ def test_all_eighteen_t2_slices_are_present_in_both_qc_sets(
     assert json.loads(composite_qc.manifest_path.read_text())[
         "original_t2_slice_count"
     ] == 18
+
+
+def test_coronal_qc_uses_affine_to_display_lip_with_superior_at_top() -> None:
+    source = np.arange(2 * 3).reshape(2, 3)
+    lip_affine = np.array(
+        [
+            [-1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, 0.0],
+            [0.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+
+    displayed = orient_native_coronal_qc_slice(source, lip_affine)
+
+    assert tuple(nib.aff2axcodes(lip_affine)) == ("L", "I", "P")
+    assert np.array_equal(
+        displayed,
+        np.array(
+            [
+                [3, 0],
+                [4, 1],
+                [5, 2],
+            ]
+        ),
+    )
+    assert coronal_display_metadata(lip_affine) == {
+        "method": "affine_aware_native_slice_no_resampling",
+        "source_axis_codes": "LIP",
+        "source_slice_axis": 2,
+        "anatomical_coronal": True,
+        "left": "L",
+        "right": "R",
+        "top": "S",
+        "bottom": "I",
+    }
+
+
+def test_coronal_qc_keeps_rsa_in_the_same_anatomical_convention() -> None:
+    source = np.arange(2 * 3).reshape(2, 3)
+    rsa_affine = np.array(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+
+    displayed = orient_native_coronal_qc_slice(source, rsa_affine)
+
+    assert tuple(nib.aff2axcodes(rsa_affine)) == ("R", "S", "A")
+    assert np.array_equal(
+        displayed,
+        np.array(
+            [
+                [2, 5],
+                [1, 4],
+                [0, 3],
+            ]
+        ),
+    )
