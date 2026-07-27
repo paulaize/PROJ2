@@ -6,7 +6,8 @@ Set-StrictMode -Version Latest
 
 $InstallRoot = Join-Path $env:LOCALAPPDATA "LYS_BBB"
 $ApplicationDirectory = Join-Path $InstallRoot "app"
-$Pythonw = Join-Path $InstallRoot "env\pythonw.exe"
+$EnvironmentDirectory = Join-Path $InstallRoot "env"
+$Pythonw = Join-Path $EnvironmentDirectory "pythonw.exe"
 $IconPath = Join-Path $InstallRoot "lys-bbb.ico"
 $LogDirectory = Join-Path $InstallRoot "logs"
 $OutputLog = Join-Path $LogDirectory "launcher-output.log"
@@ -25,8 +26,29 @@ try {
         Set-Content -LiteralPath $OutputLog
     Set-Content -LiteralPath $ErrorLog -Value ""
 
-    $env:LYS_BBB_FEATURE_PROFILE = "windows_native_no_ants_v1"
+    $featureProfile = "windows_native_no_ants_v1"
+    $manifestPath = Join-Path $InstallRoot "handoff-manifest.json"
+    if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw |
+            ConvertFrom-Json
+        $recordedProfile = [string]$manifest.target.feature_profile
+        if (
+            $recordedProfile -notin @(
+                "windows_native_no_ants_v1",
+                "windows_native_antspyx_preview_v1"
+            )
+        ) {
+            throw "Profil d'application non pris en charge: $recordedProfile"
+        }
+        $featureProfile = $recordedProfile
+    }
+    $env:LYS_BBB_FEATURE_PROFILE = $featureProfile
     $env:LYS_BBB_ICON = $IconPath
+    $env:PATH = (
+        "$EnvironmentDirectory;" +
+        (Join-Path $EnvironmentDirectory "Library\bin") +
+        ";$env:PATH"
+    )
     $env:ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS = "2"
     $env:OMP_NUM_THREADS = "2"
     $env:MKL_NUM_THREADS = "2"

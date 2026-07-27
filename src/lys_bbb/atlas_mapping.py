@@ -16,6 +16,7 @@ from lys_bbb.atlas_registration import (
     AntsExecutables,
     CommandRunner,
     _run_and_record,
+    _require_runtime_match,
     subprocess_command_runner,
 )
 from lys_bbb.atlas_release import (
@@ -59,6 +60,8 @@ class AtlasCompositeRequest:
     atlas_to_t1_transform_path: Path
     t1_to_t2_transform_path: Path
     output_directory: Path
+    runtime_engine: str = "ANTs"
+    runtime_version: str = ANTS_VERSION
 
 
 @dataclass(frozen=True)
@@ -133,8 +136,11 @@ def create_native_composite_labels(
         raise FileExistsError(f"Refusing to overwrite atlas composite: {output}")
     output.mkdir(parents=True)
     tools = executables or AntsExecutables.discover()
-    if tools.version != ANTS_VERSION:
-        raise ValueError(f"Atlas composition requires ANTs {ANTS_VERSION}")
+    _require_runtime_match(
+        request.runtime_engine,
+        request.runtime_version,
+        tools,
+    )
     source_major = collapse_source_labels(
         request.source_atlas_labels_path,
         request.major_region_scheme,
@@ -167,9 +173,9 @@ def create_native_composite_labels(
 
     t2_labels = output / "major_labels_in_original_native_t2.nii.gz"
     t2_record = output / "apply_major_labels_directly_to_native_t2.json"
-    # Empirical ANTs 2.6.5 label-cube proof: for image resampling, the first listed
-    # transform acts first on each output-grid point. We need T2->pre followed by
-    # pre->atlas, so the pre-to-T2 registration transform is listed first.
+    # Empirical labeled-volume proofs cover both pinned runtimes: for image
+    # resampling, the first listed transform acts first on each output-grid point.
+    # We need T2->pre followed by pre->atlas, so pre-to-T2 is listed first.
     _apply_labels(
         tools,
         runner,
@@ -216,12 +222,12 @@ def create_native_composite_labels(
         "native_t2_resampling_count": 1,
         "native_t2_labels_derived_from_pre_resample": False,
         "transform_order_proof_contract": (
-            "ANTs 2.6.5 labeled-cube proof: command -t t1_to_t2 -t atlas_to_t1 "
-            "maps output points T2->pre->atlas"
+            f"{tools.engine} {tools.version} labeled-cube proof: command "
+            "-t t1_to_t2 -t atlas_to_t1 maps output points T2->pre->atlas"
         ),
         "fine_source_labels_exposed": False,
         "interpolation": "GenericLabel",
-        "engine": "ANTs",
+        "engine": tools.engine,
         "engine_version": tools.version,
     }
     metadata_path = output / "composite_metadata.json"
@@ -522,6 +528,7 @@ def _apply_labels(
         tuple(args),
         output_path.parent,
         record_path,
+        engine=tools.engine,
         engine_version=tools.version,
         expected_outputs=(output_path,),
     )

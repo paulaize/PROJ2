@@ -16,6 +16,8 @@ from lys_bbb.atlas_registration import (
     CommandRunner,
     ProgressCallback,
     _run_and_record,
+    _require_runtime_match,
+    _require_supported_runtime,
     _x,
     linear_transform_metrics,
     subprocess_command_runner,
@@ -28,6 +30,9 @@ from lys_bbb.hashing import sha256_file
 
 
 T1_TO_T2_METHOD_VERSION = "native_pre_t1_to_partial_t2_ants_rigid_v1"
+T1_TO_T2_ANTSPYX_METHOD_VERSION = (
+    "native_pre_t1_to_partial_t2_antspyx_0_6_3_rigid_v1"
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,8 @@ class T1ToT2Config:
     initialization: str = "geometry"
     allow_unmasked_fixed: bool = False
     exclude_lesion_from_metric: bool = False
+    runtime_engine: str = "ANTs"
+    runtime_version: str = ANTS_VERSION
 
     def __post_init__(self) -> None:
         if self.shrink_factors != (2, 1):
@@ -53,19 +60,29 @@ class T1ToT2Config:
             raise ValueError("T1-to-T2 pyramid settings must align")
         if self.initialization not in {"geometry", "centre_of_mass"}:
             raise ValueError("Unsupported T1-to-T2 initialization")
+        _require_supported_runtime(self.runtime_engine, self.runtime_version)
 
     def method_spec(self) -> dict[str, object]:
+        config = asdict(self)
+        del config["runtime_engine"]
+        del config["runtime_version"]
         return {
-            "method_version": T1_TO_T2_METHOD_VERSION,
-            "engine": "ANTs",
-            "engine_version": ANTS_VERSION,
+            "method_version": self.method_version,
+            "engine": self.runtime_engine,
+            "engine_version": self.runtime_version,
             "fixed": "original native T2",
             "moving": "original native pre-Gd T1",
             "transform": "rigid",
             "metric": "Mattes mutual information",
             "scientific_status": "PROVISIONAL_METHOD_REQUIRES_ALL_SLICE_REVIEW",
-            "config": asdict(self),
+            "config": config,
         }
+
+    @property
+    def method_version(self) -> str:
+        if self.runtime_engine == "ANTsPyx":
+            return T1_TO_T2_ANTSPYX_METHOD_VERSION
+        return T1_TO_T2_METHOD_VERSION
 
     @property
     def method_spec_sha256(self) -> str:
@@ -124,8 +141,11 @@ def run_t1_to_t2_registration(
         raise FileExistsError(f"Refusing to overwrite T1-to-T2 job: {output}")
     output.mkdir(parents=True)
     tools = executables or AntsExecutables.discover()
-    if tools.version != ANTS_VERSION:
-        raise ValueError(f"T1-to-T2 registration requires ANTs {ANTS_VERSION}")
+    _require_runtime_match(
+        request.config.runtime_engine,
+        request.config.runtime_version,
+        tools,
+    )
     if not request.pre_t1_identity or not request.t2_identity:
         raise ValueError(
             "Explicit pre-T1 and T2 subject/session identities are required; "
@@ -251,6 +271,7 @@ def run_t1_to_t2_registration(
         tuple(args),
         output,
         command_record,
+        engine=tools.engine,
         engine_version=tools.version,
         expected_outputs=(transformed_t1, transform),
     )
@@ -282,6 +303,7 @@ def run_t1_to_t2_registration(
         mask_args,
         output,
         mask_record,
+        engine=tools.engine,
         engine_version=tools.version,
         expected_outputs=(transformed_t1_mask,),
     )
@@ -314,7 +336,7 @@ def run_t1_to_t2_registration(
         "case_id": request.case_id,
         "method_spec": request.config.method_spec(),
         "method_spec_sha256": request.config.method_spec_sha256,
-        "engine": "ANTs",
+        "engine": tools.engine,
         "engine_version": tools.version,
         "executables": {field: str(value) for field, value in asdict(tools).items()},
         "inputs": input_sha256,
@@ -361,7 +383,7 @@ def run_t1_to_t2_registration(
             sha256_file(cost_mask_path) if cost_mask_path is not None else None
         ),
         affine_metrics=metrics,
-        method_version=T1_TO_T2_METHOD_VERSION,
+        method_version=request.config.method_version,
         method_spec_sha256=request.config.method_spec_sha256,
         input_sha256=input_sha256,
         metadata_path=metadata_path,

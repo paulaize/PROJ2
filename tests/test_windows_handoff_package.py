@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts" / "packaging" / "build_windows_handoff.py"
 BUNDLE_ROOT = "LYS-BBB-Windows/"
 NATIVE_BUNDLE_ROOT = "LYS-BBB-Windows-Native-No-ANTs-v1/"
+ANTSPYX_BUNDLE_ROOT = "LYS-BBB-Windows-Native-ANTsPyx-Preview-v1/"
 
 
 def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
@@ -130,3 +131,59 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
             expected, relative = line.split("  ", maxsplit=1)
             content = archive.read(NATIVE_BUNDLE_ROOT + relative)
             assert hashlib.sha256(content).hexdigest() == expected
+
+
+def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
+    tmp_path: Path,
+) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(BUILDER),
+            "--source",
+            str(PROJECT_ROOT),
+            "--output-directory",
+            str(tmp_path),
+            "--target",
+            "native-antspyx-preview",
+            "--allow-dirty",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    archive_path = Path(result.stdout.splitlines()[0])
+
+    with zipfile.ZipFile(archive_path) as archive:
+        names = set(archive.namelist())
+        assert ANTSPYX_BUNDLE_ROOT + "Setup-LYS-BBB.cmd" in names
+        assert ANTSPYX_BUNDLE_ROOT + "Install-LYS-BBB.sh" not in names
+        environment_path = (
+            ANTSPYX_BUNDLE_ROOT
+            + "app/packaging/windows-native/environment-win64-antspyx.yml"
+        )
+        environment = archive.read(environment_path).decode().casefold()
+        assert "\n  - ants=" not in environment
+        assert "vc14_runtime" in environment
+        setup = archive.read(
+            ANTSPYX_BUNDLE_ROOT + "Setup-LYS-BBB.ps1"
+        ).decode().casefold()
+        assert "antspyx==0.6.3" in setup
+        assert "antspyx-0.6.3-cp311-cp311-win_amd64.whl" in setup
+        assert (
+            "39a29ba5abbf3475dea70cf0d0a2472e34a5c854f99d2f08204a288f1f5aeac4"
+            in setup
+        )
+
+        manifest = json.loads(
+            archive.read(
+                ANTSPYX_BUNDLE_ROOT + "handoff-manifest.json"
+            )
+        )
+        assert manifest["target"]["feature_profile"] == (
+            "windows_native_antspyx_preview_v1"
+        )
+        launcher = archive.read(
+            ANTSPYX_BUNDLE_ROOT + "Launch-LYS-BBB.ps1"
+        ).decode()
+        assert "wsl.exe" not in launcher.casefold()

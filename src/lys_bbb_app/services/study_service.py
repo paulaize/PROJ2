@@ -142,6 +142,7 @@ class StudyService:
         t1_registration_config: T1RegistrationConfig = T1RegistrationConfig(),
         t1_enhancement_runner: T1EnhancementRunner = run_t1_enhancement,
         t1_enhancement_config: T1EnhancementConfig = T1EnhancementConfig(),
+        ants_backend: str = "cli",
     ) -> None:
         self._repository: StudyRepository | None = None
         self._scan_converter = scan_converter
@@ -157,7 +158,10 @@ class StudyService:
         self._t1_registration_config = t1_registration_config
         self._t1_enhancement_runner = t1_enhancement_runner
         self._t1_enhancement_config = t1_enhancement_config
-        self.atlas_mapping = AtlasMappingService(self._require_repository)
+        self.atlas_mapping = AtlasMappingService(
+            self._require_repository,
+            ants_backend=ants_backend,
+        )
 
     @property
     def current_study(self) -> StudySnapshot | None:

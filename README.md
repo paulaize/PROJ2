@@ -68,6 +68,9 @@ For the first native Windows 11 colleague test bundle, which deliberately omits 
 ANTs-dependent atlas workflow, see the
 [native Windows no-ANTs handoff guide](docs/windows_native_handoff.md). The frozen
 [full WSL/ANTs handoff](docs/windows_handoff.md) remains documented separately.
+The separate
+[native Windows ANTsPyx preview](docs/windows_antspyx_preview_handoff.md) is the
+development path for restoring registration without WSL2.
 
 Run the complete test suite with:
 

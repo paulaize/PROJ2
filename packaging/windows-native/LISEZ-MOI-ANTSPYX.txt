@@ -1,0 +1,41 @@
+LYS BBB - APERCU WINDOWS NATIF AVEC ANTsPyx
+============================================
+
+Ce paquet fonctionne directement sous Windows 11. Il n'installe ni Ubuntu, ni WSL2,
+ni les executables ANTs separes. Il installe ANTsPyx 0.6.3 dans l'environnement prive
+de l'application.
+
+1. Decompressez completement le fichier ZIP.
+2. Double-cliquez sur Setup-LYS-BBB.cmd.
+3. Laissez la fenetre ouverte pendant le telechargement des dependances.
+4. ITK-SNAP est facultatif. Si vous acceptez son installation, Windows demandera
+   une autorisation administrateur pour ce logiciel uniquement.
+5. A la fin, double-cliquez sur "LYS BBB - apercu ANTsPyx" sur le Bureau.
+
+Prevoir une connexion Internet, 8 Gio d'espace libre et environ 15 a 40 minutes
+pour la premiere installation. Les lancements suivants utilisent l'icone.
+
+STATUT SCIENTIFIQUE
+-------------------
+
+Ce paquet est un apercu de migration. Il conserve les validations de geometrie,
+les masques examines, les deux candidats atlas-vers-T1, la registration rigide
+T1-vers-T2, la propagation directe des etiquettes et toutes les approbations humaines.
+
+Un calcul termine n'est pas automatiquement approuve. Examinez toujours:
+
+- le candidat atlas-vers-T1 avec les reperes anatomiques;
+- toutes les coupes de la registration T1-vers-T2;
+- toutes les coupes des etiquettes composites sur le T2 natif.
+
+La precision sur des souris reelles doit etre comparee a la version ANTs de reference
+avant d'utiliser les resultats anatomiques comme resultats scientifiques.
+
+Le modele T1 examine est telecharge par l'installateur. Le modele T2 gele n'est pas
+public dans ce depot: transmettez-le separement, puis selectionnez son dossier dans
+l'application.
+
+Les donnees et le logiciel sont stockes dans:
+  %LOCALAPPDATA%\LYS_BBB
+
+Ne jamais ouvrir le meme dossier d'etude simultanement sur deux ordinateurs.

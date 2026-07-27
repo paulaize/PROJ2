@@ -92,7 +92,9 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.features = features
-        self.study_service = study_service or StudyService()
+        self.study_service = study_service or StudyService(
+            ants_backend=self.features.ants_backend
+        )
         self.recent_studies = recent_studies or RecentStudiesService()
         self.current_study: StudyViewModel | None = None
         self.blinded_review = False

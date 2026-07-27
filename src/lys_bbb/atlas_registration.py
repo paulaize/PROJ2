@@ -25,6 +25,15 @@ from lys_bbb.hashing import sha256_file
 
 ANTS_VERSION = "2.6.5"
 ATLAS_TO_T1_METHOD_VERSION = "aidamri_to_native_pre_t1_ants_2_6_5_v1"
+ATLAS_TO_T1_ANTSPYX_METHOD_VERSION = "aidamri_to_native_pre_t1_antspyx_0_6_3_v1"
+
+
+def _require_supported_runtime(engine: str, version: str) -> None:
+    supported = {("ANTs", ANTS_VERSION), ("ANTsPyx", "0.6.3")}
+    if (engine, version) not in supported:
+        raise ValueError(
+            f"Unsupported registration runtime: engine={engine!r}, version={version!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,7 @@ class AntsExecutables:
     n4_bias_field_correction: Path
     create_jacobian: Path
     version: str = ANTS_VERSION
+    engine: str = "ANTs"
 
     @classmethod
     def discover(cls) -> AntsExecutables:
@@ -84,6 +94,8 @@ class AtlasToT1Config:
     n4_iterations: tuple[int, ...] = (50, 50, 30)
     float_computation: bool = True
     enable_syn: bool = False
+    runtime_engine: str = "ANTs"
+    runtime_version: str = ANTS_VERSION
 
     def __post_init__(self) -> None:
         levels = len(self.shrink_factors)
@@ -95,20 +107,30 @@ class AtlasToT1Config:
             raise ValueError("The MVP atlas method is fixed to a 4x2x1 pyramid")
         if self.enable_syn:
             raise ValueError("SyN is disabled until rigid and affine have been reviewed")
+        _require_supported_runtime(self.runtime_engine, self.runtime_version)
 
     def method_spec(self) -> dict[str, object]:
+        config = asdict(self)
+        del config["runtime_engine"]
+        del config["runtime_version"]
         return {
-            "method_version": ATLAS_TO_T1_METHOD_VERSION,
-            "engine": "ANTs",
-            "engine_version": ANTS_VERSION,
+            "method_version": self.method_version,
+            "engine": self.runtime_engine,
+            "engine_version": self.runtime_version,
             "fixed": "native pre-Gd T1 N4 registration copy",
             "moving": "AIDAmri MRI template",
             "metric": "Mattes mutual information",
             "candidates": ["rigid", "rigid_then_affine"],
             "interpolation": "Linear for intensity QC only",
             "scientific_status": "PROVISIONAL_METHOD_REQUIRES_LANDMARK_VALIDATION",
-            "config": asdict(self),
+            "config": config,
         }
+
+    @property
+    def method_version(self) -> str:
+        if self.runtime_engine == "ANTsPyx":
+            return ATLAS_TO_T1_ANTSPYX_METHOD_VERSION
+        return ATLAS_TO_T1_METHOD_VERSION
 
     @property
     def method_spec_sha256(self) -> str:
@@ -210,8 +232,11 @@ def run_atlas_to_t1_candidates(
         raise FileExistsError(f"Refusing to overwrite atlas registration job: {output}")
     output.mkdir(parents=True)
     tools = executables or AntsExecutables.discover()
-    if tools.version != ANTS_VERSION:
-        raise ValueError(f"Atlas registration requires ANTs {ANTS_VERSION}")
+    _require_runtime_match(
+        request.config.runtime_engine,
+        request.config.runtime_version,
+        tools,
+    )
     release = validate_atlas_release(request.atlas_release)
 
     pre_geometry = inspect_nifti_geometry(request.pre_t1_path)
@@ -271,6 +296,7 @@ def run_atlas_to_t1_candidates(
         n4_args,
         output,
         output / "n4_command.json",
+        engine=tools.engine,
         engine_version=tools.version,
         expected_outputs=(n4_path,),
     )
@@ -306,6 +332,7 @@ def run_atlas_to_t1_candidates(
             args,
             candidate_dir,
             command_record,
+            engine=tools.engine,
             engine_version=tools.version,
             expected_outputs=(registration_warped, transform),
         )
@@ -334,6 +361,7 @@ def run_atlas_to_t1_candidates(
             apply_args,
             candidate_dir,
             apply_record,
+            engine=tools.engine,
             engine_version=tools.version,
             expected_outputs=(warped,),
         )
@@ -364,6 +392,7 @@ def run_atlas_to_t1_candidates(
             support_args,
             candidate_dir,
             support_record,
+            engine=tools.engine,
             engine_version=tools.version,
             expected_outputs=(warped_support,),
         )
@@ -434,7 +463,7 @@ def run_atlas_to_t1_candidates(
         "case_id": request.case_id,
         "method_spec": request.config.method_spec(),
         "method_spec_sha256": request.config.method_spec_sha256,
-        "engine": "ANTs",
+        "engine": tools.engine,
         "engine_version": tools.version,
         "executables": {field: str(value) for field, value in asdict(tools).items()},
         "inputs": input_sha256,
@@ -475,7 +504,7 @@ def run_atlas_to_t1_candidates(
         cropped_brain_mask_path=cropped_mask,
         cropped_brain_mask_sha256=sha256_file(cropped_mask),
         candidates=tuple(candidates),
-        method_version=ATLAS_TO_T1_METHOD_VERSION,
+        method_version=request.config.method_version,
         method_spec_sha256=request.config.method_spec_sha256,
         input_sha256=input_sha256,
         metadata_path=metadata_path,
@@ -611,6 +640,7 @@ def _run_and_record(
     cwd: Path,
     record_path: Path,
     *,
+    engine: str = "ANTs",
     engine_version: str,
     expected_outputs: tuple[Path, ...],
 ) -> CommandExecution:
@@ -626,7 +656,7 @@ def _run_and_record(
     record = {
         "args": list(execution.args),
         "executable_path": execution.args[0],
-        "engine": "ANTs",
+        "engine": engine,
         "engine_version": engine_version,
         "return_code": execution.return_code,
         "runtime_seconds": execution.runtime_seconds,
@@ -665,3 +695,17 @@ def _report(
 ) -> None:
     if progress is not None:
         progress(current, total, message)
+
+
+def _require_runtime_match(
+    expected_engine: str,
+    expected_version: str,
+    tools: AntsExecutables,
+) -> None:
+    _require_supported_runtime(expected_engine, expected_version)
+    if tools.engine != expected_engine or tools.version != expected_version:
+        raise ValueError(
+            "Registration runtime does not match the hashed method specification: "
+            f"expected {expected_engine} {expected_version}, observed "
+            f"{tools.engine} {tools.version}"
+        )

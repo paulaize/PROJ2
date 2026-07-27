@@ -37,6 +37,7 @@ from lys_bbb_app.domain.view_models import (  # noqa: E402
 )
 from lys_bbb_app.features import (  # noqa: E402
     FULL_FEATURES,
+    WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES,
     WINDOWS_NATIVE_NO_ANTS_V1_FEATURES,
     active_features,
     features_for_profile,
@@ -78,6 +79,10 @@ def test_native_windows_profile_removes_all_atlas_entry_points(
     assert (
         features_for_profile("windows_native_no_ants_v1")
         is WINDOWS_NATIVE_NO_ANTS_V1_FEATURES
+    )
+    assert (
+        features_for_profile("windows_native_antspyx_preview_v1")
+        is WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES
     )
     with pytest.raises(ValueError, match="Unknown LYS BBB feature profile"):
         features_for_profile("unexpected")

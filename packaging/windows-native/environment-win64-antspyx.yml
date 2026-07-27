@@ -1,0 +1,28 @@
+name: lys-bbb-windows-native-antspyx-preview-v1
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - git
+  - matplotlib=3.10.9
+  - nibabel=5.4.0
+  - numpy=2.3.5
+  - pandas>=1.5
+  - pip
+  - pyside6=6.11.1
+  - pytorch-cpu=2.12.1
+  - scikit-image=0.26.0
+  - scipy=1.16.3
+  - simpleitk=2.5.5
+  - tifffile
+  - ucrt
+  - vc14_runtime
+  - pip:
+      - acvl-utils==0.2.1
+      - batchgenerators>=0.25,<1
+      - brkraw==0.5.7
+      - einops>=0.4
+      - gdown>=5,<6
+      - imageio>=2.22
+      - monai==1.4.0

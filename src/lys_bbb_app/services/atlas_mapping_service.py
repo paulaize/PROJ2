@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from functools import partial
 from pathlib import Path
 from typing import Callable
 from uuid import uuid4
@@ -12,6 +13,10 @@ from lys_bbb.atlas_mapping import (
     MappingApprovalGate,
     compute_native_t2_lesion_overlap,
     create_native_composite_labels,
+)
+from lys_bbb.antspyx_backend import (
+    ANTS_CLI_BACKEND,
+    backend_components,
 )
 from lys_bbb.atlas_qc import (
     create_atlas_to_t1_qc,
@@ -66,13 +71,39 @@ class AtlasMappingService:
         atlas_runner=run_atlas_to_t1_candidates,
         t1_t2_runner=run_t1_to_t2_registration,
         composite_runner=create_native_composite_labels,
+        ants_backend: str = ANTS_CLI_BACKEND,
     ) -> None:
         self._repository_provider = repository_provider
+        runner, tools = backend_components(ants_backend)
+        if runner is not None and tools is not None:
+            if atlas_runner is run_atlas_to_t1_candidates:
+                atlas_runner = partial(atlas_runner, runner=runner, executables=tools)
+            if t1_t2_runner is run_t1_to_t2_registration:
+                t1_t2_runner = partial(t1_t2_runner, runner=runner, executables=tools)
+            if composite_runner is create_native_composite_labels:
+                composite_runner = partial(
+                    composite_runner,
+                    runner=runner,
+                    executables=tools,
+                )
+            runtime_engine = tools.engine
+            runtime_version = tools.version
+        else:
+            runtime_engine = "ANTs"
+            runtime_version = "2.6.5"
         self._atlas_runner = atlas_runner
         self._t1_t2_runner = t1_t2_runner
         self._composite_runner = composite_runner
-        self._atlas_config = AtlasToT1Config()
-        self._t1_t2_config = T1ToT2Config()
+        self._runtime_engine = runtime_engine
+        self._runtime_version = runtime_version
+        self._atlas_config = AtlasToT1Config(
+            runtime_engine=runtime_engine,
+            runtime_version=runtime_version,
+        )
+        self._t1_t2_config = T1ToT2Config(
+            runtime_engine=runtime_engine,
+            runtime_version=runtime_version,
+        )
 
     def state(self, subject_id: str) -> AtlasMappingState:
         return self._feature_repository().state(subject_id)
@@ -295,7 +326,11 @@ class AtlasMappingService:
         lesion = self._current_t2_lesion(snapshot, subject_id)
         if pre.output_path is None or t2.output_path is None:
             raise StudyStateError("The managed T1/T2 inputs are unavailable.")
-        config = T1ToT2Config(exclude_lesion_from_metric=exclude_current_lesion)
+        config = T1ToT2Config(
+            exclude_lesion_from_metric=exclude_current_lesion,
+            runtime_engine=self._runtime_engine,
+            runtime_version=self._runtime_version,
+        )
         method_id = self._feature_repository().register_method(
             "t1_to_t2",
             method_version=config.method_spec()["method_version"],
@@ -424,6 +459,8 @@ class AtlasMappingService:
                 atlas_to_t1_transform_path=atlas_to_t1.transform_path,
                 t1_to_t2_transform_path=t1_to_t2.transform_path,
                 output_directory=output_dir,
+                runtime_engine=self._runtime_engine,
+                runtime_version=self._runtime_version,
             )
         )
         qc = create_composite_all_slice_qc(

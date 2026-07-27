@@ -64,6 +64,23 @@ TARGETS = {
         graphics="native Windows desktop",
         feature_profile="windows_native_no_ants_v1",
     ),
+    "native-antspyx-preview": BundleTarget(
+        bundle_root=PurePosixPath("LYS-BBB-Windows-Native-ANTsPyx-Preview-v1"),
+        template_directory="packaging/windows-native",
+        template_files=(
+            "Setup-LYS-BBB.cmd",
+            "Setup-LYS-BBB.ps1",
+            "Launch-LYS-BBB.ps1",
+            "LISEZ-MOI-ANTSPYX.txt",
+        ),
+        environment_file=(
+            "packaging/windows-native/environment-win64-antspyx.yml"
+        ),
+        archive_label="LYS-BBB-Windows-Native-ANTsPyx-Preview",
+        runtime="native Windows CPython with ANTsPyx",
+        graphics="native Windows desktop",
+        feature_profile="windows_native_antspyx_preview_v1",
+    ),
 }
 
 

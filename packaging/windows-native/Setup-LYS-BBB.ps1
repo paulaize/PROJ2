@@ -13,6 +13,15 @@ $EnvironmentDirectory = Join-Path $InstallRoot "env"
 $ApplicationDirectory = Join-Path $InstallRoot "app"
 $LogDirectory = Join-Path $InstallRoot "logs"
 $MinimumFreeSpaceGiB = 8
+$FeatureProfile = "windows_native_no_ants_v1"
+$EnvironmentFileName = "environment-win64.yml"
+$ShortcutName = "LYS BBB - test Windows"
+$ShortcutDescription = "LYS BBB Scientific Workflows - native Windows test"
+$AntsPyxPreview = $false
+$AntsPyxWheelName = "antspyx-0.6.3-cp311-cp311-win_amd64.whl"
+$AntsPyxWheelSha256 = (
+    "39a29ba5abbf3475dea70cf0d0a2472e34a5c854f99d2f08204a288f1f5aeac4"
+)
 
 $MiniforgeVersion = "26.1.1-3"
 $MiniforgeInstallerName = "Miniforge3-$MiniforgeVersion-Windows-x86_64.exe"
@@ -114,7 +123,7 @@ function New-LysShortcut {
     )
     $shortcut.WorkingDirectory = $InstallRoot
     $shortcut.IconLocation = "$icon,0"
-    $shortcut.Description = "LYS BBB Scientific Workflows - native Windows test"
+    $shortcut.Description = $ShortcutDescription
     $shortcut.Save()
 }
 
@@ -133,6 +142,34 @@ try {
         throw "Ce paquet requiert un processeur Intel/AMD x86-64: $architecture."
     }
     Test-BundleIntegrity
+    $manifestPath = Join-Path $PSScriptRoot "handoff-manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Le manifeste du paquet est absent."
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw |
+        ConvertFrom-Json
+    $FeatureProfile = [string]$manifest.target.feature_profile
+    switch ($FeatureProfile) {
+        "windows_native_no_ants_v1" {
+            $EnvironmentFileName = "environment-win64.yml"
+            $ShortcutName = "LYS BBB - test Windows"
+            $ShortcutDescription = (
+                "LYS BBB Scientific Workflows - native Windows test"
+            )
+            $AntsPyxPreview = $false
+        }
+        "windows_native_antspyx_preview_v1" {
+            $EnvironmentFileName = "environment-win64-antspyx.yml"
+            $ShortcutName = "LYS BBB - apercu ANTsPyx"
+            $ShortcutDescription = (
+                "LYS BBB Scientific Workflows - native ANTsPyx preview"
+            )
+            $AntsPyxPreview = $true
+        }
+        default {
+            throw "Profil Windows natif non pris en charge: $FeatureProfile"
+        }
+    }
 
     $systemDrive = Get-CimInstance `
         Win32_LogicalDisk `
@@ -195,7 +232,7 @@ try {
         -Recurse
     $environmentFile = Join-Path (
         $StagedApplication
-    ) "packaging\windows-native\environment-win64.yml"
+    ) "packaging\windows-native\$EnvironmentFileName"
     if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
         throw "Le fichier d'environnement Windows est absent."
     }
@@ -216,6 +253,40 @@ try {
         throw "Conda n'a pas pu installer les dependances: code $LASTEXITCODE."
     }
 
+    $python = Join-Path $EnvironmentDirectory "python.exe"
+    $env:PATH = (
+        "$EnvironmentDirectory;" +
+        (Join-Path $EnvironmentDirectory "Library\bin") +
+        ";$env:PATH"
+    )
+    if ($AntsPyxPreview) {
+        Write-Step "Telechargement et verification de la roue ANTsPyx Windows"
+        $wheelDirectory = Join-Path $TemporaryDirectory "antspyx-wheel"
+        New-Item -ItemType Directory -Path $wheelDirectory -Force | Out-Null
+        & $python -m pip download `
+            --dest $wheelDirectory `
+            --only-binary=:all: `
+            --no-deps `
+            "antspyx==0.6.3"
+        if ($LASTEXITCODE -ne 0) {
+            throw "La roue ANTsPyx Windows n'a pas pu etre telechargee."
+        }
+        $wheelPath = Join-Path $wheelDirectory $AntsPyxWheelName
+        if (-not (Test-Path -LiteralPath $wheelPath -PathType Leaf)) {
+            throw "La roue ANTsPyx attendue est absente: $AntsPyxWheelName"
+        }
+        $wheelHash = (
+            Get-FileHash -LiteralPath $wheelPath -Algorithm SHA256
+        ).Hash
+        if ($wheelHash -ne $AntsPyxWheelSha256.ToUpperInvariant()) {
+            throw "Le controle SHA256 de la roue ANTsPyx a echoue."
+        }
+        & $python -m pip install --no-deps $wheelPath
+        if ($LASTEXITCODE -ne 0) {
+            throw "ANTsPyx n'a pas pu etre installe: code $LASTEXITCODE."
+        }
+    }
+
     $backupApplication = $null
     if (Test-Path -LiteralPath $ApplicationDirectory -PathType Container) {
         $backupApplication = (
@@ -227,7 +298,6 @@ try {
     Move-Item -LiteralPath $StagedApplication -Destination $ApplicationDirectory
     $StagedApplication = $null
 
-    $python = Join-Path $EnvironmentDirectory "python.exe"
     & $python -m pip install --no-deps --editable $ApplicationDirectory
     if ($LASTEXITCODE -ne 0) {
         $failedApplication = (
@@ -292,13 +362,25 @@ try {
         }
     }
 
-    Write-Step "Test de demarrage sans ANTs"
-    $previousProfile = $env:LYS_BBB_FEATURE_PROFILE
-    $previousQtPlatform = $env:QT_QPA_PLATFORM
-    try {
-        $env:LYS_BBB_FEATURE_PROFILE = "windows_native_no_ants_v1"
-        $env:QT_QPA_PLATFORM = "offscreen"
-        & $python -c (
+    if ($AntsPyxPreview) {
+        Write-Step "Test de demarrage natif avec ANTsPyx"
+        $smokeScript = (
+            "import ants, SimpleITK, torch; " +
+            "assert ants.__version__ == '0.6.3'; " +
+            "from PySide6.QtWidgets import QApplication; " +
+            "from lys_bbb_app.features import active_features; " +
+            "from lys_bbb_app.ui.main_window import MainWindow; " +
+            "app=QApplication([]); features=active_features(); " +
+            "window=MainWindow(features=features); " +
+            "assert features.atlas_mapping; " +
+            "assert features.ants_backend == 'antspyx'; " +
+            "assert window.workspace_page.atlas_mapping_panel is not None; " +
+            "window.close()"
+        )
+    }
+    else {
+        Write-Step "Test de demarrage sans ANTs"
+        $smokeScript = (
             "import SimpleITK, torch; " +
             "from PySide6.QtWidgets import QApplication; " +
             "from lys_bbb_app.features import active_features; " +
@@ -308,6 +390,13 @@ try {
             "assert not features.atlas_mapping; assert " +
             "window.workspace_page.atlas_mapping_panel is None; window.close()"
         )
+    }
+    $previousProfile = $env:LYS_BBB_FEATURE_PROFILE
+    $previousQtPlatform = $env:QT_QPA_PLATFORM
+    try {
+        $env:LYS_BBB_FEATURE_PROFILE = $FeatureProfile
+        $env:QT_QPA_PLATFORM = "offscreen"
+        & $python -c $smokeScript
         if ($LASTEXITCODE -ne 0) {
             throw "Le test de demarrage natif a echoue: code $LASTEXITCODE."
         }
@@ -333,22 +422,32 @@ try {
 
     $desktopShortcut = Join-Path (
         [Environment]::GetFolderPath("Desktop")
-    ) "LYS BBB - test Windows.lnk"
+    ) "$ShortcutName.lnk"
     New-LysShortcut -ShortcutPath $desktopShortcut
     $programs = [Environment]::GetFolderPath("Programs")
     New-LysShortcut `
-        -ShortcutPath (Join-Path $programs "LYS BBB - test Windows.lnk")
+        -ShortcutPath (Join-Path $programs "$ShortcutName.lnk")
 
     Write-Host ""
     Write-Host "Installation native terminee." -ForegroundColor Green
-    Write-Host "Aucun composant Ubuntu, WSL2 ou ANTs n'a ete installe."
-    Show-Information `
-        -Title "LYS BBB est pret" `
-        -Message (
+    Write-Host "Aucun composant Ubuntu ou WSL2 n'a ete installe."
+    if ($AntsPyxPreview) {
+        $completionMessage = (
+            "L'installation native ANTsPyx est terminee.`n`n" +
+            "Utilisez l'icone '$ShortcutName' du Bureau.`n" +
+            "Les registrations restent provisoires et doivent etre examinees."
+        )
+    }
+    else {
+        $completionMessage = (
             "L'installation native est terminee.`n`n" +
-            "Utilisez l'icone 'LYS BBB - test Windows' du Bureau.`n" +
+            "Utilisez l'icone '$ShortcutName' du Bureau.`n" +
             "Le module Atlas Mapping est volontairement desactive."
         )
+    }
+    Show-Information `
+        -Title "LYS BBB est pret" `
+        -Message $completionMessage
     exit 0
 }
 catch {
