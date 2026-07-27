@@ -113,7 +113,8 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
         )
 
         icon = archive.read(BUNDLE_ROOT + "lys-bbb.ico")
-        assert icon[:6] == b"\x00\x00\x01\x00\x01\x00"
+        assert icon[:4] == b"\x00\x00\x01\x00"
+        assert int.from_bytes(icon[4:6], "little") >= 1
 
         checksum_lines = archive.read(
             BUNDLE_ROOT + "SHA256SUMS.txt"

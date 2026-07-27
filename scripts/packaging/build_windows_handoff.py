@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import struct
 import subprocess
 import sys
 import tomllib
@@ -234,114 +233,10 @@ def _bundle_t2_model_release(
     }
 
 
-def _rounded_square(x: int, y: int, size: int) -> bool:
-    margin = size // 32
-    radius = size * 3 // 16
-    if margin + radius <= x < size - margin - radius:
-        return margin <= y < size - margin
-    if margin + radius <= y < size - margin - radius:
-        return margin <= x < size - margin
-    corner_x = margin + radius if x < size // 2 else size - margin - radius - 1
-    corner_y = margin + radius if y < size // 2 else size - margin - radius - 1
-    return (x - corner_x) ** 2 + (y - corner_y) ** 2 <= radius**2
+def windows_icon_bytes(source: Path) -> bytes:
+    """Load the checked-in multi-resolution Windows icon."""
 
-
-def _ring(x: int, y: int, cx: int, cy: int, radius: int, width: int) -> bool:
-    distance = (x - cx) ** 2 + (y - cy) ** 2
-    return (radius - width) ** 2 <= distance <= (radius + width) ** 2
-
-
-def _ellipse_ring(
-    x: int,
-    y: int,
-    cx: int,
-    cy: int,
-    radius_x: int,
-    radius_y: int,
-    width: float,
-) -> bool:
-    outer = ((x - cx) / radius_x) ** 2 + ((y - cy) / radius_y) ** 2
-    inner_x = max(radius_x - width, 1)
-    inner_y = max(radius_y - width, 1)
-    inner = ((x - cx) / inner_x) ** 2 + ((y - cy) / inner_y) ** 2
-    return outer <= 1 and inner >= 1
-
-
-def windows_icon_bytes(size: int = 256) -> bytes:
-    """Create a self-contained 32-bit ICO with the app's teal MRI mark."""
-
-    teal = (117, 123, 8, 255)
-    white = (255, 255, 255, 255)
-    amber = (34, 165, 239, 255)
-    transparent = (0, 0, 0, 0)
-    pixels: list[bytes] = []
-    center_x = size // 2
-    center_y = size * 15 // 32
-    for y in range(size - 1, -1, -1):
-        for x in range(size):
-            colour = teal if _rounded_square(x, y, size) else transparent
-            if _ring(x, y, center_x, center_y, size * 5 // 16, size // 48):
-                colour = white
-            left_lobe = _ellipse_ring(
-                x,
-                y,
-                size * 13 // 32,
-                center_y,
-                size * 7 // 64,
-                size * 3 // 16,
-                size / 64,
-            )
-            right_lobe = _ellipse_ring(
-                x,
-                y,
-                size * 19 // 32,
-                center_y,
-                size * 7 // 64,
-                size * 3 // 16,
-                size / 64,
-            )
-            if left_lobe or right_lobe:
-                colour = white
-            lesion_radius = size // 32
-            if (
-                x - size * 39 // 64
-            ) ** 2 + (
-                y - size * 25 // 64
-            ) ** 2 <= lesion_radius**2:
-                colour = amber
-            pixels.append(bytes(colour))
-
-    bitmap_header = struct.pack(
-        "<IiiHHIIiiII",
-        40,
-        size,
-        size * 2,
-        1,
-        32,
-        0,
-        size * size * 4,
-        0,
-        0,
-        0,
-        0,
-    )
-    and_mask_row = ((size + 31) // 32) * 4
-    bitmap = bitmap_header + b"".join(pixels) + bytes(and_mask_row * size)
-    icon_header = struct.pack("<HHH", 0, 1, 1)
-    width_byte = 0 if size >= 256 else size
-    height_byte = 0 if size >= 256 else size
-    directory_entry = struct.pack(
-        "<BBBBHHII",
-        width_byte,
-        height_byte,
-        0,
-        0,
-        1,
-        32,
-        len(bitmap),
-        22,
-    )
-    return icon_header + directory_entry + bitmap
+    return (source / "packaging" / "assets" / "lys-bbb.ico").read_bytes()
 
 
 def build_bundle(
@@ -380,7 +275,7 @@ def build_bundle(
         entries[target.bundle_root / name] = (
             template_directory / name
         ).read_bytes()
-    entries[target.bundle_root / "lys-bbb.ico"] = windows_icon_bytes()
+    entries[target.bundle_root / "lys-bbb.ico"] = windows_icon_bytes(source)
     for relative in _payload_files(source, target.environment_file):
         entries[target.bundle_root / "app" / PurePosixPath(relative)] = (
             source / relative
