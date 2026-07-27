@@ -1,4 +1,4 @@
-"""Application launcher for the LYS BBB desktop MVP."""
+"""Application launcher for the MRI Tool desktop app."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from lys_bbb_app.ui.theme import apply_theme
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Launch the LYS BBB scientific workflow desktop application."
+        description="Launch the MRI Tool desktop application."
     )
     parser.add_argument(
         "project",
@@ -31,8 +31,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     app = QApplication([sys.argv[0]])
-    app.setApplicationName("LYS BBB Scientific Workflows")
-    app.setOrganizationName("LYS BBB")
+    app.setApplicationName("MRI Tool")
+    app.setOrganizationName("MRI Tool")
     icon_path = Path(os.environ.get("LYS_BBB_ICON", ""))
     if icon_path.is_file():
         app.setWindowIcon(QIcon(str(icon_path)))

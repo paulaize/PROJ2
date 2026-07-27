@@ -39,7 +39,7 @@ class CreateStudyDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Create LYS BBB study")
+        self.setWindowTitle("Create MRI Tool study")
         self.setModal(True)
         self.resize(680, 480)
 

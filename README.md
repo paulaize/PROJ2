@@ -1,6 +1,6 @@
-# LYS BBB MRI
+# MRI Tool
 
-LYS BBB is a subject-centred desktop application and scientific backend for mouse MRI.
+MRI Tool is a subject-centred desktop application and scientific backend for mouse MRI.
 It owns three connected workflows:
 
 ```text

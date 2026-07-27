@@ -1,4 +1,4 @@
-LYS BBB - APERCU WINDOWS NATIF AVEC ANTsPyx
+MRI TOOL - APERCU WINDOWS NATIF AVEC ANTsPyx
 ============================================
 
 Ce paquet fonctionne directement sous Windows 11. Il n'installe ni Ubuntu, ni WSL2,
@@ -6,11 +6,11 @@ ni les executables ANTs separes. Il installe ANTsPyx 0.6.3 dans l'environnement 
 de l'application.
 
 1. Decompressez completement le fichier ZIP.
-2. Double-cliquez sur Setup-LYS-BBB.cmd.
+2. Double-cliquez sur Setup-MRI-Tool.cmd.
 3. Laissez la fenetre ouverte pendant le telechargement des dependances.
 4. ITK-SNAP est facultatif. Si vous acceptez son installation, Windows demandera
    une autorisation administrateur pour ce logiciel uniquement.
-5. A la fin, double-cliquez sur "LYS BBB - apercu ANTsPyx" sur le Bureau.
+5. A la fin, double-cliquez sur "MRI Tool" sur le Bureau.
 
 Prevoir une connexion Internet, 8 Gio d'espace libre et environ 15 a 40 minutes
 pour la premiere installation. Les lancements suivants utilisent l'icone.

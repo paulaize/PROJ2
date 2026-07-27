@@ -77,7 +77,7 @@ from lys_bbb_app.ui.workers import (
 
 
 LEGACY_PROJECT_FILTER = (
-    f"LYS BBB legacy projects (*{LEGACY_PROJECT_FILE_SUFFIX})"
+    f"MRI Tool legacy projects (*{LEGACY_PROJECT_FILE_SUFFIX})"
 )
 
 
@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         self._validation_return_page = "workspace"
         self._scan_operation_name = "MRI import"
 
-        window_title = "LYS BBB Scientific Workflows"
+        window_title = "MRI Tool"
         if self.features.window_title_suffix:
             window_title = f"{window_title} — {self.features.window_title_suffix}"
         self.setWindowTitle(window_title)
@@ -394,7 +394,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(14, 18, 14, 18)
         layout.setSpacing(5)
-        wordmark = QLabel("LYS BBB")
+        wordmark = QLabel("MRI Tool")
         wordmark.setObjectName("appWordmark")
         layout.addWidget(wordmark)
         layout.addSpacing(12)
@@ -446,7 +446,7 @@ class MainWindow(QMainWindow):
     def open_project(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
-            "Open LYS BBB study directory",
+            "Open MRI Tool study directory",
             str(Path.home()),
         )
         if selected:
@@ -2505,7 +2505,7 @@ class MainWindow(QMainWindow):
     def _show_error(self, summary: str, exc: Exception) -> None:
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Critical)
-        message.setWindowTitle("LYS BBB Scientific Workflows")
+        message.setWindowTitle("MRI Tool")
         message.setText(summary)
         message.setInformativeText(str(exc))
         message.exec()

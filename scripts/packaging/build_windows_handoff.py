@@ -53,33 +53,33 @@ TARGETS = {
         feature_profile="full",
     ),
     "native-no-ants": BundleTarget(
-        bundle_root=PurePosixPath("LYS-BBB-Windows-Native-No-ANTs-v1"),
+        bundle_root=PurePosixPath("MRI-Tool-Windows-Native-No-ANTs-v1"),
         template_directory="packaging/windows-native",
         template_files=(
-            "Setup-LYS-BBB.cmd",
-            "Setup-LYS-BBB.ps1",
-            "Launch-LYS-BBB.ps1",
+            "Setup-MRI-Tool.cmd",
+            "Setup-MRI-Tool.ps1",
+            "Launch-MRI-Tool.ps1",
             "LISEZ-MOI.txt",
         ),
         environment_file="packaging/windows-native/environment-win64.yml",
-        archive_label="LYS-BBB-Windows-Native-No-ANTs",
+        archive_label="MRI-Tool-Windows-Native-No-ANTs",
         runtime="native Windows CPython via Miniforge",
         graphics="native Windows desktop",
         feature_profile="windows_native_no_ants_v1",
     ),
     "native-antspyx-preview": BundleTarget(
-        bundle_root=PurePosixPath("LYS-BBB-Windows-Native-ANTsPyx-Preview-v1"),
+        bundle_root=PurePosixPath("MRI-Tool-Windows-Native-ANTsPyx-Preview-v1"),
         template_directory="packaging/windows-native",
         template_files=(
-            "Setup-LYS-BBB.cmd",
-            "Setup-LYS-BBB.ps1",
-            "Launch-LYS-BBB.ps1",
+            "Setup-MRI-Tool.cmd",
+            "Setup-MRI-Tool.ps1",
+            "Launch-MRI-Tool.ps1",
             "LISEZ-MOI-ANTSPYX.txt",
         ),
         environment_file=(
             "packaging/windows-native/environment-win64-antspyx.yml"
         ),
-        archive_label="LYS-BBB-Windows-Native-ANTsPyx-Preview",
+        archive_label="MRI-Tool-Windows-Native-ANTsPyx-Preview",
         runtime="native Windows CPython with ANTsPyx",
         graphics="native Windows desktop",
         feature_profile="windows_native_antspyx_preview_v1",
@@ -236,7 +236,7 @@ def _bundle_t2_model_release(
 def windows_icon_bytes(source: Path) -> bytes:
     """Load the checked-in multi-resolution Windows icon."""
 
-    return (source / "packaging" / "assets" / "lys-bbb.ico").read_bytes()
+    return (source / "packaging" / "assets" / "mri-tool.ico").read_bytes()
 
 
 def build_bundle(
@@ -275,7 +275,10 @@ def build_bundle(
         entries[target.bundle_root / name] = (
             template_directory / name
         ).read_bytes()
-    entries[target.bundle_root / "lys-bbb.ico"] = windows_icon_bytes(source)
+    icon_name = (
+        "mri-tool.ico" if target_name.startswith("native") else "lys-bbb.ico"
+    )
+    entries[target.bundle_root / icon_name] = windows_icon_bytes(source)
     for relative in _payload_files(source, target.environment_file):
         entries[target.bundle_root / "app" / PurePosixPath(relative)] = (
             source / relative
@@ -302,7 +305,7 @@ def build_bundle(
     }
     manifest = {
         "schema_version": 1,
-        "application": "LYS BBB Scientific Workflows",
+        "application": "MRI Tool",
         "application_version": version,
         "source_branch": branch,
         "source_commit": commit,

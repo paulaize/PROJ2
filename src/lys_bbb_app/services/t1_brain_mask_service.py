@@ -93,7 +93,7 @@ class T1BrainMaskReviewService:
                         "editable_mask_path": str(editable_path),
                         "instructions": (
                             "Save corrections over the editable mask, close ITK-SNAP, "
-                            "then choose Use saved mask in LYS BBB. The registered "
+                            "then choose Use saved mask in MRI Tool. The registered "
                             "source artifact is immutable."
                         ),
                     },

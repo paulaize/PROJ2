@@ -15,8 +15,8 @@ $LogDirectory = Join-Path $InstallRoot "logs"
 $MinimumFreeSpaceGiB = 8
 $FeatureProfile = "windows_native_no_ants_v1"
 $EnvironmentFileName = "environment-win64.yml"
-$ShortcutName = "LYS BBB - test Windows"
-$ShortcutDescription = "LYS BBB Scientific Workflows - native Windows test"
+$ShortcutName = "MRI Tool"
+$ShortcutDescription = "MRI Tool - native Windows test"
 $AntsPyxPreview = $false
 $AntsPyxWheelName = "antspyx-0.6.3-cp311-cp311-win_amd64.whl"
 $AntsPyxWheelSha256 = (
@@ -114,8 +114,8 @@ function New-LysShortcut {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($ShortcutPath)
     $powerShell = Join-Path $PSHOME "powershell.exe"
-    $launcher = Join-Path $InstallRoot "Launch-LYS-BBB.ps1"
-    $icon = Join-Path $InstallRoot "lys-bbb.ico"
+    $launcher = Join-Path $InstallRoot "Launch-MRI-Tool.ps1"
+    $icon = Join-Path $InstallRoot "mri-tool.ico"
     $shortcut.TargetPath = $powerShell
     $shortcut.Arguments = (
         "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden " +
@@ -232,13 +232,13 @@ function Install-BundledModelRelease {
 
 $TemporaryDirectory = Join-Path (
     [IO.Path]::GetTempPath()
-) ("LYS-BBB-Setup-" + [guid]::NewGuid().ToString("N"))
+) ("MRI-Tool-Setup-" + [guid]::NewGuid().ToString("N"))
 $StagedApplication = $null
 
 try {
     Write-Step "Controle du paquet et de la machine"
     if (-not [Environment]::Is64BitOperatingSystem) {
-        throw "LYS BBB requiert Windows 64 bits."
+        throw "MRI Tool requiert Windows 64 bits."
     }
     $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     if ($architecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
@@ -255,17 +255,17 @@ try {
     switch ($FeatureProfile) {
         "windows_native_no_ants_v1" {
             $EnvironmentFileName = "environment-win64.yml"
-            $ShortcutName = "LYS BBB - test Windows"
+            $ShortcutName = "MRI Tool"
             $ShortcutDescription = (
-                "LYS BBB Scientific Workflows - native Windows test"
+                "MRI Tool - native Windows test"
             )
             $AntsPyxPreview = $false
         }
         "windows_native_antspyx_preview_v1" {
             $EnvironmentFileName = "environment-win64-antspyx.yml"
-            $ShortcutName = "LYS BBB - apercu ANTsPyx"
+            $ShortcutName = "MRI Tool"
             $ShortcutDescription = (
-                "LYS BBB Scientific Workflows - native ANTsPyx preview"
+                "MRI Tool - native ANTsPyx preview"
             )
             $AntsPyxPreview = $true
         }
@@ -543,11 +543,11 @@ try {
 
     Write-Step "Creation de l'icone Windows"
     Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-BBB.ps1") `
+        -LiteralPath (Join-Path $PSScriptRoot "Launch-MRI-Tool.ps1") `
         -Destination $InstallRoot `
         -Force
     Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "lys-bbb.ico") `
+        -LiteralPath (Join-Path $PSScriptRoot "mri-tool.ico") `
         -Destination $InstallRoot `
         -Force
     Copy-Item `
@@ -558,6 +558,23 @@ try {
     $desktopShortcut = Join-Path (
         [Environment]::GetFolderPath("Desktop")
     ) "$ShortcutName.lnk"
+    foreach ($legacyName in @(
+        "LYS BBB - test Windows.lnk",
+        "LYS BBB - apercu ANTsPyx.lnk"
+    )) {
+        Remove-Item `
+            -LiteralPath (Join-Path (
+                [Environment]::GetFolderPath("Desktop")
+            ) $legacyName) `
+            -Force `
+            -ErrorAction SilentlyContinue
+        Remove-Item `
+            -LiteralPath (Join-Path (
+                [Environment]::GetFolderPath("Programs")
+            ) $legacyName) `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
     New-LysShortcut -ShortcutPath $desktopShortcut
     $programs = [Environment]::GetFolderPath("Programs")
     New-LysShortcut `
@@ -581,7 +598,7 @@ try {
         )
     }
     Show-Information `
-        -Title "LYS BBB est pret" `
+        -Title "MRI Tool est pret" `
         -Message $completionMessage
     exit 0
 }

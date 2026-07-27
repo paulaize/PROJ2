@@ -8,21 +8,21 @@ $InstallRoot = Join-Path $env:LOCALAPPDATA "LYS_BBB"
 $ApplicationDirectory = Join-Path $InstallRoot "app"
 $EnvironmentDirectory = Join-Path $InstallRoot "env"
 $Pythonw = Join-Path $EnvironmentDirectory "pythonw.exe"
-$IconPath = Join-Path $InstallRoot "lys-bbb.ico"
+$IconPath = Join-Path $InstallRoot "mri-tool.ico"
 $LogDirectory = Join-Path $InstallRoot "logs"
 $OutputLog = Join-Path $LogDirectory "launcher-output.log"
 $ErrorLog = Join-Path $LogDirectory "launcher-error.log"
 
 try {
     if (-not (Test-Path -LiteralPath $Pythonw -PathType Leaf)) {
-        throw "Le runtime LYS BBB est absent. Relancez Setup-LYS-BBB.cmd."
+        throw "Le runtime MRI Tool est absent. Relancez Setup-MRI-Tool.cmd."
     }
     if (-not (Test-Path -LiteralPath $ApplicationDirectory -PathType Container)) {
-        throw "Les fichiers de LYS BBB sont absents. Relancez Setup-LYS-BBB.cmd."
+        throw "Les fichiers de MRI Tool sont absents. Relancez Setup-MRI-Tool.cmd."
     }
 
     New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
-    "[$(Get-Date -Format o)] Starting native LYS BBB." |
+    "[$(Get-Date -Format o)] Starting native MRI Tool." |
         Set-Content -LiteralPath $OutputLog
     Set-Content -LiteralPath $ErrorLog -Value ""
 
@@ -62,7 +62,7 @@ try {
         -Wait `
         -PassThru
     if ($process.ExitCode -ne 0) {
-        throw "LYS BBB s'est arrete avec le code $($process.ExitCode)."
+        throw "MRI Tool s'est arrete avec le code $($process.ExitCode)."
     }
 }
 catch {
@@ -73,7 +73,7 @@ catch {
     )
     [System.Windows.MessageBox]::Show(
         $message,
-        "LYS BBB - erreur de demarrage",
+        "MRI Tool - erreur de demarrage",
         [System.Windows.MessageBoxButton]::OK,
         [System.Windows.MessageBoxImage]::Error
     ) | Out-Null

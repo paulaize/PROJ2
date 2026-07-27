@@ -13,8 +13,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts" / "packaging" / "build_windows_handoff.py"
 BUNDLE_ROOT = "LYS-BBB-Windows/"
-NATIVE_BUNDLE_ROOT = "LYS-BBB-Windows-Native-No-ANTs-v1/"
-ANTSPYX_BUNDLE_ROOT = "LYS-BBB-Windows-Native-ANTsPyx-Preview-v1/"
+NATIVE_BUNDLE_ROOT = "MRI-Tool-Windows-Native-No-ANTs-v1/"
+ANTSPYX_BUNDLE_ROOT = "MRI-Tool-Windows-Native-ANTsPyx-Preview-v1/"
 
 
 def _write_tiny_t2_release(root: Path) -> Path:
@@ -156,9 +156,10 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
 
     with zipfile.ZipFile(archive_path) as archive:
         names = set(archive.namelist())
-        assert NATIVE_BUNDLE_ROOT + "Setup-LYS-BBB.cmd" in names
-        assert NATIVE_BUNDLE_ROOT + "Setup-LYS-BBB.ps1" in names
-        assert NATIVE_BUNDLE_ROOT + "Launch-LYS-BBB.ps1" in names
+        assert NATIVE_BUNDLE_ROOT + "Setup-MRI-Tool.cmd" in names
+        assert NATIVE_BUNDLE_ROOT + "Setup-MRI-Tool.ps1" in names
+        assert NATIVE_BUNDLE_ROOT + "Launch-MRI-Tool.ps1" in names
+        assert NATIVE_BUNDLE_ROOT + "mri-tool.ico" in names
         assert NATIVE_BUNDLE_ROOT + "Install-LYS-BBB.sh" not in names
         environment_path = (
             NATIVE_BUNDLE_ROOT
@@ -170,7 +171,7 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
         assert "\n  - ants" not in environment.casefold()
 
         launcher = archive.read(
-            NATIVE_BUNDLE_ROOT + "Launch-LYS-BBB.ps1"
+            NATIVE_BUNDLE_ROOT + "Launch-MRI-Tool.ps1"
         ).decode()
         assert "windows_native_no_ants_v1" in launcher
         assert "wsl.exe" not in launcher.casefold()
@@ -219,7 +220,8 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
 
     with zipfile.ZipFile(archive_path) as archive:
         names = set(archive.namelist())
-        assert ANTSPYX_BUNDLE_ROOT + "Setup-LYS-BBB.cmd" in names
+        assert ANTSPYX_BUNDLE_ROOT + "Setup-MRI-Tool.cmd" in names
+        assert ANTSPYX_BUNDLE_ROOT + "mri-tool.ico" in names
         assert ANTSPYX_BUNDLE_ROOT + "Install-LYS-BBB.sh" not in names
         environment_path = (
             ANTSPYX_BUNDLE_ROOT
@@ -229,7 +231,7 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
         assert "\n  - ants=" not in environment
         assert "vc14_runtime" in environment
         setup = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "Setup-LYS-BBB.ps1"
+            ANTSPYX_BUNDLE_ROOT + "Setup-MRI-Tool.ps1"
         ).decode().casefold()
         assert "antspyx==0.6.3" in setup
         assert "antspyx-0.6.3-cp311-cp311-win_amd64.whl" in setup
@@ -250,7 +252,7 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
             "windows_native_antspyx_preview_v1"
         )
         launcher = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "Launch-LYS-BBB.ps1"
+            ANTSPYX_BUNDLE_ROOT + "Launch-MRI-Tool.ps1"
         ).decode()
         assert "wsl.exe" not in launcher.casefold()
 

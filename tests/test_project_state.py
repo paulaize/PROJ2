@@ -88,7 +88,7 @@ def test_open_rejects_an_unidentified_sqlite_database(tmp_path: Path):
     with sqlite3.connect(unrelated) as connection:
         connection.execute("CREATE TABLE notes(value TEXT)")
 
-    with pytest.raises(InvalidProjectError, match="not a LYS BBB project"):
+    with pytest.raises(InvalidProjectError, match="not an MRI Tool project"):
         ProjectDatabase.open(unrelated)
 
 

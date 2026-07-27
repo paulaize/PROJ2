@@ -29,7 +29,7 @@ conda run -n lys-bbb python scripts/packaging/build_windows_handoff.py \
 ```
 
 The command writes
-`dist/LYS-BBB-Windows-Native-No-ANTs-<version>-<commit>.zip`, prints its SHA-256,
+`dist/MRI-Tool-Windows-Native-No-ANTs-<version>-<commit>.zip`, prints its SHA-256,
 and records the exact branch, commit, target, feature profile, and file checksums in the
 archive manifest. The builder refuses a dirty tree unless `--allow-dirty` is explicitly
 used for local packaging tests.
@@ -39,10 +39,10 @@ used for local packaging tests.
 The colleague:
 
 1. downloads and fully extracts the ZIP;
-2. double-clicks `Setup-LYS-BBB.cmd`;
+2. double-clicks `Setup-MRI-Tool.cmd`;
 3. leaves the setup window open while it downloads the native dependencies;
 4. optionally accepts the administrator prompt for ITK-SNAP; and
-5. launches `LYS BBB - test Windows` from the new Desktop icon.
+5. launches `MRI Tool` from the new Desktop icon.
 
 The Python application and scientific environment are installed per user under
 `%LOCALAPPDATA%\LYS_BBB`. Only the optional official ITK-SNAP installer requests

@@ -63,7 +63,7 @@ def features_for_profile(profile: str) -> AppFeatures:
         return WINDOWS_NATIVE_NO_ANTS_V1_FEATURES
     if normalised == WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_PROFILE:
         return WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES
-    raise ValueError(f"Unknown LYS BBB feature profile: {profile!r}")
+    raise ValueError(f"Unknown MRI Tool feature profile: {profile!r}")
 
 
 def active_features(environ: Mapping[str, str] | None = None) -> AppFeatures:

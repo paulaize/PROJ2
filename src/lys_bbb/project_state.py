@@ -30,7 +30,7 @@ class ProjectAlreadyExistsError(ProjectStateError):
 
 
 class InvalidProjectError(ProjectStateError):
-    """Raised when a file is not a valid LYS BBB project database."""
+    """Raised when a file is not a valid MRI Tool project database."""
 
 
 class UnsupportedProjectVersionError(ProjectStateError):
@@ -188,7 +188,7 @@ class ProjectDatabase:
             application_id = _pragma_int(connection, "application_id")
             if application_id != PROJECT_APPLICATION_ID:
                 raise InvalidProjectError(
-                    "The selected file is not a LYS BBB project database."
+                    "The selected file is not an MRI Tool project database."
                 )
             connection.execute("BEGIN IMMEDIATE")
             _apply_migrations(connection)
@@ -215,7 +215,7 @@ class ProjectDatabase:
                 application_id = _pragma_int(connection, "application_id")
                 if application_id != PROJECT_APPLICATION_ID:
                     raise InvalidProjectError(
-                        "The selected file is not a LYS BBB project database."
+                        "The selected file is not an MRI Tool project database."
                     )
                 return _read_snapshot(connection, self.database_path)
         except ProjectStateError:

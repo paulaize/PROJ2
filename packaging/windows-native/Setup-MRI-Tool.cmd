@@ -1,8 +1,8 @@
 @echo off
 setlocal
-title Installation native de LYS BBB
+title Installation native de MRI Tool
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-LYS-BBB.ps1"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-MRI-Tool.ps1"
 set "LYS_SETUP_EXIT=%ERRORLEVEL%"
 
 if not "%LYS_SETUP_EXIT%"=="0" (

@@ -45,7 +45,7 @@ conda run -n lys-bbb python scripts/packaging/build_windows_handoff.py \
 ```
 
 The output is
-`dist/LYS-BBB-Windows-Native-ANTsPyx-Preview-<version>-<commit>.zip`. The manifest
+`dist/MRI-Tool-Windows-Native-ANTsPyx-Preview-<version>-<commit>.zip`. The manifest
 records the exact commit and activates `windows_native_antspyx_preview_v1`.
 Setup accepts only the CPython 3.11 Windows x64 wheel named
 `antspyx-0.6.3-cp311-cp311-win_amd64.whl` with SHA-256
@@ -62,9 +62,9 @@ The application automatically registers the installed T1 release when brain extr
 is first run and the installed T2 release when lesion inference is first run. A differing
 previous release is preserved under a timestamped `.previous` directory.
 
-The colleague fully extracts the ZIP, double-clicks `Setup-LYS-BBB.cmd`, leaves the
+The colleague fully extracts the ZIP, double-clicks `Setup-MRI-Tool.cmd`, leaves the
 terminal open for dependency downloads, and then uses the
-`LYS BBB - apercu ANTsPyx` Desktop icon. The installer and launcher cap ITK, OpenMP,
+`MRI Tool` Desktop icon. The installer and launcher cap ITK, OpenMP,
 and MKL at two threads for the 8 GiB ZenBook.
 
 ## Accuracy gate before scientific use

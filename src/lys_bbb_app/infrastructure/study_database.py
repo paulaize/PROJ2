@@ -135,7 +135,7 @@ class StudyAlreadyExistsError(StudyStateError):
 
 
 class InvalidStudyError(StudyStateError):
-    """Raised when a path does not contain a valid LYS BBB study."""
+    """Raised when a path does not contain a valid MRI Tool study."""
 
 
 class UnsupportedStudyVersionError(StudyStateError):
@@ -280,7 +280,7 @@ class StudyRepository:
                 version = int(connection.execute("PRAGMA user_version").fetchone()[0])
                 if application_id != STUDY_APPLICATION_ID:
                     raise InvalidStudyError(
-                        "The selected folder does not contain a LYS BBB study database."
+                        "The selected folder does not contain an MRI Tool study database."
                     )
                 if version > STUDY_SCHEMA_VERSION or version < 2:
                     raise UnsupportedStudyVersionError(
@@ -1421,7 +1421,7 @@ def _read_manifest(root: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise InvalidStudyError(f"The study manifest could not be read: {exc}") from exc
     if manifest.get("format") != STUDY_MANIFEST_FORMAT:
-        raise InvalidStudyError("The selected folder is not a LYS BBB study.")
+        raise InvalidStudyError("The selected folder is not an MRI Tool study.")
     version = manifest.get("schema_version")
     if not isinstance(version, int) or version > STUDY_SCHEMA_VERSION or version < 2:
         raise UnsupportedStudyVersionError(

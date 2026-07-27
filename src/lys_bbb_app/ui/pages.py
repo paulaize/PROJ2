@@ -60,7 +60,7 @@ class StudyLauncherPage(QWidget):
         outer.setSpacing(24)
 
         brand = QHBoxLayout()
-        wordmark = QLabel("LYS BBB")
+        wordmark = QLabel("MRI Tool")
         wordmark.setStyleSheet("font-size: 18px; font-weight: 750; color: #17374a;")
         subtitle = QLabel("Scientific workflow desktop")
         subtitle.setObjectName("muted")

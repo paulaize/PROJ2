@@ -84,7 +84,7 @@ def test_native_windows_profile_removes_all_atlas_entry_points(
         features_for_profile("windows_native_antspyx_preview_v1")
         is WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES
     )
-    with pytest.raises(ValueError, match="Unknown LYS BBB feature profile"):
+    with pytest.raises(ValueError, match="Unknown MRI Tool feature profile"):
         features_for_profile("unexpected")
 
     atlas_review = ReviewItemViewModel(
