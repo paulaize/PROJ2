@@ -11,7 +11,6 @@ import nibabel as nib
 import numpy as np
 
 from lys_bbb.atlas_registration import (
-    ANTS_VERSION,
     AntsExecutables,
     CommandRunner,
     ProgressCallback,
@@ -20,16 +19,15 @@ from lys_bbb.atlas_registration import (
     _require_supported_runtime,
     _x,
     linear_transform_metrics,
-    subprocess_command_runner,
 )
 from lys_bbb.atlas_release import (
     inspect_nifti_geometry,
     require_same_physical_grid,
 )
 from lys_bbb.hashing import sha256_file
+from lys_bbb.registration_runtime import ANTSPYX_ENGINE, ANTSPYX_VERSION
 
 
-T1_TO_T2_METHOD_VERSION = "native_pre_t1_to_partial_t2_ants_rigid_v1"
 T1_TO_T2_ANTSPYX_METHOD_VERSION = (
     "native_pre_t1_to_partial_t2_antspyx_0_6_3_rigid_v1"
 )
@@ -50,8 +48,8 @@ class T1ToT2Config:
     initialization: str = "geometry"
     allow_unmasked_fixed: bool = False
     exclude_lesion_from_metric: bool = False
-    runtime_engine: str = "ANTs"
-    runtime_version: str = ANTS_VERSION
+    runtime_engine: str = ANTSPYX_ENGINE
+    runtime_version: str = ANTSPYX_VERSION
 
     def __post_init__(self) -> None:
         if self.shrink_factors != (2, 1):
@@ -80,9 +78,7 @@ class T1ToT2Config:
 
     @property
     def method_version(self) -> str:
-        if self.runtime_engine == "ANTsPyx":
-            return T1_TO_T2_ANTSPYX_METHOD_VERSION
-        return T1_TO_T2_METHOD_VERSION
+        return T1_TO_T2_ANTSPYX_METHOD_VERSION
 
     @property
     def method_spec_sha256(self) -> str:
@@ -130,7 +126,7 @@ class T1ToT2Output:
 def run_t1_to_t2_registration(
     request: T1ToT2Request,
     *,
-    runner: CommandRunner = subprocess_command_runner,
+    runner: CommandRunner | None = None,
     executables: AntsExecutables | None = None,
     progress: ProgressCallback | None = None,
 ) -> T1ToT2Output:
@@ -140,7 +136,15 @@ def run_t1_to_t2_registration(
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite T1-to-T2 job: {output}")
     output.mkdir(parents=True)
-    tools = executables or AntsExecutables.discover()
+    if runner is None or executables is None:
+        from lys_bbb.antspyx_backend import (
+            antspyx_executables,
+            antspyx_subprocess_command_runner,
+        )
+
+        runner = runner or antspyx_subprocess_command_runner
+        executables = executables or antspyx_executables()
+    tools = executables
     _require_runtime_match(
         request.config.runtime_engine,
         request.config.runtime_version,

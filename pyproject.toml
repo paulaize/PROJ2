@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "LYS IRM subject-centred mouse MRI analysis desktop application and backend."
 requires-python = ">=3.10"
 dependencies = [
+  "antspyx==0.6.3",
   "matplotlib>=3.8",
   "nibabel>=5.2",
-  "numpy>=1.26",
-  "scipy>=1.11",
+  "numpy>=1.26,<2.4",
+  "scipy==1.15.2",
   "SimpleITK>=2.3",
 ]
 
@@ -21,7 +22,6 @@ lys-irm-t1-mask-setup = "lys_bbb.t1_brain_mask_setup_cli:main"
 conversion = ["brkraw==0.5.7"]
 brain-refinement = ["scikit-image>=0.23,<1"]
 desktop = ["PySide6>=6.7,<7", "brkraw==0.5.7"]
-registration-antspyx = ["antspyx==0.6.3"]
 t2-inference = ["torch>=2.2"]
 t1-inference = [
   "acvl-utils==0.2.1",

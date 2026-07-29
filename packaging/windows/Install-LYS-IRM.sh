@@ -163,7 +163,8 @@ if [[ "${SKIP_T1_MODEL}" != "1" ]]; then
 fi
 
 step "Installation smoke test"
-"${ENVIRONMENT_DIRECTORY}/bin/antsRegistration" --version 2>&1 | grep -F "ANTs Version: 2.6.5"
+"${ENVIRONMENT_DIRECTORY}/bin/python" \
+    -c "import ants, scipy; assert ants.__version__ == '0.6.3'; assert scipy.__version__ == '1.15.2'"
 runuser -u "${APP_USER}" -- \
     env QT_QPA_PLATFORM=offscreen \
     "${ENVIRONMENT_DIRECTORY}/bin/python" \

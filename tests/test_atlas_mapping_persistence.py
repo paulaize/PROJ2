@@ -394,7 +394,7 @@ def test_completed_t1_t2_and_composite_bind_all_outputs_and_reopen(
         "t1_to_t2",
         method_version="rigid-v1",
         method_spec_sha256="method-hash",
-        config={"engine_version": "2.6.5"},
+        config={"engine_version": "0.6.3"},
         actor="Reviewer",
     )
     job_id = feature.create_job(

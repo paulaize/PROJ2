@@ -1,15 +1,12 @@
-"""Native ANTs atlas-to-pre-T1 registration with immutable command provenance."""
+"""ANTsPyx atlas-to-pre-T1 registration with immutable operation provenance."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import shutil
-import subprocess
-import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable
 
 import nibabel as nib
 import numpy as np
@@ -21,59 +18,23 @@ from lys_bbb.atlas_release import (
     validate_atlas_release,
 )
 from lys_bbb.hashing import sha256_file
+from lys_bbb.registration_runtime import (
+    ANTSPYX_ENGINE,
+    ANTSPYX_VERSION,
+    AntsExecutables,
+    CommandExecution,
+    CommandRunner,
+)
 
 
-ANTS_VERSION = "2.6.5"
-ATLAS_TO_T1_METHOD_VERSION = "aidamri_to_native_pre_t1_ants_2_6_5_v1"
 ATLAS_TO_T1_ANTSPYX_METHOD_VERSION = "aidamri_to_native_pre_t1_antspyx_0_6_3_v1"
 
 
 def _require_supported_runtime(engine: str, version: str) -> None:
-    supported = {("ANTs", ANTS_VERSION), ("ANTsPyx", "0.6.3")}
-    if (engine, version) not in supported:
+    if (engine, version) != (ANTSPYX_ENGINE, ANTSPYX_VERSION):
         raise ValueError(
             f"Unsupported registration runtime: engine={engine!r}, version={version!r}"
         )
-
-
-@dataclass(frozen=True)
-class AntsExecutables:
-    registration: Path
-    apply_transforms: Path
-    n4_bias_field_correction: Path
-    create_jacobian: Path
-    version: str = ANTS_VERSION
-    engine: str = "ANTs"
-
-    @classmethod
-    def discover(cls) -> AntsExecutables:
-        names = {
-            "registration": "antsRegistration",
-            "apply_transforms": "antsApplyTransforms",
-            "n4_bias_field_correction": "N4BiasFieldCorrection",
-            "create_jacobian": "CreateJacobianDeterminantImage",
-        }
-        resolved: dict[str, Path] = {}
-        for field, name in names.items():
-            path = shutil.which(name)
-            if path is None:
-                raise FileNotFoundError(
-                    f"{name} is unavailable. Install conda-forge::ants={ANTS_VERSION} "
-                    "in the lys-irm environment."
-                )
-            resolved[field] = Path(path).resolve()
-        version = subprocess.run(
-            [str(resolved["registration"]), "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-            shell=False,
-        ).stdout
-        if f"ANTs Version: {ANTS_VERSION}" not in version:
-            raise ValueError(
-                f"Expected native ANTs {ANTS_VERSION}; observed: {version.strip()}"
-            )
-        return cls(**resolved)
 
 
 @dataclass(frozen=True)
@@ -94,8 +55,8 @@ class AtlasToT1Config:
     n4_iterations: tuple[int, ...] = (50, 50, 30)
     float_computation: bool = True
     enable_syn: bool = False
-    runtime_engine: str = "ANTs"
-    runtime_version: str = ANTS_VERSION
+    runtime_engine: str = ANTSPYX_ENGINE
+    runtime_version: str = ANTSPYX_VERSION
 
     def __post_init__(self) -> None:
         levels = len(self.shrink_factors)
@@ -128,9 +89,7 @@ class AtlasToT1Config:
 
     @property
     def method_version(self) -> str:
-        if self.runtime_engine == "ANTsPyx":
-            return ATLAS_TO_T1_ANTSPYX_METHOD_VERSION
-        return ATLAS_TO_T1_METHOD_VERSION
+        return ATLAS_TO_T1_ANTSPYX_METHOD_VERSION
 
     @property
     def method_spec_sha256(self) -> str:
@@ -138,38 +97,6 @@ class AtlasToT1Config:
             self.method_spec(), sort_keys=True, separators=(",", ":")
         ).encode()
         return hashlib.sha256(payload).hexdigest()
-
-
-@dataclass(frozen=True)
-class CommandExecution:
-    args: tuple[str, ...]
-    return_code: int
-    stdout: str
-    stderr: str
-    runtime_seconds: float
-
-
-class CommandRunner(Protocol):
-    def __call__(self, args: tuple[str, ...], cwd: Path) -> CommandExecution: ...
-
-
-def subprocess_command_runner(args: tuple[str, ...], cwd: Path) -> CommandExecution:
-    started = time.monotonic()
-    result = subprocess.run(
-        list(args),
-        cwd=cwd,
-        check=False,
-        capture_output=True,
-        text=True,
-        shell=False,
-    )
-    return CommandExecution(
-        args=args,
-        return_code=int(result.returncode),
-        stdout=result.stdout,
-        stderr=result.stderr,
-        runtime_seconds=time.monotonic() - started,
-    )
 
 
 @dataclass(frozen=True)
@@ -221,7 +148,7 @@ ProgressCallback = Callable[[int, int, str], None]
 def run_atlas_to_t1_candidates(
     request: AtlasToT1Request,
     *,
-    runner: CommandRunner = subprocess_command_runner,
+    runner: CommandRunner | None = None,
     executables: AntsExecutables | None = None,
     progress: ProgressCallback | None = None,
 ) -> AtlasToT1Output:
@@ -231,7 +158,15 @@ def run_atlas_to_t1_candidates(
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite atlas registration job: {output}")
     output.mkdir(parents=True)
-    tools = executables or AntsExecutables.discover()
+    if runner is None or executables is None:
+        from lys_bbb.antspyx_backend import (
+            antspyx_executables,
+            antspyx_subprocess_command_runner,
+        )
+
+        runner = runner or antspyx_subprocess_command_runner
+        executables = executables or antspyx_executables()
+    tools = executables
     _require_runtime_match(
         request.config.runtime_engine,
         request.config.runtime_version,
@@ -519,7 +454,7 @@ def linear_transform_metrics(path: Path) -> dict[str, object]:
 
     transform = sitk.ReadTransform(str(path))
     if not hasattr(transform, "GetMatrix"):
-        raise ValueError(f"Expected a linear ANTs transform: {path}")
+        raise ValueError(f"Expected a linear ANTsPyx transform: {path}")
     matrix = np.asarray(transform.GetMatrix(), dtype=np.float64).reshape(3, 3)
     if not np.isfinite(matrix).all():
         raise ValueError("Registration transform contains non-finite values")
@@ -640,7 +575,7 @@ def _run_and_record(
     cwd: Path,
     record_path: Path,
     *,
-    engine: str = "ANTs",
+    engine: str = ANTSPYX_ENGINE,
     engine_version: str,
     expected_outputs: tuple[Path, ...],
 ) -> CommandExecution:
@@ -667,12 +602,14 @@ def _run_and_record(
     record_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     if execution.return_code != 0:
         raise RuntimeError(
-            f"ANTs command failed with code {execution.return_code}: "
+            f"ANTsPyx operation failed with code {execution.return_code}: "
             f"{execution.stderr.strip()}"
         )
     missing = [str(path) for path in expected_outputs if not path.is_file()]
     if missing:
-        raise RuntimeError("ANTs did not create required outputs: " + ", ".join(missing))
+        raise RuntimeError(
+            "ANTsPyx did not create required outputs: " + ", ".join(missing)
+        )
     return execution
 
 
@@ -680,7 +617,7 @@ def _require_output_in_job(path: Path, job_directory: Path) -> None:
     resolved = path.resolve()
     root = job_directory.resolve()
     if resolved != root and root not in resolved.parents:
-        raise ValueError(f"ANTs output is outside its job directory: {resolved}")
+        raise ValueError(f"ANTsPyx output is outside its job directory: {resolved}")
 
 
 def _x(values: tuple[int | float, ...]) -> str:

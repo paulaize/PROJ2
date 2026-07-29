@@ -63,6 +63,8 @@ Rules:
 - Services coordinate use cases and repositories commit canonical state.
 - Scientific functions operate on explicit paths/arrays/contracts and do not know Qt.
 - External tools such as ITK-SNAP are infrastructure adapters.
+- Registration uses pinned ANTsPyx 0.6.3 through the process-isolated, allow-listed
+  compiled-operation adapter on macOS and Windows.
 
 Architecture tests enforce these boundaries. Large files should be split only while a
 vertical slice reveals a real responsibility boundary.

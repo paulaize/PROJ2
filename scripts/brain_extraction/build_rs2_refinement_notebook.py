@@ -83,11 +83,11 @@ CELLS = [
 
         CORE_VERSIONS = {
             'numpy': '1.26.4',
-            'scipy': '1.15.3',
+            'scipy': '1.15.2',
             'monai': '1.4.0',
         }
         packages = [
-            'numpy==1.26.4', 'scipy==1.15.3',
+            'numpy==1.26.4', 'scipy==1.15.2',
             'monai==1.4.0', 'nibabel>=5.3,<6', 'nilearn>=0.12,<1',
             'scikit-image>=0.23,<1', 'einops>=0.8,<1', 'gdown>=5.2,<6',
             'acvl_utils==0.2.1', 'batchgenerators>=0.25,<1',
@@ -115,7 +115,7 @@ CELLS = [
                 "import monai, numpy, scipy, torch; "
                 "from scipy import ndimage; "
                 "assert numpy.__version__ == '1.26.4', numpy.__version__; "
-                "assert scipy.__version__ == '1.15.3', scipy.__version__; "
+                "assert scipy.__version__ == '1.15.2', scipy.__version__; "
                 "assert monai.__version__ == '1.4.0', monai.__version__; "
                 "print('Installed NumPy', numpy.__version__, "
                 "'| SciPy', scipy.__version__, '| MONAI', monai.__version__)"
@@ -223,7 +223,7 @@ CELLS = [
             "import monai, numpy, scipy, torch; "
             "from scipy import ndimage; "
             "assert numpy.__version__ == '1.26.4', numpy.__version__; "
-            "assert scipy.__version__ == '1.15.3', scipy.__version__; "
+            "assert scipy.__version__ == '1.15.2', scipy.__version__; "
             "assert monai.__version__ == '1.4.0', monai.__version__; "
             "assert torch.cuda.is_available(), 'GPU unavailable to subprocess'; "
             "print('Runtime preflight: NumPy', numpy.__version__, "

@@ -1,38 +1,41 @@
-# Native Windows 11 handoff without ANTs
+# Native Windows 11 handoff
 
-This first colleague-test package runs directly on 64-bit Windows 11. It installs no
-Ubuntu, WSL2, ANTs command-line tools, or `antspyx`.
+This is the canonical colleague distribution. It runs directly on 64-bit Windows 11
+with CPython 3.11 and pinned `antspyx==0.6.3`; it requires neither Ubuntu, WSL2, nor
+separate ANTs executables. The same ANTsPyx runtime and hashed scientific method
+contracts are used during macOS development.
 
-The package activates the `windows_native_no_ants_v1` feature profile. The profile
-removes the Atlas Mapping tab, atlas review queues, and every connected atlas action.
-It retains:
+The complete application profile is enabled, including atlas mapping. ANTsPyx executes
+only the reviewed compiled operations used by LYS IRM:
 
-- study creation, import, validation, persistence, and audit history;
-- reviewed T1 brain-mask generation and optional ITK-SNAP editing;
-- post-Gd to pre-Gd T1 registration, which already uses SimpleITK rather than ANTs;
-- provisional T1 enhancement calculation;
-- native-space T2 inference, review, correction, and lesion volume; and
-- result display and approved T2 CSV export.
+- `N4BiasFieldCorrection`;
+- `antsRegistration`;
+- `antsApplyTransforms`; and
+- `CreateJacobianDeterminantImage`.
 
-The omitted atlas→pre-T1, pre-T1→T2, and label-propagation stages currently invoke ANTs.
-They must not be presented as available in this release.
+The adapter passes explicit argument arrays and records engine/version, arguments,
+stdout/stderr, return code, runtime, and checksums. It does not substitute unrecorded
+high-level library defaults. Registration candidates and propagated labels retain their
+existing geometry validation and human-review gates.
 
 ## Build the native ZIP
 
-Build only from a clean release snapshot:
+Build only from a clean committed snapshot:
 
 ```bash
 conda run -n lys-irm python scripts/packaging/build_windows_handoff.py \
-  --target native-no-ants \
+  --target native \
   --t1-model-release "/path/to/rs2net-m-seam-v1" \
   --t2-model-release "/path/to/LYS_v1_RatLesNetV2_inference"
 ```
 
-The command writes
-`dist/LYS-IRM-Windows-Native-No-ANTs-<version>-<commit>.zip`, prints its SHA-256,
-and records the exact branch, commit, target, feature profile, and file checksums in the
-archive manifest. The builder refuses a dirty tree unless `--allow-dirty` is explicitly
-used for local packaging tests.
+The output is
+`dist/LYS-IRM-Windows-Native-<version>-<commit>.zip`. Its manifest records the exact
+source snapshot, complete feature profile, runtime, models, and payload checksums.
+
+Setup accepts only the CPython 3.11 Windows x86-64 ANTsPyx wheel named
+`antspyx-0.6.3-cp311-cp311-win_amd64.whl` with its checked-in SHA-256. Both model
+releases are validated before packaging and again during installation.
 
 ## Colleague installation
 
@@ -40,34 +43,24 @@ The colleague:
 
 1. downloads and fully extracts the ZIP;
 2. double-clicks `Setup-LYS-IRM.cmd`;
-3. leaves the setup window open while it downloads the native dependencies;
+3. leaves setup open while it downloads the native dependencies;
 4. optionally accepts the administrator prompt for ITK-SNAP; and
-5. launches `LYS IRM` from the new Desktop icon.
+5. launches `LYS IRM` from the Desktop icon.
 
-The Python application and scientific environment are installed per user under
-`%LOCALAPPDATA%\LYS IRM`. Only the optional official ITK-SNAP installer requests
-administrator elevation. Setup requires Internet access, at least 8 GiB free, and
-typically 15–40 minutes.
+The private runtime and application are installed under
+`%LOCALAPPDATA%\LYS IRM`. Setup imports pinned ANTsPyx, starts the complete app
+offscreen, confirms that atlas mapping is available, and only then creates shortcuts.
+No WSL component is installed. Thread counts are capped for lower-memory colleague
+machines.
 
-The installer verifies the bundle, checksum-pins Miniforge and ITK-SNAP downloads,
-creates a native `win-64` CPU-only environment, stages and validates both frozen model
-releases, runs an offscreen no-ANTs startup smoke test, and creates Desktop and
-Start-menu shortcuts. It caps ITK/OpenMP/MKL processing at two threads for the 8 GiB
-ZenBook.
+Installing a later ZIP preserves the previous application source under a timestamped
+`.previous` directory. Study data remains separate; never open the same study root from
+multiple processes or computers simultaneously.
 
-## Model releases and updates
+## Scientific acceptance
 
-The frozen T1 and T2 releases are included and installed under
-`%LOCALAPPDATA%\LYS IRM\models`. The app detects them automatically. Model files are
-covered by the archive checksums and by their scientific release validators. Atlas
-resources are not included or needed because atlas mapping is disabled.
-
-Installing a later ZIP preserves the previous application source as
-`%LOCALAPPDATA%\LYS IRM\app.previous.<UTC timestamp>`. Study data is separate from the
-application install; never open the same study directory from two processes or machines
-at once.
-
-Moving to `antspyx` is a second scientific and packaging phase. It should re-enable the
-atlas feature only after its transforms, interpolation, output geometry, provenance,
-failure behavior, and real-case results have been validated against the current ANTs
-contract.
+Software tests cover compiled N4, registration, transform application, label
+interpolation, output geometry, operation provenance, and non-commuting transform order.
+They do not replace real-animal anatomical validation. Continue to inspect predefined
+landmarks, reflections, scale/shear/determinant, support coverage, every acquired T2
+slice, and native-T2 composite labels before approval.

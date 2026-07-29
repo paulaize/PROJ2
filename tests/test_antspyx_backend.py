@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+import tomllib
 from pathlib import Path
 from types import ModuleType
 
@@ -26,6 +27,20 @@ from lys_bbb.t1_t2_registration import (
     T1ToT2Request,
     run_t1_to_t2_registration,
 )
+
+
+def test_project_requires_the_pinned_cross_platform_antspyx_runtime() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    project = tomllib.loads((project_root / "pyproject.toml").read_text())
+    dependencies = project["project"]["dependencies"]
+    assert "antspyx==0.6.3" in dependencies
+    assert "scipy==1.15.2" in dependencies
+    assert "registration-antspyx" not in project["project"]["optional-dependencies"]
+
+    environment = (project_root / "environment.yml").read_text().casefold()
+    assert "antspyx==0.6.3" in environment
+    assert "scipy=1.15.2" in environment
+    assert "\n  - ants=" not in environment
 
 
 def test_antspyx_runner_only_dispatches_allow_listed_compiled_operations(
@@ -67,27 +82,21 @@ def test_antspyx_runner_only_dispatches_allow_listed_compiled_operations(
     assert len(calls) == 1
 
 
-def test_antspyx_has_a_distinct_hashed_method_identity() -> None:
-    cli_atlas = AtlasToT1Config()
-    antspyx_atlas = AtlasToT1Config(
-        runtime_engine=ANTSPYX_ENGINE,
-        runtime_version=ANTSPYX_VERSION,
-    )
-    cli_t1_t2 = T1ToT2Config()
-    antspyx_t1_t2 = T1ToT2Config(
-        runtime_engine=ANTSPYX_ENGINE,
-        runtime_version=ANTSPYX_VERSION,
-    )
+def test_antspyx_is_the_only_supported_hashed_method_identity() -> None:
+    atlas = AtlasToT1Config()
+    t1_t2 = T1ToT2Config()
 
-    assert antspyx_atlas.method_spec()["engine"] == ANTSPYX_ENGINE
-    assert "antspyx_0_6_3" in antspyx_atlas.method_version
-    assert antspyx_atlas.method_spec_sha256 != cli_atlas.method_spec_sha256
-    assert antspyx_t1_t2.method_spec_sha256 != cli_t1_t2.method_spec_sha256
+    assert atlas.method_spec()["engine"] == ANTSPYX_ENGINE
+    assert atlas.method_spec()["engine_version"] == ANTSPYX_VERSION
+    assert "antspyx_0_6_3" in atlas.method_version
+    assert "antspyx_0_6_3" in t1_t2.method_version
+    with pytest.raises(ValueError, match="Unsupported registration runtime"):
+        AtlasToT1Config(runtime_engine="ANTs", runtime_version="2.6.5")
 
 
 @pytest.mark.skipif(
     importlib.util.find_spec("ants") is None,
-    reason="The optional pinned ANTsPyx package is not installed",
+    reason="The pinned ANTsPyx package is not installed",
 )
 def test_real_antspyx_compiled_t1_to_t2_registration_bridge(
     tmp_path: Path,
@@ -172,7 +181,7 @@ def test_real_antspyx_compiled_t1_to_t2_registration_bridge(
 
 @pytest.mark.skipif(
     importlib.util.find_spec("ants") is None,
-    reason="The optional pinned ANTsPyx package is not installed",
+    reason="The pinned ANTsPyx package is not installed",
 )
 def test_real_antspyx_direct_transform_order_matches_sequential_resampling(
     tmp_path: Path,

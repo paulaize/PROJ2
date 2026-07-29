@@ -1,4 +1,4 @@
-name: lys-irm-windows-native-no-ants-v1
+name: lys-irm-windows-native-antspyx
 channels:
   - conda-forge
   - nodefaults
@@ -13,9 +13,17 @@ dependencies:
   - pyside6=6.11.1
   - pytorch-cpu=2.12.1
   - scikit-image=0.26.0
-  - scipy=1.16.3
+  - scipy=1.15.2
+  - statsmodels
+  - scikit-learn
+  - pyyaml
+  - webcolors
+  - pillow
+  - requests
   - simpleitk=2.5.5
   - tifffile
+  - ucrt
+  - vc14_runtime
   - pip:
       - acvl-utils==0.2.1
       - batchgenerators>=0.25,<1

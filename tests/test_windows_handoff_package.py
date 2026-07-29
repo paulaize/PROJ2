@@ -13,8 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts" / "packaging" / "build_windows_handoff.py"
 BUNDLE_ROOT = "LYS-IRM-Windows/"
-NATIVE_BUNDLE_ROOT = "LYS-IRM-Windows-Native-No-ANTs-v1/"
-ANTSPYX_BUNDLE_ROOT = "LYS-IRM-Windows-Native-ANTsPyx-Preview-v1/"
+NATIVE_BUNDLE_ROOT = "LYS-IRM-Windows-Native/"
 
 
 def _write_tiny_t2_release(root: Path) -> Path:
@@ -88,6 +87,8 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
             str(PROJECT_ROOT),
             "--output-directory",
             str(tmp_path),
+            "--target",
+            "wsl",
             "--allow-dirty",
         ],
         check=True,
@@ -111,6 +112,14 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
             BUNDLE_ROOT + "app/packaging/windows/environment-wsl.yml"
             in names
         )
+        environment = archive.read(
+            BUNDLE_ROOT + "app/packaging/windows/environment-wsl.yml"
+        ).decode().casefold()
+        assert "antspyx==0.6.3" in environment
+        assert "scipy=1.15.2" in environment
+        assert "\n  - ants=" not in environment
+        installer = archive.read(BUNDLE_ROOT + "Install-LYS-IRM.sh").decode()
+        assert "assert scipy.__version__ == '1.15.2'" in installer
 
         icon = archive.read(BUNDLE_ROOT + "lys-irm.ico")
         assert icon[:4] == b"\x00\x00\x01\x00"
@@ -132,7 +141,7 @@ def test_wsl_installer_has_valid_bash_syntax() -> None:
     )
 
 
-def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
+def test_native_antspyx_bundle_is_windows_only_and_pinned(
     tmp_path: Path,
 ) -> None:
     result = subprocess.run(
@@ -143,8 +152,6 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
             str(PROJECT_ROOT),
             "--output-directory",
             str(tmp_path),
-            "--target",
-            "native-no-ants",
             "--without-bundled-models",
             "--allow-dirty",
         ],
@@ -157,76 +164,11 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
     with zipfile.ZipFile(archive_path) as archive:
         names = set(archive.namelist())
         assert NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.cmd" in names
-        assert NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.ps1" in names
-        assert NATIVE_BUNDLE_ROOT + "Launch-LYS-IRM.ps1" in names
         assert NATIVE_BUNDLE_ROOT + "lys-irm.ico" in names
         assert NATIVE_BUNDLE_ROOT + "Install-LYS-IRM.sh" not in names
         environment_path = (
             NATIVE_BUNDLE_ROOT
             + "app/packaging/windows-native/environment-win64.yml"
-        )
-        assert environment_path in names
-        environment = archive.read(environment_path).decode()
-        assert "simpleitk=2.5.5" in environment.casefold()
-        assert "\n  - ants" not in environment.casefold()
-
-        launcher = archive.read(
-            NATIVE_BUNDLE_ROOT + "Launch-LYS-IRM.ps1"
-        ).decode()
-        assert "windows_native_no_ants_v1" in launcher
-        assert "wsl.exe" not in launcher.casefold()
-
-        manifest = json.loads(
-            archive.read(
-                NATIVE_BUNDLE_ROOT + "handoff-manifest.json"
-            )
-        )
-        assert manifest["application"] == "LYS IRM"
-        assert manifest["target"]["runtime"].startswith("native Windows")
-        assert (
-            manifest["target"]["feature_profile"]
-            == "windows_native_no_ants_v1"
-        )
-
-        checksum_lines = archive.read(
-            NATIVE_BUNDLE_ROOT + "SHA256SUMS.txt"
-        ).decode().splitlines()
-        for line in checksum_lines:
-            expected, relative = line.split("  ", maxsplit=1)
-            content = archive.read(NATIVE_BUNDLE_ROOT + relative)
-            assert hashlib.sha256(content).hexdigest() == expected
-
-
-def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
-    tmp_path: Path,
-) -> None:
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(BUILDER),
-            "--source",
-            str(PROJECT_ROOT),
-            "--output-directory",
-            str(tmp_path),
-            "--target",
-            "native-antspyx-preview",
-            "--without-bundled-models",
-            "--allow-dirty",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    archive_path = Path(result.stdout.splitlines()[0])
-
-    with zipfile.ZipFile(archive_path) as archive:
-        names = set(archive.namelist())
-        assert ANTSPYX_BUNDLE_ROOT + "Setup-LYS-IRM.cmd" in names
-        assert ANTSPYX_BUNDLE_ROOT + "lys-irm.ico" in names
-        assert ANTSPYX_BUNDLE_ROOT + "Install-LYS-IRM.sh" not in names
-        environment_path = (
-            ANTSPYX_BUNDLE_ROOT
-            + "app/packaging/windows-native/environment-win64-antspyx.yml"
         )
         environment = archive.read(environment_path).decode().casefold()
         assert "\n  - ants=" not in environment
@@ -239,7 +181,11 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
         assert "\n  - requests" in environment
         assert "vc14_runtime" in environment
         setup = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "Setup-LYS-IRM.ps1"
+            NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.ps1"
+        ).decode()
+        assert "assert scipy.__version__ == '1.15.2'" in setup
+        setup = archive.read(
+            NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.ps1"
         ).decode().casefold()
         assert "antspyx==0.6.3" in setup
         assert "antspyx-0.6.3-cp311-cp311-win_amd64.whl" in setup
@@ -250,20 +196,21 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
         assert "install-bundledmodelrelease" in setup
         assert "rs2net-m-seam-v1" in setup
         assert "ratlesnetv2-lys-v1" in setup
-        assert "import ants, simpleitk, torch, statsmodels" in setup
+        assert "import ants, scipy, simpleitk, torch, statsmodels" in setup
         assert "import sklearn, yaml, webcolors, pil, requests" in setup
 
         manifest = json.loads(
             archive.read(
-                ANTSPYX_BUNDLE_ROOT + "handoff-manifest.json"
+                NATIVE_BUNDLE_ROOT + "handoff-manifest.json"
             )
         )
-        assert manifest["target"]["feature_profile"] == (
-            "windows_native_antspyx_preview_v1"
-        )
+        assert manifest["application"] == "LYS IRM"
+        assert manifest["target"]["runtime"].startswith("native Windows")
+        assert manifest["target"]["feature_profile"] == "full"
         launcher = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "Launch-LYS-IRM.ps1"
+            NATIVE_BUNDLE_ROOT + "Launch-LYS-IRM.ps1"
         ).decode()
+        assert '$featureProfile = "full"' in launcher
         assert "wsl.exe" not in launcher.casefold()
 
 
@@ -281,7 +228,7 @@ def test_native_builder_can_bundle_and_checksum_a_validated_t2_release(
             "--output-directory",
             str(output),
             "--target",
-            "native-antspyx-preview",
+            "native",
             "--t2-model-release",
             str(release),
             "--allow-dirty",
@@ -294,19 +241,19 @@ def test_native_builder_can_bundle_and_checksum_a_validated_t2_release(
 
     with zipfile.ZipFile(archive_path) as archive:
         model_prefix = (
-            ANTSPYX_BUNDLE_ROOT + "models/ratlesnetv2-lys-v1/"
+            NATIVE_BUNDLE_ROOT + "models/ratlesnetv2-lys-v1/"
         )
         names = set(archive.namelist())
         assert model_prefix + "models/fold_4.model" in names
         manifest = json.loads(
-            archive.read(ANTSPYX_BUNDLE_ROOT + "handoff-manifest.json")
+            archive.read(NATIVE_BUNDLE_ROOT + "handoff-manifest.json")
         )
         bundled = manifest["models"]["t2_lesion_segmentation"]
         assert bundled["delivery"] == "bundled"
         assert bundled["file_count"] == 12
         assert len(bundled["model_sha256"]) == 5
         checksum_lines = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "SHA256SUMS.txt"
+            NATIVE_BUNDLE_ROOT + "SHA256SUMS.txt"
         ).decode().splitlines()
         fold_line = next(
             line
@@ -315,5 +262,5 @@ def test_native_builder_can_bundle_and_checksum_a_validated_t2_release(
         )
         expected, relative = fold_line.split("  ", maxsplit=1)
         assert hashlib.sha256(
-            archive.read(ANTSPYX_BUNDLE_ROOT + relative)
+            archive.read(NATIVE_BUNDLE_ROOT + relative)
         ).hexdigest() == expected

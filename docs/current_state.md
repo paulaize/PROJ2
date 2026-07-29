@@ -69,7 +69,7 @@ scientific actions.
 When atlas review items exist, the same general Reviews queue adds an Atlas filter. The
 subject workspace has one focused Atlas Mapping tab with sequential resource/scheme,
 atlas→pre-T1, pre-T1→T2, native-T2 composite, and regional-result cards. Registration
-and propagation run outside the GUI thread; no ANTs tuning controls are exposed.
+and propagation run outside the GUI thread; no ANTsPyx tuning controls are exposed.
 
 ### T2 lesion workflow
 
@@ -239,11 +239,11 @@ AIDAmri MRI/Allen → native pre-Gd T1 → original native T2
                                       → major-region overlap and ±0.5 mm AP stress test
 ```
 
-- Native ANTs 2.6.5 remains the pinned CLI reference. A separate ANTsPyx 0.6.3 preview
-  sends the same argument arrays to bundled compiled entry points for native Windows.
-  Runtime-specific method versions and hashes prevent provenance from being conflated.
-  Every operation records identity, version, full arguments, logs, return code, runtime,
-  and hashes.
+- ANTsPyx 0.6.3 is the pinned registration runtime on macOS and native Windows. The
+  process-isolated adapter sends reviewed argument arrays to allow-listed bundled
+  compiled entry points. Runtime method versions and hashes record this canonical
+  engine; every operation records identity, version, full arguments, logs, return code,
+  runtime, and hashes.
 - Atlas→pre-T1 uses cropped/N4 processed copies, the exact approved RS2/M-seam mask,
   mutual information, a provisional physical 4×2×1 pyramid, and separate rigid/affine
   candidates. SyN remains disabled.
@@ -261,8 +261,8 @@ AIDAmri MRI/Allen → native pre-Gd T1 → original native T2
   reviews, results, and invalidation. Closing/reopening reconstructs the same state.
 
 Synthetic tests cover resource/grid/label gates, non-commuting transform order, direct
-propagation, native-lesion immutability, approvals, invalidation, all-slice QC, disabled
-UI actions, and reopening. Native ANTsPyx tests additionally cover N4, rigid transform
+propagation, native-lesion immutability, approvals, invalidation, all-slice QC, UI
+actions, and reopening. Native ANTsPyx tests additionally cover N4, rigid transform
 generation, intensity/label application, output geometry, provenance, and direct
 transform order. See `atlas_mapping.md` for the audit and real-case blockers.
 
@@ -283,8 +283,8 @@ First provide the exact matching identity for the atlas pilot: LYS_PROJ2 subject
 timepoint/session, and approved pre-T1 artifact. Then import and review a T2
 registration-support mask and run one real subject through rigid/affine atlas→pre,
 rigid pre→T2, direct native-T2 composition, all-slice QC, and major-region sensitivity.
-Run the same approved inputs through the CLI reference and ANTsPyx preview before
-accepting Windows scientific parity.
+Run the same approved-input validation set through ANTsPyx on macOS and Windows before
+accepting cross-platform scientific parity.
 
 The independent T1 enhancement smoke test also remains:
 

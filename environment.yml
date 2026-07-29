@@ -3,17 +3,17 @@ channels:
   - conda-forge
 dependencies:
   - python=3.11
-  - ants=2.6.5
   - matplotlib
   - nibabel
-  - numpy
+  - numpy<2.4
   - pyside6
   - pytorch
-  - scipy
+  - scipy=1.15.2
   - simpleitk
   - pytest
   - ruff
   - pip
   - pip:
+      - antspyx==0.6.3
       - brkraw==0.5.7
       - -e .

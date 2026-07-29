@@ -1,8 +1,9 @@
-LYS IRM - TEST WINDOWS NATIF SANS ANTs
+LYS IRM - WINDOWS NATIF AVEC ANTsPyx
 =====================================
 
 Ce paquet fonctionne directement sous Windows 11. Il n'installe ni Ubuntu, ni WSL2,
-ni ANTs.
+ni executables ANTs separes. Il installe ANTsPyx 0.6.3 dans l'environnement prive
+de l'application.
 
 1. Decompressez completement le fichier ZIP.
 2. Double-cliquez sur Setup-LYS-IRM.cmd.
@@ -14,23 +15,16 @@ ni ANTs.
 Prevoir une connexion Internet, 8 Gio d'espace libre et environ 15 a 40 minutes
 pour la premiere installation. Les lancements suivants utilisent l'icone.
 
-FONCTIONS INCLUSES
-------------------
+REGISTRATIONS SCIENTIFIQUES
+----------------------------
 
-- creation, ouverture et persistance des etudes;
-- import et validation des IRM;
-- masque cerebral T1, examen humain et correction avec ITK-SNAP;
-- registration post-Gd vers pre-Gd T1 avec SimpleITK;
-- calcul provisoire du rehaussement T1;
-- inference et examen des lesions T2 en espace T2 natif;
-- resultats et export CSV approuve.
+ANTsPyx est le moteur de registration officiel de LYS IRM sur macOS et Windows.
+Le paquet conserve les validations de geometrie, les masques examines, les deux
+candidats atlas-vers-T1, la registration rigide T1-vers-T2, la propagation directe
+des etiquettes et toutes les approbations humaines.
 
-FONCTION RETIREE DE CE TEST
----------------------------
-
-Le module Atlas Mapping est masque. Les registrations atlas vers T1, T1 vers T2 et
-la propagation des etiquettes anatomiques utilisent ANTs dans la version actuelle
-et ne peuvent donc pas etre lancees par ce paquet.
+Un calcul termine n'est jamais automatiquement approuve. Examinez toujours les
+candidats et toutes les coupes QC demandees par l'application.
 
 Les versions gelees courantes des modeles T1 RS2-Net/M-seam et T2 RatLesNetV2 sont
 incluses dans ce paquet. L'installateur verifie chaque fichier, les installe dans le

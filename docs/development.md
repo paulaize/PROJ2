@@ -5,7 +5,15 @@
 ```bash
 conda env create -f environment.yml
 conda run -n lys-irm python -m pip install --no-deps -e .
+conda run -n lys-irm python -c "import ants; assert ants.__version__ == '0.6.3'"
 ```
+
+ANTsPyx 0.6.3 and SciPy 1.15.2 are the canonical scientific runtime versions on macOS
+and Windows. The exact SciPy pin matches the conda-forge packages available to the
+native Windows environment and keeps local development on the same numerical stack.
+Do not add standalone ANTs command-line dependencies or platform-specific registration
+methods. Changing the ANTsPyx version requires a deliberate
+method-version/provenance review.
 
 Keep raw Bruker data read-only. Generated development data belongs under ignored
 `output/`, `derivatives/`, or `reports/` directories.
@@ -27,6 +35,11 @@ conda run -n lys-irm ruff check src scripts tests
 
 Tests prove software behavior; they do not replace anatomical review or a frozen
 raw-data-to-result validation set.
+
+CI runs the full suite on Linux and a dedicated Python 3.11 Windows job that installs
+the real ANTsPyx wheel and exercises the backend, architecture, and desktop smoke tests.
+Treat a failing Windows job as a release blocker even when development is performed on
+macOS.
 
 ## Primary application commands
 

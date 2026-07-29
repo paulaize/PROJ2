@@ -1,4 +1,4 @@
-"""Major-region collapse, direct ANTs propagation, and native-T2 overlap."""
+"""Major-region collapse, direct ANTsPyx propagation, and native-T2 overlap."""
 
 from __future__ import annotations
 
@@ -12,12 +12,10 @@ import numpy as np
 from scipy import ndimage
 
 from lys_bbb.atlas_registration import (
-    ANTS_VERSION,
     AntsExecutables,
     CommandRunner,
     _run_and_record,
     _require_runtime_match,
-    subprocess_command_runner,
 )
 from lys_bbb.atlas_release import (
     MajorRegionScheme,
@@ -25,6 +23,7 @@ from lys_bbb.atlas_release import (
     require_same_physical_grid,
 )
 from lys_bbb.hashing import sha256_file
+from lys_bbb.registration_runtime import ANTSPYX_ENGINE, ANTSPYX_VERSION
 
 
 @dataclass(frozen=True)
@@ -60,8 +59,8 @@ class AtlasCompositeRequest:
     atlas_to_t1_transform_path: Path
     t1_to_t2_transform_path: Path
     output_directory: Path
-    runtime_engine: str = "ANTs"
-    runtime_version: str = ANTS_VERSION
+    runtime_engine: str = ANTSPYX_ENGINE
+    runtime_version: str = ANTSPYX_VERSION
 
 
 @dataclass(frozen=True)
@@ -126,7 +125,7 @@ def collapse_source_labels(
 def create_native_composite_labels(
     request: AtlasCompositeRequest,
     *,
-    runner: CommandRunner = subprocess_command_runner,
+    runner: CommandRunner | None = None,
     executables: AntsExecutables | None = None,
 ) -> AtlasCompositeOutput:
     """Resample original-grid major labels directly once into pre-T1 and T2."""
@@ -135,7 +134,15 @@ def create_native_composite_labels(
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite atlas composite: {output}")
     output.mkdir(parents=True)
-    tools = executables or AntsExecutables.discover()
+    if runner is None or executables is None:
+        from lys_bbb.antspyx_backend import (
+            antspyx_executables,
+            antspyx_subprocess_command_runner,
+        )
+
+        runner = runner or antspyx_subprocess_command_runner
+        executables = executables or antspyx_executables()
+    tools = executables
     _require_runtime_match(
         request.runtime_engine,
         request.runtime_version,
@@ -484,7 +491,7 @@ def compose_point_mapping_affines(
     atlas_to_pre_point_mapping: np.ndarray,
     pre_to_t2_point_mapping: np.ndarray,
 ) -> np.ndarray:
-    """Compose ANTs output-point mappings as T2->pre->atlas."""
+    """Compose ANTsPyx output-point mappings as T2->pre->atlas."""
 
     first = np.asarray(atlas_to_pre_point_mapping, dtype=np.float64)
     second = np.asarray(pre_to_t2_point_mapping, dtype=np.float64)

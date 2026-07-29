@@ -14,6 +14,9 @@ Le programme limite les traitements a deux threads sur cette machine de 8 Gio. L
 inferences et registrations seront donc fonctionnelles mais plus lentes que sur une
 station de calcul.
 
+Le moteur de registration est ANTsPyx 0.6.3, identique au moteur utilise par LYS IRM
+sur macOS et dans le paquet Windows natif. Aucun executable ANTs separe n'est installe.
+
 Le paquet installe le logiciel et le modele T1 verifie. Le modele T2 gele et les
 ressources d'atlas AIDAmri ne sont pas publics dans ce depot: il faut les transmettre
 separement, puis les selectionner dans l'application.

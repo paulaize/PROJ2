@@ -57,10 +57,10 @@ normal Terminal session:
 conda run -n lys-irm python -c "import sys, torch, PySide6, nibabel, numpy; print('python', sys.version.split()[0]); print('torch', torch.__version__); print('MPS available', torch.backends.mps.is_available()); print('PySide6', PySide6.__version__); print('nibabel', nibabel.__version__); print('numpy', numpy.__version__)"
 ```
 
-Show the installed native ANTs version:
+Show the installed canonical ANTsPyx version:
 
 ```bash
-conda run -n lys-irm antsRegistration --version
+conda run -n lys-irm python -c "import ants; assert ants.__version__ == '0.6.3'; print('ANTsPyx', ants.__version__)"
 ```
 
 Show the three installed LYS IRM interfaces:
@@ -71,7 +71,7 @@ conda run -n lys-irm lys-irm-t1-mask --help
 conda run -n lys-irm lys-irm-t2-infer --help
 ```
 
-Expected ANTs version for the current method contracts: `2.6.5`.
+Expected ANTsPyx version for the current method contracts: `0.6.3`.
 
 ## 2. Validate the immutable model releases
 
@@ -514,16 +514,23 @@ The draft mapping contract is [major_regions_v1.csv](../config/atlas/major_regio
 Approved regional exports remain blocked until Paul explicitly approves that scheme in
 the app.
 
-### 12.3 Inspect the exact installed ANTs interfaces
+### 12.3 Inspect the canonical ANTsPyx runtime contract
 
 **READ-ONLY:**
 
 ```bash
-conda run -n lys-irm antsRegistration --version
-conda run -n lys-irm antsRegistration --help
-conda run -n lys-irm antsApplyTransforms --help
-conda run -n lys-irm N4BiasFieldCorrection --help
-conda run -n lys-irm CreateJacobianDeterminantImage --help
+conda run -n lys-irm python - <<'PY'
+import ants
+from lys_bbb.antspyx_backend import antspyx_executables
+from lys_bbb.registration_runtime import ANTSPYX_ENGINE, ANTSPYX_VERSION
+
+tools = antspyx_executables()
+print("package:", ants.__version__)
+print("engine:", tools.engine)
+print("contract:", ANTSPYX_ENGINE, ANTSPYX_VERSION)
+print("compiled registration operation:", tools.registration.name)
+print("compiled transform operation:", tools.apply_transforms.name)
+PY
 ```
 
 Atlas registration itself is intentionally application-managed because resource import,
@@ -535,7 +542,7 @@ confirmed.
 
 ### 13.1 Focused synthetic atlas and persistence tests
 
-**TEMP TEST OUTPUT ONLY.** These do not download data or run full ANTs registration:
+**TEMP TEST OUTPUT ONLY.** These do not download data or run full ANTsPyx registration:
 
 ```bash
 env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 QT_QPA_PLATFORM=offscreen \
@@ -553,7 +560,7 @@ make lint
 make test
 ```
 
-The current expected result is `182 passed`; warnings from wrapped ANTs/SWIG types may
+The current expected result is `210 passed`; warnings from wrapped ANTsPyx/SWIG types may
 still be printed.
 
 ## 14. Inspect all disposable outputs

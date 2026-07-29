@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
 from PySide6.QtCore import Qt  # noqa: E402
-from PySide6.QtGui import QPixmap  # noqa: E402
+from PySide6.QtGui import QIcon, QPixmap  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
@@ -40,12 +40,10 @@ from lys_bbb_app.domain.view_models import (  # noqa: E402
 )
 from lys_bbb_app.features import (  # noqa: E402
     FULL_FEATURES,
-    WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES,
-    WINDOWS_NATIVE_NO_ANTS_V1_FEATURES,
     active_features,
     features_for_profile,
 )
-from lys_bbb_app.main import parse_args  # noqa: E402
+from lys_bbb_app.main import application_icon_path, parse_args  # noqa: E402
 from lys_bbb_app.services.recent_studies_service import (  # noqa: E402
     RecentStudiesService,
 )
@@ -89,19 +87,31 @@ def test_launcher_accepts_only_an_optional_project_path() -> None:
     assert parse_args(["/tmp/study"]).project == Path("/tmp/study")
 
 
-def test_native_windows_profile_removes_all_atlas_entry_points(
+def test_launcher_uses_the_lys_logo_without_a_platform_override(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    default_icon = application_icon_path({})
+    assert default_icon == (
+        Path(__file__).resolve().parents[1]
+        / "packaging"
+        / "assets"
+        / "lys-irm-icon.png"
+    )
+    assert not QIcon(str(default_icon)).isNull()
+
+    override = tmp_path / "custom-icon.png"
+    override.write_bytes(default_icon.read_bytes())
+    assert application_icon_path({"LYS_IRM_ICON": str(override)}) == override
+
+
+def test_full_profile_uses_antspyx_and_exposes_atlas_entry_points(
     qt_app: QApplication,
     tmp_path: Path,
 ) -> None:
     assert active_features({}) is FULL_FEATURES
-    assert (
-        features_for_profile("windows_native_no_ants_v1")
-        is WINDOWS_NATIVE_NO_ANTS_V1_FEATURES
-    )
-    assert (
-        features_for_profile("windows_native_antspyx_preview_v1")
-        is WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES
-    )
+    assert features_for_profile("full") is FULL_FEATURES
+    assert FULL_FEATURES.ants_backend == "antspyx"
     with pytest.raises(ValueError, match="Unknown LYS IRM feature profile"):
         features_for_profile("unexpected")
 
@@ -128,25 +138,14 @@ def test_native_windows_profile_removes_all_atlas_entry_points(
         reviews=(atlas_review, t1_review),
     )
 
-    window = MainWindow(features=WINDOWS_NATIVE_NO_ANTS_V1_FEATURES)
+    window = MainWindow(features=FULL_FEATURES)
     window._set_study(study)
     qt_app.processEvents()
 
-    assert "Native Windows test" in window.windowTitle()
-    assert "WSL2" in window.study_banner.text()
-    assert window.workspace_page.atlas_mapping_panel is None
-    assert [
-        window.workspace_page.tabs.tabText(index)
-        for index in range(window.workspace_page.tabs.count())
-    ] == [
-        "Inputs",
-        "T1 Brain Mask",
-        "T1 Registration + Result",
-        "T2 Lesion",
-        "History",
-    ]
-    assert set(window.reviews_page.modality_buttons) == {"T1", "T2"}
-    assert window.reviews_page.reviews == (t1_review,)
+    assert window.windowTitle() == "LYS IRM"
+    assert window.workspace_page.atlas_mapping_panel is not None
+    assert set(window.reviews_page.modality_buttons) == {"T1", "T2", "Atlas"}
+    assert window.reviews_page.reviews == (atlas_review, t1_review)
     window.close()
 
 

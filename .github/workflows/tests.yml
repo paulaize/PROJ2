@@ -40,3 +40,40 @@ jobs:
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
           QT_QPA_PLATFORM: offscreen
         run: python -m pytest tests -q
+
+  windows-antspyx-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install desktop and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[desktop,test]"
+
+      - name: Verify the canonical scientific runtime
+        run: >-
+          python -c "import ants, scipy;
+          assert ants.__version__ == '0.6.3';
+          assert scipy.__version__ == '1.15.2';
+          print('ANTsPyx', ants.__version__, '| SciPy', scipy.__version__)"
+
+      - name: Run Windows backend and architecture smoke tests
+        env:
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+          QT_QPA_PLATFORM: offscreen
+        run: >-
+          python -m pytest
+          tests/test_antspyx_backend.py
+          tests/test_app_architecture.py
+          tests/test_desktop_app.py
+          -q

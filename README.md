@@ -14,9 +14,10 @@ The desktop application completes the reviewed T2 path through an approved nativ
 lesion volume and CSV export. T1 mask review is connected to the desktop study. T1
 registration and provisional enhancement now have typed backends, persistent jobs,
 exact dependency records, approval/invalidation state, connected desktop controls, and
-subject-result presentation. A provisional atlas-mapping vertical slice now adds native
-ANTs registration, staged review, direct major-label propagation, native-lesion overlap,
-and restart-safe state. Real-case T1/atlas smoke testing and scientific validation remain.
+subject-result presentation. A provisional atlas-mapping vertical slice now adds pinned
+ANTsPyx registration, staged review, direct major-label propagation, native-lesion
+overlap, and restart-safe state. Real-case T1/atlas smoke testing and scientific
+validation remain.
 
 ## Immediate goal
 
@@ -64,13 +65,11 @@ conda run -n lys-irm python -m pip install --no-deps -e .
 conda run -n lys-irm lys-irm-desktop
 ```
 
-For the first native Windows 11 colleague test bundle, which deliberately omits the
-ANTs-dependent atlas workflow, see the
-[native Windows no-ANTs handoff guide](docs/windows_native_handoff.md). The frozen
-[full WSL/ANTs handoff](docs/windows_handoff.md) remains documented separately.
-The separate
-[native Windows ANTsPyx preview](docs/windows_antspyx_preview_handoff.md) is the
-development path for restoring registration without WSL2.
+For the canonical native Windows 11 colleague bundle, using the same pinned ANTsPyx
+runtime and complete feature profile as macOS development, see the
+[native Windows handoff guide](docs/windows_native_handoff.md). An
+[optional WSL deployment shell](docs/windows_handoff.md) remains available but also
+uses ANTsPyx rather than separate ANTs executables.
 
 Run the complete test suite with:
 
@@ -93,6 +92,7 @@ and writes derived files under the chosen study root; it does not overwrite sour
 | Current T1 mask decision and review rules | [T1 brain extraction](docs/brain_extraction.md) |
 | Meaning and limitations of T1 measurements | [Enhancement quantification](docs/enhancement_quantification.md) |
 | AIDAmri atlas mapping, approvals, and remaining validation | [Atlas mapping](docs/atlas_mapping.md) |
+| Native Windows ANTsPyx colleague distribution | [Windows handoff](docs/windows_native_handoff.md) |
 | Commands and developer workflow | [Development guide](docs/development.md) |
 
 `AGENT.md` is the compact operating brief for coding agents. It should point to these

@@ -8,14 +8,13 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from lys_bbb.atlas_registration import AntsExecutables, CommandExecution
-
-
-ANTSPYX_VERSION = "0.6.3"
-ANTSPYX_ENGINE = "ANTsPyx"
-ANTSPYX_BACKEND = "antspyx"
-ANTS_CLI_BACKEND = "cli"
-ANTS_DISABLED_BACKEND = "disabled"
+from lys_bbb.registration_runtime import (
+    ANTSPYX_BACKEND,
+    ANTSPYX_ENGINE,
+    ANTSPYX_VERSION,
+    AntsExecutables,
+    CommandExecution,
+)
 
 _COMPILED_ENTRY_POINTS = frozenset(
     {
@@ -46,11 +45,11 @@ def antspyx_command_runner(
     args: tuple[str, ...],
     cwd: Path,
 ) -> CommandExecution:
-    """Execute one allow-listed ANTs operation through ANTsPyx's compiled library."""
+    """Execute one allow-listed operation through ANTsPyx's compiled library."""
 
     started = time.monotonic()
     if not args:
-        return _failed_execution(args, started, "No ANTs operation was provided")
+        return _failed_execution(args, started, "No ANTsPyx operation was provided")
     if not cwd.is_dir():
         return _failed_execution(
             args,
@@ -92,7 +91,7 @@ def antspyx_subprocess_command_runner(
 
     started = time.monotonic()
     if not args:
-        return _failed_execution(args, started, "No ANTs operation was provided")
+        return _failed_execution(args, started, "No ANTsPyx operation was provided")
     if not cwd.is_dir():
         return _failed_execution(
             args,
@@ -143,15 +142,13 @@ def execute_compiled_ants(operation: str, arguments: tuple[str, ...]) -> int:
 
 def backend_components(
     backend: str,
-) -> tuple[Callable[..., CommandExecution] | None, AntsExecutables | None]:
-    """Resolve optional runner overrides for an application registration backend."""
+) -> tuple[Callable[..., CommandExecution], AntsExecutables]:
+    """Resolve the canonical application registration backend."""
 
     normalised = backend.strip().casefold()
-    if normalised in {ANTS_CLI_BACKEND, ANTS_DISABLED_BACKEND}:
-        return None, None
     if normalised == ANTSPYX_BACKEND:
         return antspyx_subprocess_command_runner, antspyx_executables()
-    raise ValueError(f"Unsupported ANTs registration backend: {backend!r}")
+    raise ValueError(f"Unsupported ANTsPyx registration backend: {backend!r}")
 
 
 def _import_pinned_antspyx():
@@ -159,7 +156,7 @@ def _import_pinned_antspyx():
         import ants
     except ImportError as exc:
         raise RuntimeError(
-            f"ANTsPyx {ANTSPYX_VERSION} is required for native Windows registration"
+            f"ANTsPyx {ANTSPYX_VERSION} is required for registration"
         ) from exc
     observed = str(getattr(ants, "__version__", "unknown"))
     if observed != ANTSPYX_VERSION:

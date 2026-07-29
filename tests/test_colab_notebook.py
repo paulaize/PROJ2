@@ -112,7 +112,7 @@ def test_refinement_notebook_is_pinned_gated_and_self_contained() -> None:
     ).read_text()
     assert "144b032df4885a3da00e0d1824fdd777b3cd304f" in source
     assert "numpy==1.26.4" in source
-    assert "scipy==1.15.3" in source
+    assert "scipy==1.15.2" in source
     assert "from scipy import ndimage" in source
     assert "os.kill(os.getpid(), signal.SIGKILL)" in source
     cell_ids = [cell["id"] for cell in notebook["cells"]]
@@ -156,7 +156,7 @@ def test_all_mice_rs2_notebook_is_clean_pinned_and_lightweight() -> None:
     ).read_text()
     assert "EXPECTED_CASE_COUNT = 34" in source
     assert "numpy==1.26.4" in source
-    assert "scipy==1.15.3" in source
+    assert "scipy==1.15.2" in source
     assert "from scipy import ndimage" in source
     assert "os.kill(os.getpid(), signal.SIGKILL)" in source
     cell_ids = [cell["id"] for cell in notebook["cells"]]

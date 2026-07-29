@@ -54,18 +54,13 @@ and regional results until Paul approves the exact scheme checksum.
 
 ## Registration methods
 
-Native macOS-arm64 ANTs 2.6.5 is installed in the existing `lys-irm` environment and
-pinned in `environment.yml`. The installed `antsRegistration`, `antsApplyTransforms`,
-`N4BiasFieldCorrection`, and `CreateJacobianDeterminantImage` interfaces were inspected
-before commands were implemented. Commands use subprocess argument lists with
-`shell=False` and record executable paths, version, full arguments, stdout/stderr,
-return code, runtime, and source/output hashes.
-
-The native-Windows migration adds a separately hashed ANTsPyx 0.6.3 runtime behind the
-`windows_native_antspyx_preview_v1` feature profile. A restricted adapter sends the same
-reviewed argument arrays to ANTsPyx's bundled compiled entry points; it does not replace
-the recorded methods with ANTsPyx high-level defaults. The CLI runtime remains the
-reference method and the no-ANTs colleague release remains frozen.
+`antspyx==0.6.3` is the single pinned registration runtime in `environment.yml` and
+`pyproject.toml` for macOS and Windows. A restricted, process-isolated adapter sends
+reviewed argument arrays only to ANTsPyx's bundled `antsRegistration`,
+`antsApplyTransforms`, `N4BiasFieldCorrection`, and
+`CreateJacobianDeterminantImage` compiled entry points. It does not replace the recorded
+methods with ANTsPyx high-level defaults. Every operation records the ANTsPyx engine and
+version, full arguments, stdout/stderr, return code, runtime, and source/output hashes.
 
 Atlas→pre-T1 validates native geometry and the exact approved mask, crops processed
 copies without changing physical coordinates, runs N4 only on the cropped registration
@@ -84,8 +79,8 @@ original T2 slice.
 
 ## Transform composition proof
 
-ANTs transform order was checked with the installed 2.6.5 executable, a 27-voxel label
-cube, and non-commuting translation/rotation transforms. The two command orders moved
+Transform order was checked through the pinned ANTsPyx compiled library with a 27-voxel
+label cube and non-commuting translation/rotation transforms. The two operation orders moved
 the cube centroid to different locations (`[13,19,12]` versus `[9,15,12]`). For image
 resampling, the verified direct composition is:
 
@@ -95,7 +90,7 @@ antsApplyTransforms ... -t pre_to_t2.mat -t atlas_to_pre.mat
 
 This samples atlas labels by the T2→pre→atlas output-point mapping. Synthetic tests use
 a non-commuting affine/translation landmark calculation and assert this exact command
-order. A native ANTsPyx test also proves that direct application in this order equals
+order. An ANTsPyx native-library test also proves that direct application in this order equals
 the two sequential reference applications and that reversing it differs. Labels in T2
 are created directly from major labels on the original atlas grid; the pre-T1 label
 image is a separate QC artifact and is never the T2 input.

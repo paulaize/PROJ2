@@ -15,9 +15,9 @@ from lys_bbb.atlas_mapping import (
     create_native_composite_labels,
 )
 from lys_bbb.antspyx_backend import (
-    ANTS_CLI_BACKEND,
     backend_components,
 )
+from lys_bbb.registration_runtime import ANTSPYX_BACKEND
 from lys_bbb.atlas_qc import (
     create_atlas_to_t1_qc,
     create_composite_all_slice_qc,
@@ -62,7 +62,7 @@ ProgressCallback = Callable[[int, int, str], None]
 
 
 class AtlasMappingService:
-    """Keep UI orchestration separate from ANTs and SQLite implementations."""
+    """Keep UI orchestration separate from ANTsPyx and SQLite implementations."""
 
     def __init__(
         self,
@@ -71,26 +71,22 @@ class AtlasMappingService:
         atlas_runner=run_atlas_to_t1_candidates,
         t1_t2_runner=run_t1_to_t2_registration,
         composite_runner=create_native_composite_labels,
-        ants_backend: str = ANTS_CLI_BACKEND,
+        ants_backend: str = ANTSPYX_BACKEND,
     ) -> None:
         self._repository_provider = repository_provider
         runner, tools = backend_components(ants_backend)
-        if runner is not None and tools is not None:
-            if atlas_runner is run_atlas_to_t1_candidates:
-                atlas_runner = partial(atlas_runner, runner=runner, executables=tools)
-            if t1_t2_runner is run_t1_to_t2_registration:
-                t1_t2_runner = partial(t1_t2_runner, runner=runner, executables=tools)
-            if composite_runner is create_native_composite_labels:
-                composite_runner = partial(
-                    composite_runner,
-                    runner=runner,
-                    executables=tools,
-                )
-            runtime_engine = tools.engine
-            runtime_version = tools.version
-        else:
-            runtime_engine = "ANTs"
-            runtime_version = "2.6.5"
+        if atlas_runner is run_atlas_to_t1_candidates:
+            atlas_runner = partial(atlas_runner, runner=runner, executables=tools)
+        if t1_t2_runner is run_t1_to_t2_registration:
+            t1_t2_runner = partial(t1_t2_runner, runner=runner, executables=tools)
+        if composite_runner is create_native_composite_labels:
+            composite_runner = partial(
+                composite_runner,
+                runner=runner,
+                executables=tools,
+            )
+        runtime_engine = tools.engine
+        runtime_version = tools.version
         self._atlas_runner = atlas_runner
         self._t1_t2_runner = t1_t2_runner
         self._composite_runner = composite_runner

@@ -253,7 +253,7 @@ checksummed AIDAmri release + proposed scheme
 → native-lesion major-region overlap and ±0.5 mm AP stress test
 ```
 
-The subject workspace exposes five sequential cards and no arbitrary ANTs tuning. The
+The subject workspace exposes five sequential cards and no arbitrary ANTsPyx tuning. The
 general Reviews queue remains the primary approval route. Draft outputs say `DRAFT` or
 `PROVISIONAL`; optimizer success never approves an artifact. Detailed Allen labels do
 not appear in UI results. See `atlas_mapping.md` for the scientific and resource contract.

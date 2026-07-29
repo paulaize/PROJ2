@@ -13,11 +13,10 @@ $EnvironmentDirectory = Join-Path $InstallRoot "env"
 $ApplicationDirectory = Join-Path $InstallRoot "app"
 $LogDirectory = Join-Path $InstallRoot "logs"
 $MinimumFreeSpaceGiB = 8
-$FeatureProfile = "windows_native_no_ants_v1"
+$FeatureProfile = "full"
 $EnvironmentFileName = "environment-win64.yml"
 $ShortcutName = "LYS IRM"
-$ShortcutDescription = "LYS IRM - native Windows test"
-$AntsPyxPreview = $false
+$ShortcutDescription = "LYS IRM - native Windows with ANTsPyx"
 $AntsPyxWheelName = "antspyx-0.6.3-cp311-cp311-win_amd64.whl"
 $AntsPyxWheelSha256 = (
     "39a29ba5abbf3475dea70cf0d0a2472e34a5c854f99d2f08204a288f1f5aeac4"
@@ -252,26 +251,8 @@ try {
     $manifest = Get-Content -LiteralPath $manifestPath -Raw |
         ConvertFrom-Json
     $FeatureProfile = [string]$manifest.target.feature_profile
-    switch ($FeatureProfile) {
-        "windows_native_no_ants_v1" {
-            $EnvironmentFileName = "environment-win64.yml"
-            $ShortcutName = "LYS IRM"
-            $ShortcutDescription = (
-                "LYS IRM - native Windows test"
-            )
-            $AntsPyxPreview = $false
-        }
-        "windows_native_antspyx_preview_v1" {
-            $EnvironmentFileName = "environment-win64-antspyx.yml"
-            $ShortcutName = "LYS IRM"
-            $ShortcutDescription = (
-                "LYS IRM - native ANTsPyx preview"
-            )
-            $AntsPyxPreview = $true
-        }
-        default {
-            throw "Profil Windows natif non pris en charge: $FeatureProfile"
-        }
+    if ($FeatureProfile -ne "full") {
+        throw "Profil Windows natif non pris en charge: $FeatureProfile"
     }
 
     $systemDrive = Get-CimInstance `
@@ -362,32 +343,30 @@ try {
         (Join-Path $EnvironmentDirectory "Library\bin") +
         ";$env:PATH"
     )
-    if ($AntsPyxPreview) {
-        Write-Step "Telechargement et verification de la roue ANTsPyx Windows"
-        $wheelDirectory = Join-Path $TemporaryDirectory "antspyx-wheel"
-        New-Item -ItemType Directory -Path $wheelDirectory -Force | Out-Null
-        & $python -m pip download `
-            --dest $wheelDirectory `
-            --only-binary=:all: `
-            --no-deps `
-            "antspyx==0.6.3"
-        if ($LASTEXITCODE -ne 0) {
-            throw "La roue ANTsPyx Windows n'a pas pu etre telechargee."
-        }
-        $wheelPath = Join-Path $wheelDirectory $AntsPyxWheelName
-        if (-not (Test-Path -LiteralPath $wheelPath -PathType Leaf)) {
-            throw "La roue ANTsPyx attendue est absente: $AntsPyxWheelName"
-        }
-        $wheelHash = (
-            Get-FileHash -LiteralPath $wheelPath -Algorithm SHA256
-        ).Hash
-        if ($wheelHash -ne $AntsPyxWheelSha256.ToUpperInvariant()) {
-            throw "Le controle SHA256 de la roue ANTsPyx a echoue."
-        }
-        & $python -m pip install --no-deps $wheelPath
-        if ($LASTEXITCODE -ne 0) {
-            throw "ANTsPyx n'a pas pu etre installe: code $LASTEXITCODE."
-        }
+    Write-Step "Telechargement et verification de la roue ANTsPyx Windows"
+    $wheelDirectory = Join-Path $TemporaryDirectory "antspyx-wheel"
+    New-Item -ItemType Directory -Path $wheelDirectory -Force | Out-Null
+    & $python -m pip download `
+        --dest $wheelDirectory `
+        --only-binary=:all: `
+        --no-deps `
+        "antspyx==0.6.3"
+    if ($LASTEXITCODE -ne 0) {
+        throw "La roue ANTsPyx Windows n'a pas pu etre telechargee."
+    }
+    $wheelPath = Join-Path $wheelDirectory $AntsPyxWheelName
+    if (-not (Test-Path -LiteralPath $wheelPath -PathType Leaf)) {
+        throw "La roue ANTsPyx attendue est absente: $AntsPyxWheelName"
+    }
+    $wheelHash = (
+        Get-FileHash -LiteralPath $wheelPath -Algorithm SHA256
+    ).Hash
+    if ($wheelHash -ne $AntsPyxWheelSha256.ToUpperInvariant()) {
+        throw "Le controle SHA256 de la roue ANTsPyx a echoue."
+    }
+    & $python -m pip install --no-deps $wheelPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "ANTsPyx n'a pas pu etre installe: code $LASTEXITCODE."
     }
 
     $backupApplication = $null
@@ -497,36 +476,22 @@ try {
         }
     }
 
-    if ($AntsPyxPreview) {
-        Write-Step "Test de demarrage natif avec ANTsPyx"
-        $smokeScript = (
-            "import ants, SimpleITK, torch, statsmodels; " +
-            "import sklearn, yaml, webcolors, PIL, requests; " +
-            "assert ants.__version__ == '0.6.3'; " +
-            "from PySide6.QtWidgets import QApplication; " +
-            "from lys_bbb_app.features import active_features; " +
-            "from lys_bbb_app.ui.main_window import MainWindow; " +
-            "app=QApplication([]); features=active_features(); " +
-            "window=MainWindow(features=features); " +
-            "assert features.atlas_mapping; " +
-            "assert features.ants_backend == 'antspyx'; " +
-            "assert window.workspace_page.atlas_mapping_panel is not None; " +
-            "window.close()"
-        )
-    }
-    else {
-        Write-Step "Test de demarrage sans ANTs"
-        $smokeScript = (
-            "import SimpleITK, torch; " +
-            "from PySide6.QtWidgets import QApplication; " +
-            "from lys_bbb_app.features import active_features; " +
-            "from lys_bbb_app.ui.main_window import MainWindow; " +
-            "app=QApplication([]); features=active_features(); " +
-            "window=MainWindow(features=features); " +
-            "assert not features.atlas_mapping; assert " +
-            "window.workspace_page.atlas_mapping_panel is None; window.close()"
-        )
-    }
+    Write-Step "Test de demarrage natif avec ANTsPyx"
+    $smokeScript = (
+        "import ants, scipy, SimpleITK, torch, statsmodels; " +
+        "import sklearn, yaml, webcolors, PIL, requests; " +
+        "assert ants.__version__ == '0.6.3'; " +
+        "assert scipy.__version__ == '1.15.2'; " +
+        "from PySide6.QtWidgets import QApplication; " +
+        "from lys_bbb_app.features import active_features; " +
+        "from lys_bbb_app.ui.main_window import MainWindow; " +
+        "app=QApplication([]); features=active_features(); " +
+        "window=MainWindow(features=features); " +
+        "assert features.atlas_mapping; " +
+        "assert features.ants_backend == 'antspyx'; " +
+        "assert window.workspace_page.atlas_mapping_panel is not None; " +
+        "window.close()"
+    )
     $previousProfile = $env:LYS_IRM_FEATURE_PROFILE
     $previousQtPlatform = $env:QT_QPA_PLATFORM
     try {
@@ -586,20 +551,11 @@ try {
     Write-Host ""
     Write-Host "Installation native terminee." -ForegroundColor Green
     Write-Host "Aucun composant Ubuntu ou WSL2 n'a ete installe."
-    if ($AntsPyxPreview) {
-        $completionMessage = (
-            "L'installation native ANTsPyx est terminee.`n`n" +
-            "Utilisez l'icone '$ShortcutName' du Bureau.`n" +
-            "Les registrations restent provisoires et doivent etre examinees."
-        )
-    }
-    else {
-        $completionMessage = (
-            "L'installation native est terminee.`n`n" +
-            "Utilisez l'icone '$ShortcutName' du Bureau.`n" +
-            "Le module Atlas Mapping est volontairement desactive."
-        )
-    }
+    $completionMessage = (
+        "L'installation native ANTsPyx est terminee.`n`n" +
+        "Utilisez l'icone '$ShortcutName' du Bureau.`n" +
+        "Les registrations doivent toujours etre examinees dans leurs panneaux QC."
+    )
     Show-Information `
         -Title "LYS IRM est pret" `
         -Message $completionMessage

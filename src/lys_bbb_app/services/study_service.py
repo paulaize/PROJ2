@@ -49,6 +49,7 @@ from lys_bbb.t2_model_release import (
 )
 from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source
+from lys_bbb.registration_runtime import ANTSPYX_BACKEND
 from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import (
     InputValidationState,
@@ -138,7 +139,7 @@ class StudyService:
         t1_registration_config: T1RegistrationConfig = T1RegistrationConfig(),
         t1_enhancement_runner: T1EnhancementRunner = run_t1_enhancement,
         t1_enhancement_config: T1EnhancementConfig = T1EnhancementConfig(),
-        ants_backend: str = "cli",
+        ants_backend: str = ANTSPYX_BACKEND,
     ) -> None:
         self._repository: StudyRepository | None = None
         self._viewer_launcher = viewer_launcher

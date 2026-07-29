@@ -26,18 +26,13 @@ try {
         Set-Content -LiteralPath $OutputLog
     Set-Content -LiteralPath $ErrorLog -Value ""
 
-    $featureProfile = "windows_native_no_ants_v1"
+    $featureProfile = "full"
     $manifestPath = Join-Path $InstallRoot "handoff-manifest.json"
     if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
         $manifest = Get-Content -LiteralPath $manifestPath -Raw |
             ConvertFrom-Json
         $recordedProfile = [string]$manifest.target.feature_profile
-        if (
-            $recordedProfile -notin @(
-                "windows_native_no_ants_v1",
-                "windows_native_antspyx_preview_v1"
-            )
-        ) {
+        if ($recordedProfile -ne "full") {
             throw "Profil d'application non pris en charge: $recordedProfile"
         }
         $featureProfile = $recordedProfile

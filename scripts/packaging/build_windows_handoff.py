@@ -52,8 +52,8 @@ TARGETS = {
         graphics="integrated Windows desktop via WSLg",
         feature_profile="full",
     ),
-    "native-no-ants": BundleTarget(
-        bundle_root=PurePosixPath("LYS-IRM-Windows-Native-No-ANTs-v1"),
+    "native": BundleTarget(
+        bundle_root=PurePosixPath("LYS-IRM-Windows-Native"),
         template_directory="packaging/windows-native",
         template_files=(
             "Setup-LYS-IRM.cmd",
@@ -62,27 +62,10 @@ TARGETS = {
             "LISEZ-MOI.txt",
         ),
         environment_file="packaging/windows-native/environment-win64.yml",
-        archive_label="LYS-IRM-Windows-Native-No-ANTs",
-        runtime="native Windows CPython via Miniforge",
-        graphics="native Windows desktop",
-        feature_profile="windows_native_no_ants_v1",
-    ),
-    "native-antspyx-preview": BundleTarget(
-        bundle_root=PurePosixPath("LYS-IRM-Windows-Native-ANTsPyx-Preview-v1"),
-        template_directory="packaging/windows-native",
-        template_files=(
-            "Setup-LYS-IRM.cmd",
-            "Setup-LYS-IRM.ps1",
-            "Launch-LYS-IRM.ps1",
-            "LISEZ-MOI-ANTSPYX.txt",
-        ),
-        environment_file=(
-            "packaging/windows-native/environment-win64-antspyx.yml"
-        ),
-        archive_label="LYS-IRM-Windows-Native-ANTsPyx-Preview",
+        archive_label="LYS-IRM-Windows-Native",
         runtime="native Windows CPython with ANTsPyx",
         graphics="native Windows desktop",
-        feature_profile="windows_native_antspyx_preview_v1",
+        feature_profile="full",
     ),
 }
 
@@ -247,7 +230,7 @@ def build_bundle(
     output_directory: Path,
     *,
     allow_dirty: bool = False,
-    target_name: str = "wsl",
+    target_name: str = "native",
     t1_model_release: Path | None = None,
     t2_model_release: Path | None = None,
 ) -> Path:
@@ -356,8 +339,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--target",
         choices=tuple(TARGETS),
-        default="wsl",
-        help="distribution target; defaults to the original WSL handoff",
+        default="native",
+        help="distribution target; defaults to native Windows with ANTsPyx",
     )
     parser.add_argument(
         "--allow-dirty",
@@ -384,10 +367,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    native_target = args.target in {
-        "native-no-ants",
-        "native-antspyx-preview",
-    }
+    native_target = args.target == "native"
     if (
         native_target
         and args.t1_model_release is None
