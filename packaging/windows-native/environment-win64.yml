@@ -1,4 +1,4 @@
-name: lys-bbb-windows-native-no-ants-v1
+name: lys-irm-windows-native-no-ants-v1
 channels:
   - conda-forge
   - nodefaults

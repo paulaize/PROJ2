@@ -13,7 +13,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 11:
+    if schema_version != 12:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -26,6 +26,9 @@ def create_schema(
             identifier TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL CHECK (length(trim(name)) > 0),
             description TEXT,
+            analysis_scope TEXT NOT NULL DEFAULT 'T1_T2' CHECK (
+                analysis_scope IN ('T1_T2', 'T1_ONLY', 'T2_ONLY')
+            ),
             blinding_state TEXT NOT NULL CHECK (blinding_state IN ('BLINDED', 'UNBLINDED')),
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -1072,6 +1075,25 @@ def migrate_schema(
     if version == 10:
         create_atlas_schema(connection)
         version = 11
+        connection.execute(
+            "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 11:
+        study_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(studies)")
+        }
+        if "analysis_scope" not in study_columns:
+            connection.execute(
+                """
+                ALTER TABLE studies ADD COLUMN analysis_scope TEXT NOT NULL
+                    DEFAULT 'T1_T2' CHECK (
+                        analysis_scope IN ('T1_T2', 'T1_ONLY', 'T2_ONLY')
+                    )
+                """
+            )
+        version = 12
         connection.execute(
             "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

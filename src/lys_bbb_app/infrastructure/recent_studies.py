@@ -8,20 +8,35 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from lys_bbb_app.domain.study import RecentStudy, StudySnapshot
+from lys_bbb_app.platform_paths import default_user_data_directory
 
 
 class RecentStudiesStore:
     """Persist a bounded list without coupling it to any study database."""
 
-    def __init__(self, path: Path | None = None, *, maximum: int = 8) -> None:
-        self.path = path or Path.home() / ".lys_bbb" / "recent_studies.json"
+    def __init__(
+        self,
+        path: Path | None = None,
+        *,
+        maximum: int = 8,
+        legacy_path: Path | None = None,
+    ) -> None:
+        self.path = path or default_user_data_directory() / "recent_studies.json"
+        self.legacy_path = legacy_path or (
+            Path.home() / ".lys_bbb" / "recent_studies.json"
+            if path is None
+            else None
+        )
         self.maximum = maximum
 
     def list(self) -> tuple[RecentStudy, ...]:
-        if not self.path.is_file():
+        source = self.path
+        if not source.is_file() and self.legacy_path is not None:
+            source = self.legacy_path
+        if not source.is_file():
             return ()
         try:
-            payload = json.loads(self.path.read_text())
+            payload = json.loads(source.read_text())
             records = payload.get("recent_studies", [])
             return tuple(
                 RecentStudy(

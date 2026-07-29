@@ -33,7 +33,7 @@ jobs:
           python -m pip install -e ".[desktop,test]"
 
       - name: Check Python style
-        run: ruff check src tests
+        run: ruff check src scripts tests
 
       - name: Run test suite
         env:

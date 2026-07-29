@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from lys_bbb_app.domain.view_models import SubjectViewModel
-from lys_bbb_app.ui.layout_helpers import clear_layout
+from lys_bbb_app.ui.layout_helpers import clear_layout, populate_stat_grid
 from lys_bbb_app.ui.widgets import CollapsibleSection, ElidedLabel, StatusBadge
 
 
@@ -217,7 +217,7 @@ class T1AnalysisPanel(QScrollArea):
             artifact.qc_preview_path,
         )
         clear_layout(self.registration_stats)
-        _populate_stat_grid(
+        populate_stat_grid(
             self.registration_stats,
             (
                 ("Before correlation", f"{artifact.before_xcorr:.3f}"),
@@ -322,20 +322,3 @@ def _set_qc_image(
             viewer.setCurrentWidget(image)
             return
     viewer.setCurrentWidget(empty)
-
-
-def _populate_stat_grid(
-    grid: QGridLayout,
-    stats: tuple[tuple[str, str], ...],
-) -> None:
-    for index, (label, value) in enumerate(stats):
-        row, column = divmod(index, 3)
-        block = QVBoxLayout()
-        key = QLabel(label)
-        key.setObjectName("metadata")
-        val = QLabel(value)
-        val.setWordWrap(True)
-        val.setStyleSheet("font-weight: 700;")
-        block.addWidget(key)
-        block.addWidget(val)
-        grid.addLayout(block, row, column)

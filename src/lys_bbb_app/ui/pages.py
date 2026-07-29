@@ -49,7 +49,6 @@ from lys_bbb_app.ui.widgets import (
 class StudyLauncherPage(QWidget):
     create_requested = Signal()
     open_requested = Signal()
-    migrate_requested = Signal()
     recent_open_requested = Signal(str)
 
     def __init__(self) -> None:
@@ -60,10 +59,10 @@ class StudyLauncherPage(QWidget):
         outer.setSpacing(24)
 
         brand = QHBoxLayout()
-        wordmark = QLabel("MRI Tool")
-        wordmark.setStyleSheet("font-size: 18px; font-weight: 750; color: #17374a;")
-        subtitle = QLabel("Scientific workflow desktop")
-        subtitle.setObjectName("muted")
+        wordmark = QLabel("LYS IRM")
+        wordmark.setObjectName("launcherWordmark")
+        subtitle = QLabel("PRECLINICAL MRI WORKBENCH")
+        subtitle.setObjectName("launcherCaption")
         brand.addWidget(wordmark)
         brand.addSpacing(10)
         brand.addWidget(subtitle)
@@ -71,15 +70,15 @@ class StudyLauncherPage(QWidget):
         outer.addLayout(brand)
 
         hero = QFrame()
-        hero.setObjectName("card")
+        hero.setObjectName("launcherHero")
         hero_layout = QHBoxLayout(hero)
         hero_layout.setContentsMargins(30, 28, 30, 28)
         hero_text = QVBoxLayout()
-        title = QLabel("Mouse T1 and T2 MRI analysis, organised by subject")
+        title = QLabel("Reviewable mouse MRI workflows, organised by subject")
         title.setObjectName("pageTitle")
         intro = QLabel(
-            "Create or resume a study, review scientific artifacts, and keep every "
-            "measurement connected to its method and provenance."
+            "Run T1 enhancement and T2 lesion workflows while keeping every artifact, "
+            "approval, and measurement connected to exact scientific provenance."
         )
         intro.setObjectName("muted")
         intro.setWordWrap(True)
@@ -96,11 +95,8 @@ class StudyLauncherPage(QWidget):
         open_button = secondary_button("Open existing study…")
         open_button.setObjectName("openProjectButton")
         open_button.clicked.connect(self.open_requested)
-        migrate = secondary_button("Migrate legacy .lysbbb…")
-        migrate.clicked.connect(self.migrate_requested)
         actions.addWidget(create)
         actions.addWidget(open_button)
-        actions.addWidget(migrate)
         hero_layout.addLayout(actions)
         outer.addWidget(hero)
 
@@ -135,7 +131,7 @@ class StudyLauncherPage(QWidget):
         card.setObjectName("recentCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(20, 18, 20, 18)
-        title = QLabel("No recent persistent studies")
+        title = QLabel("No recent studies")
         title.setObjectName("cardTitle")
         detail = QLabel(
             "Create a study or open an existing study directory to add it here."
@@ -179,6 +175,8 @@ class OverviewPage(QScrollArea):
 
     def __init__(self) -> None:
         super().__init__()
+        self._workflows = ()
+        self._workflow_column_count = 0
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -188,7 +186,10 @@ class OverviewPage(QScrollArea):
         self.layout.setSpacing(20)
         self.setWidget(self.content)
 
-        heading, _heading_layout = _page_heading("Overview")
+        heading, _heading_layout = _page_heading(
+            "Overview",
+            "Study readiness, workflow state, and the next decisions requiring attention.",
+        )
         self.layout.addWidget(heading)
 
         self.metric_container = QWidget()
@@ -220,28 +221,12 @@ class OverviewPage(QScrollArea):
 
     def set_study(self, study: StudyViewModel) -> None:
         _clear_layout(self.metric_layout)
-        _clear_layout(self.workflow_layout)
         _clear_layout(self.action_layout)
         if study.metrics:
             self.metric_layout.addWidget(ReadinessSummary(study.metrics), 1)
 
-        if study.workflows:
-            columns = min(3, len(study.workflows))
-            for index, workflow in enumerate(study.workflows):
-                card = WorkflowCard(workflow)
-                card.action_requested.connect(self.navigate_requested)
-                self.workflow_layout.addWidget(card, index // columns, index % columns)
-        else:
-            self.workflow_layout.addWidget(
-                EmptyState(
-                    "No subjects yet",
-                    "Import subjects to populate T1, T2, and combined workflow cards.",
-                ),
-                0,
-                0,
-                1,
-                2,
-            )
+        self._workflows = study.workflows
+        self._populate_workflows()
 
         if study.priority_actions:
             for index, action in enumerate(study.priority_actions):
@@ -261,6 +246,37 @@ class OverviewPage(QScrollArea):
         else:
             self.action_layout.addWidget(
                 EmptyState("No pending actions", "Subjects and reviews will appear here.")
+            )
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        columns = self._preferred_workflow_columns()
+        if columns != self._workflow_column_count:
+            self._populate_workflows(columns)
+
+    def _preferred_workflow_columns(self) -> int:
+        return 3 if self.viewport().width() >= 1080 else 2
+
+    def _populate_workflows(self, columns: int | None = None) -> None:
+        columns = columns or self._preferred_workflow_columns()
+        self._workflow_column_count = columns
+        _clear_layout(self.workflow_layout)
+        if self._workflows:
+            columns = min(columns, len(self._workflows))
+            for index, workflow in enumerate(self._workflows):
+                card = WorkflowCard(workflow)
+                card.action_requested.connect(self.navigate_requested)
+                self.workflow_layout.addWidget(card, index // columns, index % columns)
+        else:
+            self.workflow_layout.addWidget(
+                EmptyState(
+                    "No subjects yet",
+                    "Import subjects to populate the configured workflow cards.",
+                ),
+                0,
+                0,
+                1,
+                2,
             )
 
 
@@ -283,23 +299,33 @@ class SubjectsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
-        heading, heading_layout = _page_heading("Subjects")
+        heading, _heading_layout = _page_heading(
+            "Subjects",
+            "Operational worklist for imported MRI and review-gated analysis.",
+        )
+        layout.addWidget(heading)
+
+        action_bar = QWidget()
+        action_layout = QHBoxLayout(action_bar)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(8)
         history = secondary_button("Audit history")
         history.clicked.connect(self.audit_history_requested)
-        add_subject = QPushButton("Add subject")
+        add_subject = secondary_button("Add subject")
         add_subject.clicked.connect(self.add_subject_requested)
         import_mri = QPushButton("Import MRI folder…")
         import_mri.clicked.connect(self.import_mri_requested)
-        self.run_t2 = QPushButton("Run T2 segmentation…")
+        self.run_t2 = secondary_button("Run T2 segmentation…")
         self.run_t2.clicked.connect(self.t2_inference_requested.emit)
         self.assign_groups = secondary_button("Assign groups…")
         self.assign_groups.clicked.connect(self.group_assignment_requested)
-        heading_layout.addWidget(history)
-        heading_layout.addWidget(self.assign_groups)
-        heading_layout.addWidget(import_mri)
-        heading_layout.addWidget(self.run_t2)
-        heading_layout.addWidget(add_subject)
-        layout.addWidget(heading)
+        action_layout.addWidget(history)
+        action_layout.addWidget(self.assign_groups)
+        action_layout.addStretch()
+        action_layout.addWidget(add_subject)
+        action_layout.addWidget(import_mri)
+        action_layout.addWidget(self.run_t2)
+        layout.addWidget(action_bar)
 
         filters = QFrame()
         filters.setObjectName("card")
@@ -384,6 +410,8 @@ class SubjectsPage(QWidget):
 
     def set_study(self, study: StudyViewModel) -> None:
         self.model.set_subjects(study.subjects)
+        self.table.setColumnHidden(2, not study.analysis_scope.includes_t1)
+        self.table.setColumnHidden(3, not study.analysis_scope.includes_t2)
         self.table.clearSelection()
         self._selection_changed()
         self.restore_subjects.setEnabled(bool(study.archived_subjects))
@@ -407,6 +435,7 @@ class SubjectsPage(QWidget):
         self.run_t2.setEnabled(
             study.t2_eligible_subject_count > 0 and study.t2_running_job_count == 0
         )
+        self.run_t2.setVisible(study.analysis_scope.includes_t2)
         self.run_t2.setText(
             f"Run T2 segmentation… ({study.t2_eligible_subject_count})"
             if study.t2_eligible_subject_count
@@ -523,7 +552,10 @@ class ResultsPage(QScrollArea):
         layout.setSizeConstraint(QLayout.SetMinimumSize)
         self.setWidget(content)
 
-        heading, _heading_layout = _page_heading("Results and exports")
+        heading, _heading_layout = _page_heading(
+            "Results and exports",
+            "Subject measurements with state, method context, and approval-aware export.",
+        )
         layout.addWidget(heading)
 
         self.provisional_warning = QLabel(
@@ -613,11 +645,15 @@ class ResultsPage(QScrollArea):
             for result in study.results
         )
         self.model.set_results(study.results)
+        self.table.setColumnHidden(2, not study.analysis_scope.includes_t1)
+        self.table.setColumnHidden(3, not study.analysis_scope.includes_t2)
         self.provisional_warning.setVisible(has_provisional_results)
         self.results_stack.setCurrentWidget(
             self.table if self.has_results else self.results_empty
         )
-        self.export_card.setVisible(self.has_results)
+        self.export_card.setVisible(
+            self.has_results and study.analysis_scope.includes_t2
+        )
         self.approved_only.setVisible(self.has_results)
         self.approved_only.setEnabled(self.has_results)
         self.show_method_details.setVisible(self.has_results)
@@ -651,7 +687,10 @@ class SettingsPage(QScrollArea):
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
         self.setWidget(content)
-        heading, _heading_layout = _page_heading("Settings")
+        heading, _heading_layout = _page_heading(
+            "Settings",
+            "Study blinding, source locations, reviewer identity, and external tools.",
+        )
         layout.addWidget(heading)
 
         self.persistence_note = QLabel()
@@ -689,11 +728,6 @@ class SettingsPage(QScrollArea):
         mri_layout.addWidget(self.mri_input_folder, 1)
         mri_layout.addWidget(browse)
         input_form.addRow("MRI source root", self.mri_input_row)
-        self.legacy_input_note = QLabel()
-        self.legacy_input_note.setObjectName("muted")
-        self.legacy_input_note.setWordWrap(True)
-        self.legacy_input_note.hide()
-        input_form.addRow(self.legacy_input_note)
         input_note = QLabel(
             "The source folder stays read-only. Imported scans are copied into the study "
             "as versioned NIfTI files."
@@ -719,26 +753,19 @@ class SettingsPage(QScrollArea):
         layout.addWidget(standard)
         layout.addStretch()
 
-    def set_study_state(self, *, persistent: bool, blinded: bool) -> None:
+    def set_study_state(self, *, blinded: bool) -> None:
         self.blinded_review.blockSignals(True)
         self.blinded_review.setChecked(blinded)
         self.blinded_review.blockSignals(False)
-        self.blinded_review.setEnabled(not persistent or blinded)
-        if persistent:
-            self.persistence_note.setObjectName("infoBanner")
-            self.persistence_note.setText(
-                "Study-level blinding is persisted. Unblinding is one-way and creates "
-                "an audit event. Other user preferences are not persisted yet."
-                if blinded
-                else "This study has been unblinded. It cannot be marked blinded again; "
-                "other user preferences are not persisted yet."
-            )
-        else:
-            self.persistence_note.setObjectName("warningBanner")
-            self.persistence_note.setText(
-                "This legacy project is read-only. Migrate it to a study directory "
-                "before changing persistent study settings."
-            )
+        self.blinded_review.setEnabled(blinded)
+        self.persistence_note.setObjectName("infoBanner")
+        self.persistence_note.setText(
+            "Study-level blinding is persisted. Unblinding is one-way and creates "
+            "an audit event. Other user preferences are not persisted yet."
+            if blinded
+            else "This study has been unblinded. It cannot be marked blinded again; "
+            "other user preferences are not persisted yet."
+        )
         self.persistence_note.style().unpolish(self.persistence_note)
         self.persistence_note.style().polish(self.persistence_note)
 
@@ -746,20 +773,7 @@ class SettingsPage(QScrollArea):
         self,
         *,
         mri_path: Path | None,
-        t1_path: Path | None,
-        t2_path: Path | None,
         enabled: bool,
     ) -> None:
         self.mri_input_folder.setText(str(mri_path) if mri_path is not None else "")
-        legacy = []
-        if t1_path is not None:
-            legacy.append(f"T1: {t1_path}")
-        if t2_path is not None:
-            legacy.append(f"T2: {t2_path}")
-        self.legacy_input_note.setText(
-            "Legacy source references retained from an older project — " + " · ".join(legacy)
-            if legacy
-            else ""
-        )
-        self.legacy_input_note.setVisible(bool(legacy))
         self.mri_input_row.setEnabled(enabled)

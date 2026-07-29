@@ -22,14 +22,14 @@ They must not be presented as available in this release.
 Build only from a clean release snapshot:
 
 ```bash
-conda run -n lys-bbb python scripts/packaging/build_windows_handoff.py \
+conda run -n lys-irm python scripts/packaging/build_windows_handoff.py \
   --target native-no-ants \
   --t1-model-release "/path/to/rs2net-m-seam-v1" \
   --t2-model-release "/path/to/LYS_v1_RatLesNetV2_inference"
 ```
 
 The command writes
-`dist/MRI-Tool-Windows-Native-No-ANTs-<version>-<commit>.zip`, prints its SHA-256,
+`dist/LYS-IRM-Windows-Native-No-ANTs-<version>-<commit>.zip`, prints its SHA-256,
 and records the exact branch, commit, target, feature profile, and file checksums in the
 archive manifest. The builder refuses a dirty tree unless `--allow-dirty` is explicitly
 used for local packaging tests.
@@ -39,13 +39,13 @@ used for local packaging tests.
 The colleague:
 
 1. downloads and fully extracts the ZIP;
-2. double-clicks `Setup-MRI-Tool.cmd`;
+2. double-clicks `Setup-LYS-IRM.cmd`;
 3. leaves the setup window open while it downloads the native dependencies;
 4. optionally accepts the administrator prompt for ITK-SNAP; and
-5. launches `MRI Tool` from the new Desktop icon.
+5. launches `LYS IRM` from the new Desktop icon.
 
 The Python application and scientific environment are installed per user under
-`%LOCALAPPDATA%\LYS_BBB`. Only the optional official ITK-SNAP installer requests
+`%LOCALAPPDATA%\LYS IRM`. Only the optional official ITK-SNAP installer requests
 administrator elevation. Setup requires Internet access, at least 8 GiB free, and
 typically 15–40 minutes.
 
@@ -58,12 +58,12 @@ ZenBook.
 ## Model releases and updates
 
 The frozen T1 and T2 releases are included and installed under
-`%LOCALAPPDATA%\LYS BBB\models`. The app detects them automatically. Model files are
+`%LOCALAPPDATA%\LYS IRM\models`. The app detects them automatically. Model files are
 covered by the archive checksums and by their scientific release validators. Atlas
 resources are not included or needed because atlas mapping is disabled.
 
 Installing a later ZIP preserves the previous application source as
-`%LOCALAPPDATA%\LYS_BBB\app.previous.<UTC timestamp>`. Study data is separate from the
+`%LOCALAPPDATA%\LYS IRM\app.previous.<UTC timestamp>`. Study data is separate from the
 application install; never open the same study directory from two processes or machines
 at once.
 

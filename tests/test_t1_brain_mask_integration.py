@@ -384,7 +384,7 @@ def test_desktop_connects_registration_review_to_provisional_t1_result(
     assert subject.next_action.label == "Run T1 registration"
     assert window.workspace_page.t1_analysis_panel.run_registration.isEnabled()
     window.workspace_page.next_action_button.click()
-    registration_thread = window._t1_registration_thread
+    registration_thread = window._background_jobs.get("t1_registration")
     assert registration_thread is not None
     assert registration_thread.wait(5000)
     for _ in range(20):
@@ -403,7 +403,7 @@ def test_desktop_connects_registration_review_to_provisional_t1_result(
     panel = window.workspace_page.t1_analysis_panel
     assert panel.run_enhancement.isEnabled()
     panel.run_enhancement.click()
-    enhancement_thread = window._t1_enhancement_thread
+    enhancement_thread = window._background_jobs.get("t1_enhancement")
     assert enhancement_thread is not None
     assert enhancement_thread.wait(5000)
     for _ in range(20):

@@ -17,9 +17,8 @@ application. Do not create another repository or a second application shell.
 ## Current milestone
 
 The reviewed T2 vertical slice is complete. The T1 brain-mask step and the persistent
-registration-to-provisional-enhancement application boundary are code-complete. The
-next work is a real-case desktop smoke test and wiring the existing T1 service actions
-into the current review/workspace shell:
+registration-to-provisional-enhancement application boundary are connected to the
+desktop. The next work is a real-case desktop smoke test:
 
 ```text
 validated native pre-Gd T1
@@ -40,7 +39,7 @@ unrelated schema revisions, or generic job abstractions.
 
 ## Non-negotiable rules
 
-- Use `conda run -n lys-bbb python ...` unless instructed otherwise.
+- Use `conda run -n lys-irm python ...` unless instructed otherwise.
 - Never modify raw Bruker data or overwrite immutable artifacts.
 - Keep scientific processing outside Qt widgets: UI → service → backend/repository.
 - Put study-wide review work in the general Reviews queue; subject pages may mirror the
@@ -71,20 +70,17 @@ unrelated schema revisions, or generic job abstractions.
   approval state are implemented; a real-case desktop smoke test remains required.
 - Typed T1 registration and enhancement contracts, durable jobs/artifacts, exact
   dependency approval, invalidation, and provisional result state are implemented.
-- Registration review controls are not yet exposed in the desktop, and the provisional
-  enhancement method is not scientifically validated or approved as a primary endpoint.
+- Registration review controls are exposed in the desktop and general Reviews queue.
+  The provisional enhancement method is not scientifically validated or approved as a
+  primary endpoint.
 
 Exact implementation facts and acceptance criteria live only in
 `docs/current_state.md`.
 
-## Ownership and legacy boundary
+## Ownership boundary
 
 New production state uses `lys_bbb_app.infrastructure.StudyRepository` and
 feature-specific repositories/services.
-
-`lys_bbb.project_state.ProjectDatabase` is the frozen schema-v1 compatibility layer.
-Production uses it only to inspect and migrate old `.lysbbb` files; tests may create
-schema-v1 fixtures with it. Do not add features to it or use it for schema-v10 studies.
 
 ## Documentation authority
 

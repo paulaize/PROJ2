@@ -4,25 +4,25 @@ param()
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$InstallRoot = Join-Path $env:LOCALAPPDATA "LYS_BBB"
+$InstallRoot = Join-Path $env:LOCALAPPDATA "LYS IRM"
 $ApplicationDirectory = Join-Path $InstallRoot "app"
 $EnvironmentDirectory = Join-Path $InstallRoot "env"
 $Pythonw = Join-Path $EnvironmentDirectory "pythonw.exe"
-$IconPath = Join-Path $InstallRoot "mri-tool.ico"
+$IconPath = Join-Path $InstallRoot "lys-irm.ico"
 $LogDirectory = Join-Path $InstallRoot "logs"
 $OutputLog = Join-Path $LogDirectory "launcher-output.log"
 $ErrorLog = Join-Path $LogDirectory "launcher-error.log"
 
 try {
     if (-not (Test-Path -LiteralPath $Pythonw -PathType Leaf)) {
-        throw "Le runtime MRI Tool est absent. Relancez Setup-MRI-Tool.cmd."
+        throw "Le runtime LYS IRM est absent. Relancez Setup-LYS-IRM.cmd."
     }
     if (-not (Test-Path -LiteralPath $ApplicationDirectory -PathType Container)) {
-        throw "Les fichiers de MRI Tool sont absents. Relancez Setup-MRI-Tool.cmd."
+        throw "Les fichiers de LYS IRM sont absents. Relancez Setup-LYS-IRM.cmd."
     }
 
     New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
-    "[$(Get-Date -Format o)] Starting native MRI Tool." |
+    "[$(Get-Date -Format o)] Starting native LYS IRM." |
         Set-Content -LiteralPath $OutputLog
     Set-Content -LiteralPath $ErrorLog -Value ""
 
@@ -42,8 +42,8 @@ try {
         }
         $featureProfile = $recordedProfile
     }
-    $env:LYS_BBB_FEATURE_PROFILE = $featureProfile
-    $env:LYS_BBB_ICON = $IconPath
+    $env:LYS_IRM_FEATURE_PROFILE = $featureProfile
+    $env:LYS_IRM_ICON = $IconPath
     $env:PATH = (
         "$EnvironmentDirectory;" +
         (Join-Path $EnvironmentDirectory "Library\bin") +
@@ -62,7 +62,7 @@ try {
         -Wait `
         -PassThru
     if ($process.ExitCode -ne 0) {
-        throw "MRI Tool s'est arrete avec le code $($process.ExitCode)."
+        throw "LYS IRM s'est arrete avec le code $($process.ExitCode)."
     }
 }
 catch {
@@ -73,7 +73,7 @@ catch {
     )
     [System.Windows.MessageBox]::Show(
         $message,
-        "MRI Tool - erreur de demarrage",
+        "LYS IRM - erreur de demarrage",
         [System.Windows.MessageBoxButton]::OK,
         [System.Windows.MessageBoxImage]::Error
     ) | Out-Null

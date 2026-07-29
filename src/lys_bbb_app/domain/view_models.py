@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from lys_bbb_app.domain.study import AnalysisScope
+
 
 @dataclass(frozen=True)
 class StatusValue:
@@ -158,6 +160,8 @@ class SubjectViewModel:
     t2_lesion: StatusValue
     overall: StatusValue
     updated: str
+    expects_t1: bool = True
+    expects_t2: bool = True
     metadata: tuple[tuple[str, str], ...] = ()
     history: tuple[str, ...] = ()
     display_id: str | None = None
@@ -296,6 +300,7 @@ class StudyViewModel:
     subjects: tuple[SubjectViewModel, ...]
     reviews: tuple[ReviewItemViewModel, ...]
     results: tuple[ResultViewModel, ...]
+    analysis_scope: AnalysisScope = AnalysisScope.T1_T2
     blinded_review: bool = True
     group_definitions: tuple[str, ...] = ()
     archived_subjects: tuple[SubjectViewModel, ...] = ()

@@ -9,18 +9,19 @@ import os
 from pathlib import Path
 import tempfile
 
-_cache_root = Path(tempfile.gettempdir()) / "lys_bbb_mri_cache"
+import nibabel as nib
+import numpy as np
+from scipy import ndimage as ndi
+
+_cache_root = Path(tempfile.gettempdir()) / "lys_irm_mri_cache"
 os.environ.setdefault("MPLCONFIGDIR", str(_cache_root / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(_cache_root / "xdg"))
 for _cache_dir in (Path(os.environ["MPLCONFIGDIR"]), Path(os.environ["XDG_CACHE_HOME"])):
     _cache_dir.mkdir(parents=True, exist_ok=True)
 
-import matplotlib
+import matplotlib  # noqa: E402
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import nibabel as nib
-import numpy as np
-from scipy import ndimage as ndi
+import matplotlib.pyplot as plt  # noqa: E402
 
 
 def load_mask(path: Path) -> tuple[nib.Nifti1Image, np.ndarray]:

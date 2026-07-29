@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-_cache_root = Path(tempfile.gettempdir()) / "lys_bbb_mri_cache"
+_cache_root = Path(tempfile.gettempdir()) / "lys_irm_mri_cache"
 os.environ.setdefault("MPLCONFIGDIR", str(_cache_root / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(_cache_root / "xdg"))
 for _cache_dir in (Path(os.environ["MPLCONFIGDIR"]), Path(os.environ["XDG_CACHE_HOME"])):

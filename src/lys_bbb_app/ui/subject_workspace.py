@@ -109,7 +109,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.layout.addWidget(self.subject_subtitle)
 
         self.next_action_card = QFrame()
-        self.next_action_card.setObjectName("card")
+        self.next_action_card.setObjectName("nextActionCard")
         next_action_layout = QHBoxLayout(self.next_action_card)
         next_action_layout.setContentsMargins(18, 14, 18, 14)
         next_action_layout.setSpacing(18)
@@ -136,17 +136,27 @@ class SubjectWorkspacePage(QScrollArea):
         workflow_layout = QHBoxLayout(self.workflow_summary)
         workflow_layout.setContentsMargins(14, 10, 14, 10)
         workflow_layout.setSpacing(12)
+        self.t1_summary = QWidget()
+        t1_summary_layout = QHBoxLayout(self.t1_summary)
+        t1_summary_layout.setContentsMargins(0, 0, 0, 0)
+        t1_summary_layout.setSpacing(12)
         t1_label = QLabel("T1")
         t1_label.setObjectName("metadata")
-        workflow_layout.addWidget(t1_label)
+        t1_summary_layout.addWidget(t1_label)
         self.t1_status_layout = QHBoxLayout()
-        workflow_layout.addLayout(self.t1_status_layout)
-        workflow_layout.addStretch()
+        t1_summary_layout.addLayout(self.t1_status_layout)
+        workflow_layout.addWidget(self.t1_summary)
+        self.t2_summary = QWidget()
+        t2_summary_layout = QHBoxLayout(self.t2_summary)
+        t2_summary_layout.setContentsMargins(0, 0, 0, 0)
+        t2_summary_layout.setSpacing(12)
         t2_label = QLabel("T2")
         t2_label.setObjectName("metadata")
-        workflow_layout.addWidget(t2_label)
+        t2_summary_layout.addWidget(t2_label)
         self.t2_status_layout = QHBoxLayout()
-        workflow_layout.addLayout(self.t2_status_layout)
+        t2_summary_layout.addLayout(self.t2_status_layout)
+        workflow_layout.addWidget(self.t2_summary)
+        workflow_layout.addStretch()
         self.layout.addWidget(self.workflow_summary)
 
         self.technical_details = CollapsibleSection("Technical details")
@@ -238,7 +248,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.history_list = QListWidget()
         self.tabs.addTab(self.inputs_panel, "Inputs")
         self.tabs.addTab(self.t1_brain_mask_panel, "T1 Brain Mask")
-        self.tabs.addTab(self.t1_analysis_panel, "T1 Registration & Result")
+        self.tabs.addTab(self.t1_analysis_panel, "T1 Registration + Result")
         self.tabs.addTab(self.t2_panel, "T2 Lesion")
         if self.atlas_mapping_panel is not None:
             self.tabs.addTab(self.atlas_mapping_panel, "Atlas Mapping")
@@ -260,10 +270,31 @@ class SubjectWorkspacePage(QScrollArea):
             self.atlas_mapping_panel.set_subject(subject, None)
         self.technical_details.set_expanded(False)
 
+        self.t1_summary.setVisible(subject.expects_t1)
+        self.t2_summary.setVisible(subject.expects_t2)
         clear_layout(self.t1_status_layout)
         self.t1_status_layout.addWidget(StatusBadge(subject.t1_workflow_status))
         clear_layout(self.t2_status_layout)
         self.t2_status_layout.addWidget(StatusBadge(subject.t2_workflow_status))
+        self.tabs.setTabVisible(
+            self.tabs.indexOf(self.t1_brain_mask_panel),
+            subject.expects_t1,
+        )
+        self.tabs.setTabVisible(
+            self.tabs.indexOf(self.t1_analysis_panel),
+            subject.expects_t1,
+        )
+        self.tabs.setTabVisible(
+            self.tabs.indexOf(self.t2_panel),
+            subject.expects_t2,
+        )
+        if self.atlas_mapping_panel is not None:
+            self.tabs.setTabVisible(
+                self.tabs.indexOf(self.atlas_mapping_panel),
+                subject.expects_t1 and subject.expects_t2,
+            )
+        if not self.tabs.isTabVisible(self.tabs.currentIndex()):
+            self.tabs.setCurrentWidget(self.inputs_panel)
         self._set_next_action(subject)
 
         clear_layout(self.metadata_layout)
@@ -302,7 +333,13 @@ class SubjectWorkspacePage(QScrollArea):
 
         if not subject.inputs:
             self._next_action_code = "import"
-            detail = "Add the subject's pre/post T1 or native T2 scans."
+            detail = (
+                "Add the subject's pre/post T1 and native T2 scans."
+                if subject.expects_t1 and subject.expects_t2
+                else "Add the subject's pre/post T1 scans."
+                if subject.expects_t1
+                else "Add the subject's native T2 scan."
+            )
         elif subject.needs_input_validation:
             self._next_action_code = "validate"
             detail = "Run geometry and provenance checks on the converted MRI."

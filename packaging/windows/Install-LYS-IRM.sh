@@ -4,12 +4,12 @@ set -Eeuo pipefail
 readonly PAYLOAD_DIRECTORY="${1:?app payload directory is required}"
 readonly WINDOWS_PROFILE_DIRECTORY="${2:?Windows profile directory is required}"
 readonly SKIP_T1_MODEL="${3:-0}"
-readonly INSTALL_ROOT="/opt/lys-bbb"
+readonly INSTALL_ROOT="/opt/lys-irm"
 readonly MINIFORGE_DIRECTORY="${INSTALL_ROOT}/miniforge"
 readonly ENVIRONMENT_DIRECTORY="${INSTALL_ROOT}/env"
 readonly APPLICATION_DIRECTORY="${INSTALL_ROOT}/app"
 readonly SHARE_DIRECTORY="${INSTALL_ROOT}/share"
-readonly APP_USER="lysbbb"
+readonly APP_USER="lysirm"
 readonly APP_USER_DIRECTORY="/home/${APP_USER}"
 readonly MINIFORGE_VERSION="26.1.1-3"
 readonly MINIFORGE_SHA256="b25b828b702df4dd2a6d24d4eb56cfa912471dd8e3342cde2c3d86fe3dc2d870"
@@ -141,14 +141,14 @@ ln -sfn "${ITKSNAP_DIRECTORY}" /opt/itksnap
 ln -sfn /opt/itksnap/bin/itksnap /usr/local/bin/itksnap
 
 install -d "${SHARE_DIRECTORY}"
-bundle_icon="$(dirname "$0")/lys-bbb.ico"
+bundle_icon="$(dirname "$0")/lys-irm.ico"
 if [[ -f "${bundle_icon}" ]]; then
-    install -m 0644 "${bundle_icon}" "${SHARE_DIRECTORY}/lys-bbb.ico"
+    install -m 0644 "${bundle_icon}" "${SHARE_DIRECTORY}/lys-irm.ico"
 fi
 
 if [[ "${SKIP_T1_MODEL}" != "1" ]]; then
     step "Reviewed T1 brain-mask model"
-    t1_model_directory="${APP_USER_DIRECTORY}/.local/share/lys-bbb/models/rs2net-m-seam-v1"
+    t1_model_directory="${APP_USER_DIRECTORY}/.local/share/lys-irm/models/rs2net-m-seam-v1"
     if [[ ! -d "${t1_model_directory}" ]]; then
         install -d -o "${APP_USER}" -g "${APP_USER}" "$(dirname "${t1_model_directory}")"
         if ! runuser -u "${APP_USER}" -- \
@@ -156,7 +156,7 @@ if [[ "${SKIP_T1_MODEL}" != "1" ]]; then
             -m lys_bbb.t1_brain_mask_setup_cli \
             --destination "${t1_model_directory}"; then
             printf '\nWARNING: T1 model download failed. The app is installed; retry with\n'
-            printf '  /opt/lys-bbb/env/bin/lys-bbb-t1-mask-setup --destination %s\n' \
+            printf '  /opt/lys-irm/env/bin/lys-irm-t1-mask-setup --destination %s\n' \
                 "${t1_model_directory}"
         fi
     fi
@@ -169,4 +169,4 @@ runuser -u "${APP_USER}" -- \
     "${ENVIRONMENT_DIRECTORY}/bin/python" \
     -c "from PySide6.QtCore import QTimer; from PySide6.QtWidgets import QApplication; from lys_bbb_app.ui.main_window import MainWindow; app=QApplication([]); window=MainWindow(); window.show(); QTimer.singleShot(100, app.quit); raise SystemExit(app.exec())"
 
-printf '\nLYS BBB installation completed successfully.\n'
+printf '\nLYS IRM installation completed successfully.\n'

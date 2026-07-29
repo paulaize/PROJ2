@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import closing
-from pathlib import Path
-from typing import Protocol
 
 from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import (
@@ -16,6 +14,7 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
 )
 from lys_bbb_app.infrastructure.database_support import (
+    StudyDatabaseContext,
     connect as _connect,
     insert_audit as _insert_audit,
     normalize_required as _normalize_required,
@@ -24,11 +23,6 @@ from lys_bbb_app.infrastructure.database_support import (
     utc_now as _utc_now,
 )
 from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_analysis
-
-
-class StudyDatabaseContext(Protocol):
-    root_path: Path
-    database_path: Path
 
 
 def record_input_validations(

@@ -18,6 +18,7 @@ from lys_bbb_app.domain.scan_import import (
 )
 from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.study import (
+    AnalysisScope,
     AuditEventRecord,
     BlindingState,
     CreateStudyRequest,
@@ -122,9 +123,9 @@ from lys_bbb_app.infrastructure.t2_review_repository import (
 from lys_bbb.t2_review import T2MaskMeasurement
 
 
-STUDY_SCHEMA_VERSION = 11
+STUDY_SCHEMA_VERSION = 12
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
-STUDY_MANIFEST_FORMAT = "lys-bbb-study"
+STUDY_MANIFEST_FORMAT = "lys-irm-study"
 STUDY_DATABASE_NAME = "project.sqlite"
 STUDY_MANIFEST_NAME = "project.json"
 STUDY_DIRECTORIES = ("imports", "work", "outputs", "reports", "exports", "logs")
@@ -135,7 +136,7 @@ class StudyAlreadyExistsError(StudyStateError):
 
 
 class InvalidStudyError(StudyStateError):
-    """Raised when a path does not contain a valid MRI Tool study."""
+    """Raised when a path does not contain a valid LYS IRM study."""
 
 
 class UnsupportedStudyVersionError(StudyStateError):
@@ -199,15 +200,16 @@ class StudyRepository:
             connection.execute(
                 """
                 INSERT INTO studies(
-                    id, identifier, name, description, blinding_state,
+                    id, identifier, name, description, analysis_scope, blinding_state,
                     created_at, updated_at, unblinded_at, unblinded_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
                 """,
                 (
                     study_id,
                     identifier,
                     name,
                     _normalize_optional(request.description),
+                    request.analysis_scope.value,
                     (
                         BlindingState.BLINDED.value
                         if request.blinded
@@ -234,6 +236,7 @@ class StudyRepository:
                 actor=actor,
                 details={
                     "identifier": identifier,
+                    "analysis_scope": request.analysis_scope.value,
                     "blinding_state": (
                         BlindingState.BLINDED.value
                         if request.blinded
@@ -280,7 +283,7 @@ class StudyRepository:
                 version = int(connection.execute("PRAGMA user_version").fetchone()[0])
                 if application_id != STUDY_APPLICATION_ID:
                     raise InvalidStudyError(
-                        "The selected folder does not contain an MRI Tool study database."
+                        "The selected folder does not contain an LYS IRM study database."
                     )
                 if version > STUDY_SCHEMA_VERSION or version < 2:
                     raise UnsupportedStudyVersionError(
@@ -325,7 +328,7 @@ class StudyRepository:
             with closing(_connect(self.database_path)) as connection:
                 study = connection.execute(
                     """
-                    SELECT id, identifier, name, description, blinding_state,
+                    SELECT id, identifier, name, description, analysis_scope, blinding_state,
                            created_at, updated_at, unblinded_at, unblinded_by
                     FROM studies
                     """
@@ -574,6 +577,7 @@ class StudyRepository:
             database_path=self.database_path,
             schema_version=STUDY_SCHEMA_VERSION,
             blinding_state=BlindingState(study["blinding_state"]),
+            analysis_scope=AnalysisScope(study["analysis_scope"]),
             created_at=study["created_at"],
             updated_at=study["updated_at"],
             unblinded_at=study["unblinded_at"],
@@ -617,6 +621,15 @@ class StudyRepository:
             with closing(_connect(self.database_path)) as connection:
                 with connection:
                     study = _single_study(connection)
+                    scope = AnalysisScope(study["analysis_scope"])
+                    if request.expected_t1 and not scope.includes_t1:
+                        raise StudyStateError(
+                            "This study is configured for T2 lesion analysis only."
+                        )
+                    if request.expected_t2 and not scope.includes_t2:
+                        raise StudyStateError(
+                            "This study is configured for T1 enhancement analysis only."
+                        )
                     if (
                         study["blinding_state"] == BlindingState.BLINDED.value
                         and group_name is not None
@@ -1421,7 +1434,7 @@ def _read_manifest(root: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise InvalidStudyError(f"The study manifest could not be read: {exc}") from exc
     if manifest.get("format") != STUDY_MANIFEST_FORMAT:
-        raise InvalidStudyError("The selected folder is not an MRI Tool study.")
+        raise InvalidStudyError("The selected folder is not an LYS IRM study.")
     version = manifest.get("schema_version")
     if not isinstance(version, int) or version > STUDY_SCHEMA_VERSION or version < 2:
         raise UnsupportedStudyVersionError(

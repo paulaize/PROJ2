@@ -1,13 +1,13 @@
 # Current project state
 
-Last audited: 2026-07-22. This document contains current facts and the immediate
+Last audited: 2026-07-29. This document contains current facts and the immediate
 milestone only. Historical plans belong in Git history.
 
 ## Executive summary
 
 The repository is technically coherent and should not be replaced or split now. The
 current branch is a consolidation candidate for `main`: it has a sensible internal
-boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v11 studies, real MRI
+boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v12 studies, real MRI
 import, frozen-model T1/T2 draft generation, immutable review, approved T1 brain masks,
 durable T1 registration/provisional-enhancement state, and approved T2 results.
 
@@ -32,8 +32,10 @@ T2 input → validation → inference → draft/corrected mask → human approva
 
 ### Desktop and study state
 
-- Create, open, and reopen schema-v11 study roots; schema-v2 through v10 roots migrate
+- Create, open, and reopen schema-v12 study roots; schema-v2 through v11 roots migrate
   non-destructively when opened.
+- Choose an immutable combined T1/T2, T1-only, or T2-only analysis scope at creation;
+  irrelevant import roles, worklist columns, review queues, and subject tabs stay hidden.
 - Reference read-only Bruker/NIfTI source folders on mounted drives.
 - Discover scans and let users correct subject IDs, T1/T2 roles, and orientation actions.
 - Convert confirmed inputs to versioned managed NIfTI files with provenance.
@@ -42,10 +44,10 @@ T2 input → validation → inference → draft/corrected mask → human approva
 - Preserve blinded review, optional groups, reviewer identity, and audit history.
 - Open active MRI inputs in ITK-SNAP.
 
-The Subjects worklist uses five operational columns—subject, next action, T1, T2, and
-overall state—instead of exposing every internal workflow stage. Selecting one subject
+The Subjects worklist uses operational subject, next-action, enabled-modality, and
+overall-state columns instead of exposing every internal workflow stage. Selecting one subject
 with an unvalidated conversion enables direct MRI validation from the worklist. The
-subject workspace is action-first: one primary next-action card and compact T1/T2 state
+subject workspace is action-first: one primary next-action card and compact enabled-workflow state
 replace the previous repeated summary, metadata, and workflow cards. Stored IDs, paths,
 geometry, checksums, device, release, and method provenance remain accessible through
 collapsed technical-detail disclosures.
@@ -57,7 +59,7 @@ active human-corrected mask version. The queue is filtered by T1/T2 modality
 buttons; each pending item is one subject/workflow button. Mask QC renders every native
 slice for previous/next navigation, with display-only orientation changes never
 modifying the NIfTI. The subject's `T1 Brain Mask` and `T2 Lesion` tabs mirror the same
-service actions. The subject's `T1 Registration & Result` tab runs the frozen post-to-pre
+service actions. The subject's `T1 Registration + Result` tab runs the frozen post-to-pre
 registration off the GUI thread, exposes its QC and exact approval, and calculates an
 explicitly provisional enhancement result after approval. Registrations awaiting review
 also populate the general T1 Reviews queue. Cohort charts and QC/reproducibility exports
@@ -104,7 +106,7 @@ distinct draft method, not an equivalent run.
 For desktop integration, the installed exact-TTA RS2 release remains an immutable
 validated source-and-weight contract, while the interactive app now runs the explicit
 no-TTA local-draft variant. The no-TTA execution has its own versioned method
-specification and hash and remains provisional until mask review and approval. Schema-v11
+specification and hash and remains provisional until mask review and approval. Schema-v12
 persists the release separately from T2 releases, records durable T1 jobs, commits only
 successful native-grid drafts, preserves raw RS2 and QC provenance, versions managed
 ITK-SNAP corrections, and records exact mask approval with reviewer, time, and blinding
@@ -255,7 +257,7 @@ AIDAmri MRI/Allen → native pre-Gd T1 → original native T2
 - All original T2 slices are rendered for registration and composite QC. Approved
   overlap reports mapped/unmapped/outside-support voxels, boundary proximity, and a
   physical anterior/posterior ±0.5 mm sensitivity stress test.
-- Schema-v11 stores feature-specific immutable releases, methods, jobs, artifacts,
+- Schema-v12 stores feature-specific immutable releases, methods, jobs, artifacts,
   reviews, results, and invalidation. Closing/reopening reconstructs the same state.
 
 Synthetic tests cover resource/grid/label gates, non-commuting transform order, direct

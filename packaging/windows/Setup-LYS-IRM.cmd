@@ -1,8 +1,8 @@
 @echo off
 setlocal
-title Installation de LYS BBB
+title Installation de LYS IRM
 
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-LYS-BBB.ps1"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0Setup-LYS-IRM.ps1"
 set "LYS_SETUP_EXIT=%ERRORLEVEL%"
 
 if not "%LYS_SETUP_EXIT%"=="0" (

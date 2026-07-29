@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$InstallRoot = Join-Path $env:LOCALAPPDATA "LYS_BBB"
+$InstallRoot = Join-Path $env:LOCALAPPDATA "LYS IRM"
 $MiniforgeDirectory = Join-Path $InstallRoot "miniforge"
 $EnvironmentDirectory = Join-Path $InstallRoot "env"
 $ApplicationDirectory = Join-Path $InstallRoot "app"
@@ -15,8 +15,8 @@ $LogDirectory = Join-Path $InstallRoot "logs"
 $MinimumFreeSpaceGiB = 8
 $FeatureProfile = "windows_native_no_ants_v1"
 $EnvironmentFileName = "environment-win64.yml"
-$ShortcutName = "MRI Tool"
-$ShortcutDescription = "MRI Tool - native Windows test"
+$ShortcutName = "LYS IRM"
+$ShortcutDescription = "LYS IRM - native Windows test"
 $AntsPyxPreview = $false
 $AntsPyxWheelName = "antspyx-0.6.3-cp311-cp311-win_amd64.whl"
 $AntsPyxWheelSha256 = (
@@ -114,8 +114,8 @@ function New-LysShortcut {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($ShortcutPath)
     $powerShell = Join-Path $PSHOME "powershell.exe"
-    $launcher = Join-Path $InstallRoot "Launch-MRI-Tool.ps1"
-    $icon = Join-Path $InstallRoot "mri-tool.ico"
+    $launcher = Join-Path $InstallRoot "Launch-LYS-IRM.ps1"
+    $icon = Join-Path $InstallRoot "lys-irm.ico"
     $shortcut.TargetPath = $powerShell
     $shortcut.Arguments = (
         "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden " +
@@ -232,13 +232,13 @@ function Install-BundledModelRelease {
 
 $TemporaryDirectory = Join-Path (
     [IO.Path]::GetTempPath()
-) ("MRI-Tool-Setup-" + [guid]::NewGuid().ToString("N"))
+) ("LYS-IRM-Setup-" + [guid]::NewGuid().ToString("N"))
 $StagedApplication = $null
 
 try {
     Write-Step "Controle du paquet et de la machine"
     if (-not [Environment]::Is64BitOperatingSystem) {
-        throw "MRI Tool requiert Windows 64 bits."
+        throw "LYS IRM requiert Windows 64 bits."
     }
     $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     if ($architecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
@@ -255,17 +255,17 @@ try {
     switch ($FeatureProfile) {
         "windows_native_no_ants_v1" {
             $EnvironmentFileName = "environment-win64.yml"
-            $ShortcutName = "MRI Tool"
+            $ShortcutName = "LYS IRM"
             $ShortcutDescription = (
-                "MRI Tool - native Windows test"
+                "LYS IRM - native Windows test"
             )
             $AntsPyxPreview = $false
         }
         "windows_native_antspyx_preview_v1" {
             $EnvironmentFileName = "environment-win64-antspyx.yml"
-            $ShortcutName = "MRI Tool"
+            $ShortcutName = "LYS IRM"
             $ShortcutDescription = (
-                "MRI Tool - native ANTsPyx preview"
+                "LYS IRM - native ANTsPyx preview"
             )
             $AntsPyxPreview = $true
         }
@@ -416,7 +416,7 @@ try {
         throw "L'application n'a pas pu etre installee: code $LASTEXITCODE."
     }
 
-    $modelInstallRoot = Join-Path $env:LOCALAPPDATA "LYS BBB\models"
+    $modelInstallRoot = Join-Path $InstallRoot "models"
     $bundledModelRoot = Join-Path $PSScriptRoot "models"
     $t1ModelDirectory = Join-Path $modelInstallRoot "rs2net-m-seam-v1"
     $bundledT1Model = Join-Path $bundledModelRoot "rs2net-m-seam-v1"
@@ -527,10 +527,10 @@ try {
             "window.workspace_page.atlas_mapping_panel is None; window.close()"
         )
     }
-    $previousProfile = $env:LYS_BBB_FEATURE_PROFILE
+    $previousProfile = $env:LYS_IRM_FEATURE_PROFILE
     $previousQtPlatform = $env:QT_QPA_PLATFORM
     try {
-        $env:LYS_BBB_FEATURE_PROFILE = $FeatureProfile
+        $env:LYS_IRM_FEATURE_PROFILE = $FeatureProfile
         $env:QT_QPA_PLATFORM = "offscreen"
         & $python -c $smokeScript
         if ($LASTEXITCODE -ne 0) {
@@ -538,17 +538,17 @@ try {
         }
     }
     finally {
-        $env:LYS_BBB_FEATURE_PROFILE = $previousProfile
+        $env:LYS_IRM_FEATURE_PROFILE = $previousProfile
         $env:QT_QPA_PLATFORM = $previousQtPlatform
     }
 
     Write-Step "Creation de l'icone Windows"
     Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "Launch-MRI-Tool.ps1") `
+        -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-IRM.ps1") `
         -Destination $InstallRoot `
         -Force
     Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "mri-tool.ico") `
+        -LiteralPath (Join-Path $PSScriptRoot "lys-irm.ico") `
         -Destination $InstallRoot `
         -Force
     Copy-Item `
@@ -560,6 +560,8 @@ try {
         [Environment]::GetFolderPath("Desktop")
     ) "$ShortcutName.lnk"
     foreach ($legacyName in @(
+        "MRI Tool.lnk",
+        "LYS BBB.lnk",
         "LYS BBB - test Windows.lnk",
         "LYS BBB - apercu ANTsPyx.lnk"
     )) {
@@ -599,7 +601,7 @@ try {
         )
     }
     Show-Information `
-        -Title "MRI Tool est pret" `
+        -Title "LYS IRM est pret" `
         -Message $completionMessage
     exit 0
 }

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 
-FEATURE_PROFILE_ENVIRONMENT_VARIABLE = "LYS_BBB_FEATURE_PROFILE"
+FEATURE_PROFILE_ENVIRONMENT_VARIABLE = "LYS_IRM_FEATURE_PROFILE"
 FULL_FEATURE_PROFILE = "full"
 WINDOWS_NATIVE_NO_ANTS_V1_PROFILE = "windows_native_no_ants_v1"
 WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_PROFILE = "windows_native_antspyx_preview_v1"
@@ -63,7 +63,7 @@ def features_for_profile(profile: str) -> AppFeatures:
         return WINDOWS_NATIVE_NO_ANTS_V1_FEATURES
     if normalised == WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_PROFILE:
         return WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES
-    raise ValueError(f"Unknown MRI Tool feature profile: {profile!r}")
+    raise ValueError(f"Unknown LYS IRM feature profile: {profile!r}")
 
 
 def active_features(environ: Mapping[str, str] | None = None) -> AppFeatures:

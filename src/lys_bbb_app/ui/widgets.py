@@ -44,6 +44,13 @@ def secondary_button(text: str) -> QPushButton:
     return button
 
 
+def show_inline_error(label: QLabel, message: str) -> None:
+    """Display a validation error in a dialog's existing inline label."""
+
+    label.setText(message)
+    label.show()
+
+
 class CollapsibleSection(QWidget):
     """Disclosure container that keeps technical material out of the primary flow."""
 
@@ -98,6 +105,7 @@ class ElidedLabel(QLabel):
     ) -> None:
         super().__init__(parent)
         self._full_text = ""
+        self.setProperty("technicalValue", True)
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -133,9 +141,11 @@ class StatusBadge(QLabel):
         self.set_status(status)
         self.setAlignment(Qt.AlignCenter)
         self.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.setAccessibleName(f"Status: {status.label}")
 
     def set_status(self, status: StatusValue) -> None:
         self.setText(status.label)
+        self.setAccessibleName(f"Status: {status.label}")
         background, foreground, border = STATUS_COLOURS.get(
             status.kind,
             STATUS_COLOURS["neutral"],
@@ -143,7 +153,7 @@ class StatusBadge(QLabel):
         self.setStyleSheet(
             "QLabel {"
             f"background: {background}; color: {foreground}; border: 1px solid {border};"
-            "border-radius: 9px; padding: 3px 8px; font-size: 11px; font-weight: 650;"
+            "border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 650;"
             "}"
         )
 
@@ -236,6 +246,7 @@ class WorkflowCard(QFrame):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("workflowCard")
+        self.setProperty("workflow", workflow.key)
         self.setMinimumHeight(220)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 16)
@@ -244,8 +255,10 @@ class WorkflowCard(QFrame):
         top = QHBoxLayout()
         title = QLabel(workflow.title)
         title.setObjectName("cardTitle")
-        top.addWidget(title)
-        top.addStretch()
+        title.setWordWrap(True)
+        title.setMinimumWidth(0)
+        title.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        top.addWidget(title, 1)
         top.addWidget(StatusBadge(workflow.status))
         layout.addLayout(top)
 
@@ -292,7 +305,7 @@ class EmptyState(QFrame):
         layout.setAlignment(Qt.AlignCenter)
         icon = QLabel("○")
         icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet("font-size: 36px; color: #91a0aa;")
+        icon.setObjectName("emptyStateMark")
         heading = QLabel(title)
         heading.setObjectName("sectionTitle")
         heading.setAlignment(Qt.AlignCenter)

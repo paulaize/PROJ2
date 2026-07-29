@@ -1,4 +1,4 @@
-name: lys-bbb-windows-native-antspyx-preview-v1
+name: lys-irm-windows-native-antspyx-preview-v1
 channels:
   - conda-forge
   - nodefaults

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from lys_bbb_app.domain.view_models import SubjectViewModel
-from lys_bbb_app.ui.layout_helpers import clear_layout
+from lys_bbb_app.ui.layout_helpers import clear_layout, populate_stat_grid
 from lys_bbb_app.ui.widgets import (
     CollapsibleSection,
     ElidedLabel,
@@ -179,13 +179,13 @@ class T1BrainMaskPanel(QWidget):
                 ),
             ),
         )
-        _populate_stat_grid(self.stats_layout, stats)
+        populate_stat_grid(self.stats_layout, stats)
         technical_stats = (
             ("Foreground voxels", f"{artifact.foreground_voxels:,}"),
             ("Device", artifact.device.upper()),
             ("Method", artifact.release_label),
         )
-        _populate_stat_grid(self.technical_stats_layout, technical_stats)
+        populate_stat_grid(self.technical_stats_layout, technical_stats)
         self.mask_path.setText(str(artifact.mask_path))
         self.raw_mask_path.setText(
             str(artifact.raw_mask_path) if artifact.raw_mask_path is not None else "—"
@@ -225,20 +225,3 @@ class T1BrainMaskPanel(QWidget):
                 self.current_subject.subject_id,
                 self.current_subject.t1_brain_mask_artifact.artifact_id,
             )
-
-
-def _populate_stat_grid(
-    grid: QGridLayout,
-    stats: tuple[tuple[str, str], ...],
-) -> None:
-    for index, (label, value) in enumerate(stats):
-        row, column = divmod(index, 3)
-        block = QVBoxLayout()
-        key = QLabel(label)
-        key.setObjectName("metadata")
-        val = QLabel(value)
-        val.setWordWrap(True)
-        val.setStyleSheet("font-weight: 700;")
-        block.addWidget(key)
-        block.addWidget(val)
-        grid.addLayout(block, row, column)

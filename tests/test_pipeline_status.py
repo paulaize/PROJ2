@@ -71,5 +71,5 @@ def test_write_markdown_includes_counts_and_commands(tmp_path: Path):
     text = out.read_text()
     assert "# V1 Pipeline Status" in text
     assert "missing_brain_mask" in text
-    assert "conda run -n lys-bbb" in text
+    assert "conda run -n lys-irm" in text
     assert "C1_D1" in text

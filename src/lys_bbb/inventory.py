@@ -1,4 +1,4 @@
-"""Raw Bruker session inventory utilities for the LYS BBB pipeline."""
+"""Raw Bruker session inventory utilities for the LYS IRM pipeline."""
 
 from __future__ import annotations
 
@@ -320,7 +320,7 @@ def write_json(data: dict[str, Any], out_json: Path) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Inventory Bruker sessions for the LYS BBB MRI V1 pipeline.",
+        description="Inventory Bruker sessions for the LYS IRM MRI V1 pipeline.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("raw_root", type=Path, help="folder containing Bruker session folders")

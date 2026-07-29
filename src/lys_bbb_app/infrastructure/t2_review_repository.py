@@ -6,7 +6,6 @@ import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Protocol
 from uuid import uuid4
 
 from lys_bbb.t2_review import T2MaskMeasurement
@@ -22,6 +21,7 @@ from lys_bbb_app.domain.t2_lesion import (
     T2_NATIVE_VOLUME_METHOD_VERSION,
 )
 from lys_bbb_app.infrastructure.database_support import (
+    StudyDatabaseContext,
     connect,
     insert_audit,
     normalize_required,
@@ -32,13 +32,6 @@ from lys_bbb_app.infrastructure.database_support import (
 from lys_bbb_app.infrastructure.atlas_mapping_repository import (
     invalidate_atlas_for_lesion_change,
 )
-
-
-class StudyDatabaseContext(Protocol):
-    root_path: Path
-    database_path: Path
-
-
 def create_corrected_t2_artifact(
     repository: StudyDatabaseContext,
     draft: T2CorrectedArtifactDraft,

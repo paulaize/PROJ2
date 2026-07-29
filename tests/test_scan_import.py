@@ -8,6 +8,7 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
+import pytest
 
 from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source, infer_subject_code
@@ -20,11 +21,12 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
     SourceFormat,
 )
-from lys_bbb_app.domain.study import CreateStudyRequest
+from lys_bbb_app.domain.study import AnalysisScope, CreateStudyRequest
 from lys_bbb_app.infrastructure.study_database import (
     STUDY_MANIFEST_NAME,
     STUDY_SCHEMA_VERSION,
     StudyRepository,
+    StudyStateError,
 )
 from lys_bbb_app.infrastructure.external_viewer import ViewerLaunch
 from lys_bbb_app.services.study_service import StudyService
@@ -239,6 +241,40 @@ def test_confirmed_import_creates_subject_and_versioned_active_input(tmp_path: P
     assert previous.validation_state is InputValidationState.VALID
     assert current.validation_state is InputValidationState.NOT_RUN
     assert current.output_path != previous.output_path
+
+
+def test_single_modality_study_rejects_an_incompatible_scan_role(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "raw" / "Mouse-01_t2w.nii.gz"
+    _write_nifti(source)
+    service = StudyService()
+    service.create_study(
+        CreateStudyRequest(
+            tmp_path / "t1-study",
+            "T1 study",
+            "t1-study",
+            analysis_scope=AnalysisScope.T1_ONLY,
+            actor="Reviewer A",
+        )
+    )
+    assignment = ScanImportAssignment(
+        proposal_id="t2-proposal",
+        subject_code="Mouse-01",
+        role=ScanRole.T2,
+        source_path=source,
+        source_format=SourceFormat.NIFTI,
+        session_id="direct-nifti",
+        scan_id=None,
+        protocol="T2w",
+        method="NIfTI",
+        acquisition_orientation="from affine",
+        confidence=ImportConfidence.HIGH,
+        orientation_policy=OrientationPolicy.NATIVE,
+    )
+
+    with pytest.raises(StudyStateError, match="configured analysis workflows"):
+        service.import_confirmed_scans((assignment,), actor="Reviewer A")
 
 
 def test_bulk_flip_plan_creates_new_versions_for_multiple_subjects(

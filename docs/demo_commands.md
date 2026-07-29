@@ -1,7 +1,7 @@
-# LYS BBB independent functionality demonstration commands
+# LYS IRM independent functionality demonstration commands
 
 This cookbook contains paste-ready examples for the most useful independent parts of
-LYS BBB. It uses the existing `lys-bbb` conda environment and real files already present
+LYS IRM. It uses the existing `lys-irm` conda environment and real files already present
 on this Mac. Commands that produce outputs write only below a new directory in
 `/private/tmp`; they do not modify raw MRI data, the mounted study, approved masks, or
 immutable artifacts.
@@ -37,9 +37,9 @@ remain available to later sections.
 ```bash
 export LYS_PROJ2="/Users/paul-andreaslaize/Documents/LYS_PROJ2"
 export LYS_TEST_STUDY="/Volumes/Untitled/test_study/mouse-mri-study"
-export LYS_T1_RELEASE="$HOME/Library/Application Support/LYS BBB/models/rs2net-m-seam-v1"
+export LYS_T1_RELEASE="$HOME/Library/Application Support/LYS IRM/models/rs2net-m-seam-v1"
 export LYS_T2_RELEASE="$HOME/Downloads/LYS_v1_RatLesNetV2_mac_inference"
-export LYS_DEMO_ROOT="/private/tmp/lys_bbb_demo_$(date +%Y%m%d_%H%M%S)"
+export LYS_DEMO_ROOT="/private/tmp/lys_irm_demo_$(date +%Y%m%d_%H%M%S)"
 
 cd "$LYS_PROJ2"
 mkdir -p "$LYS_DEMO_ROOT"
@@ -54,21 +54,21 @@ All repository-relative commands below assume the terminal is still in `LYS_PROJ
 normal Terminal session:
 
 ```bash
-conda run -n lys-bbb python -c "import sys, torch, PySide6, nibabel, numpy; print('python', sys.version.split()[0]); print('torch', torch.__version__); print('MPS available', torch.backends.mps.is_available()); print('PySide6', PySide6.__version__); print('nibabel', nibabel.__version__); print('numpy', numpy.__version__)"
+conda run -n lys-irm python -c "import sys, torch, PySide6, nibabel, numpy; print('python', sys.version.split()[0]); print('torch', torch.__version__); print('MPS available', torch.backends.mps.is_available()); print('PySide6', PySide6.__version__); print('nibabel', nibabel.__version__); print('numpy', numpy.__version__)"
 ```
 
 Show the installed native ANTs version:
 
 ```bash
-conda run -n lys-bbb antsRegistration --version
+conda run -n lys-irm antsRegistration --version
 ```
 
-Show the three installed LYS BBB interfaces:
+Show the three installed LYS IRM interfaces:
 
 ```bash
-conda run -n lys-bbb lys-bbb-desktop --help
-conda run -n lys-bbb lys-bbb-t1-mask --help
-conda run -n lys-bbb lys-bbb-t2-infer --help
+conda run -n lys-irm lys-irm-desktop --help
+conda run -n lys-irm lys-irm-t1-mask --help
+conda run -n lys-irm lys-irm-t2-infer --help
 ```
 
 Expected ANTs version for the current method contracts: `2.6.5`.
@@ -81,7 +81,7 @@ Expected ANTs version for the current method contracts: `2.6.5`.
 and exact model-weight checksum:
 
 ```bash
-conda run -n lys-bbb python -c "from pathlib import Path; from lys_bbb.t1_brain_mask_release import validate_t1_brain_mask_release; r=validate_t1_brain_mask_release(Path.home()/'Library/Application Support/LYS BBB/models/rs2net-m-seam-v1'); print('release:', r.id); print('source commit:', r.source_commit); print('weights SHA-256:', r.weights_sha256); print('release TTA declaration:', r.test_time_augmentation)"
+conda run -n lys-irm python -c "from pathlib import Path; from lys_bbb.t1_brain_mask_release import validate_t1_brain_mask_release; r=validate_t1_brain_mask_release(Path.home()/'Library/Application Support/LYS IRM/models/rs2net-m-seam-v1'); print('release:', r.id); print('source commit:', r.source_commit); print('weights SHA-256:', r.weights_sha256); print('release TTA declaration:', r.test_time_augmentation)"
 ```
 
 The release declares the reviewed exact-TTA source contract. The desktop's interactive
@@ -93,7 +93,7 @@ execution is separately recorded as `explicit_no_tta_local_draft`.
 and all five model checksums:
 
 ```bash
-conda run -n lys-bbb python -c "from pathlib import Path; from lys_bbb.t2_model_release import validate_frozen_t2_model_release; r=validate_frozen_t2_model_release(Path.home()/'Downloads/LYS_v1_RatLesNetV2_mac_inference'); print('release:', r.id); print('models:', len(r.model_paths)); print('threshold:', r.threshold); print('spacing:', r.expected_spacing_mm); print('ensemble:', r.metadata['ensemble'])"
+conda run -n lys-irm python -c "from pathlib import Path; from lys_bbb.t2_model_release import validate_frozen_t2_model_release; r=validate_frozen_t2_model_release(Path.home()/'Downloads/LYS_v1_RatLesNetV2_mac_inference'); print('release:', r.id); print('models:', len(r.model_paths)); print('threshold:', r.threshold); print('spacing:', r.expected_spacing_mm); print('ensemble:', r.metadata['ensemble'])"
 ```
 
 ## 3. Open and inspect the persistent test study
@@ -113,7 +113,7 @@ If it prints nothing and returns an error, reconnect or mount the `Untitled` dis
 **GUI.** This opens the actual study; it does not create a second application:
 
 ```bash
-conda run --no-capture-output -n lys-bbb lys-bbb-desktop "$LYS_TEST_STUDY"
+conda run --no-capture-output -n lys-irm lys-irm-desktop "$LYS_TEST_STUDY"
 ```
 
 The application is the authoritative demonstration for persistent import, draft jobs,
@@ -156,7 +156,7 @@ The primary local example is the real converted pre-Gd T1 used during the earlie
 determinant, and handedness using the production atlas geometry validator:
 
 ```bash
-conda run --no-capture-output -n lys-bbb python - <<'PY'
+conda run --no-capture-output -n lys-irm python - <<'PY'
 from pathlib import Path
 from lys_bbb.atlas_release import inspect_nifti_geometry
 
@@ -189,7 +189,7 @@ fixed percentage, so the Mac may still become busy for roughly one to two minute
 ```bash
 env OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
   nice -n 10 \
-  conda run --no-capture-output -n lys-bbb lys-bbb-t1-mask \
+  conda run --no-capture-output -n lys-irm lys-irm-t1-mask \
     --release "$LYS_T1_RELEASE" \
     --input "$LYS_PROJ2/output/all_mice/C23S3_D1_bis/pre_coronal.nii.gz" \
     --output "$LYS_DEMO_ROOT/t1_mask_C23S3_D1_bis" \
@@ -201,7 +201,7 @@ env OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 VECLIB_MAXIMUM_TH
 Inspect the generated provenance and files:
 
 ```bash
-conda run -n lys-bbb python -m json.tool \
+conda run -n lys-irm python -m json.tool \
   "$LYS_DEMO_ROOT/t1_mask_C23S3_D1_bis/metadata.json"
 
 find "$LYS_DEMO_ROOT/t1_mask_C23S3_D1_bis" -maxdepth 3 -type f -print
@@ -250,7 +250,7 @@ not application approval; use the app Reviews queue for a managed approval.
 new manifest/QC bundle under the demo directory:
 
 ```bash
-conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
+conda run -n lys-irm python scripts/masks/build_brain_mask_manifest.py \
   --input-root "$LYS_PROJ2/output/all_mice" \
   --mask-dir "$LYS_PROJ2/derivatives/brain_seg/manual_test_cleaned" \
   --mask-pattern '{case_id}.nii.gz' \
@@ -262,7 +262,7 @@ conda run -n lys-bbb python scripts/masks/build_brain_mask_manifest.py \
 Inspect the summary and manifest:
 
 ```bash
-conda run -n lys-bbb python -m json.tool \
+conda run -n lys-irm python -m json.tool \
   "$LYS_DEMO_ROOT/brain_mask_validation/brain_mask_manifest_summary.json"
 
 open "$LYS_DEMO_ROOT/brain_mask_validation/brain_mask_manifest.csv"
@@ -288,7 +288,7 @@ ln -s "$LYS_PROJ2/output/all_mice/C23S5_D1/post_coronal.nii.gz" \
 
 env OMP_NUM_THREADS=2 ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=2 \
   nice -n 10 \
-  conda run -n lys-bbb python scripts/qc/qc_pre_post_registration.py \
+  conda run -n lys-irm python scripts/qc/qc_pre_post_registration.py \
     --input-root "$LYS_DEMO_ROOT/registration_input" \
     --out-dir "$LYS_DEMO_ROOT/registration_qc" \
     --n-slices 9
@@ -318,7 +318,7 @@ registration and writes semi-quantitative T1-weighted gadolinium-enhancement out
 ```bash
 env OMP_NUM_THREADS=2 ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS=2 \
   nice -n 10 \
-  conda run -n lys-bbb python scripts/quantification/quantify_flash_pair.py \
+  conda run -n lys-irm python scripts/quantification/quantify_flash_pair.py \
     --pre "$LYS_PROJ2/output/all_mice/C23S5_D1/pre_coronal.nii.gz" \
     --post "$LYS_PROJ2/output/all_mice/C23S5_D1/post_coronal.nii.gz" \
     --mask "$LYS_PROJ2/derivatives/brain_seg/manual_test_cleaned/C23S5_D1.nii.gz" \
@@ -342,7 +342,7 @@ mask is not an app-approved dependency, so this is not an approved result.
 but does not register or quantify them.
 
 ```bash
-conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py \
+conda run -n lys-irm python scripts/quantification/quantify_flash_cohort.py \
   "$LYS_PROJ2/output/all_mice" \
   --out-dir "$LYS_DEMO_ROOT/t1_cohort_dry_run" \
   --dry-run
@@ -352,7 +352,7 @@ Inspect the discovered sessions:
 
 ```bash
 open "$LYS_DEMO_ROOT/t1_cohort_dry_run/cohort_sessions.csv"
-conda run -n lys-bbb python -m json.tool \
+conda run -n lys-irm python -m json.tool \
   "$LYS_DEMO_ROOT/t1_cohort_dry_run/cohort_metadata.json"
 ```
 
@@ -412,7 +412,7 @@ one case at a time:
 ```bash
 env OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 VECLIB_MAXIMUM_THREADS=2 \
   nice -n 10 \
-  conda run --no-capture-output -n lys-bbb lys-bbb-t2-infer \
+  conda run --no-capture-output -n lys-irm lys-irm-t2-infer \
     --release "$LYS_T2_RELEASE" \
     --input "$LYS_DEMO_ROOT/t2_input" \
     --work "$LYS_DEMO_ROOT/t2_work" \
@@ -466,7 +466,7 @@ f1bc07b507fe260c3f48c3bc48a58ec1492aa45b0e24133665fbe77bab01b65a
 major-region scheme is loaded as unapproved; this command does not approve it.
 
 ```bash
-conda run --no-capture-output -n lys-bbb python - <<'PY'
+conda run --no-capture-output -n lys-irm python - <<'PY'
 import os
 from pathlib import Path
 
@@ -519,11 +519,11 @@ the app.
 **READ-ONLY:**
 
 ```bash
-conda run -n lys-bbb antsRegistration --version
-conda run -n lys-bbb antsRegistration --help
-conda run -n lys-bbb antsApplyTransforms --help
-conda run -n lys-bbb N4BiasFieldCorrection --help
-conda run -n lys-bbb CreateJacobianDeterminantImage --help
+conda run -n lys-irm antsRegistration --version
+conda run -n lys-irm antsRegistration --help
+conda run -n lys-irm antsApplyTransforms --help
+conda run -n lys-irm N4BiasFieldCorrection --help
+conda run -n lys-irm CreateJacobianDeterminantImage --help
 ```
 
 Atlas registration itself is intentionally application-managed because resource import,
@@ -539,7 +539,7 @@ confirmed.
 
 ```bash
 env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 QT_QPA_PLATFORM=offscreen \
-  conda run -n lys-bbb python -m pytest \
+  conda run -n lys-irm python -m pytest \
     tests/test_atlas_mapping_vertical.py \
     tests/test_atlas_mapping_persistence.py \
     tests/test_t1_brain_mask_integration.py \

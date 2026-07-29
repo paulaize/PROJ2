@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -33,7 +34,11 @@ from lys_bbb_app.domain.t2_lesion import (
 from lys_bbb_app.domain.atlas_mapping import AtlasMappingState
 
 
-LEGACY_PROJECT_FILE_SUFFIX = ".lysbbb"
+def derive_study_identifier(name: str, *, fallback: str = "study") -> str:
+    """Derive a stable filesystem/database-safe identifier from a display name."""
+
+    identifier = re.sub(r"[^A-Za-z0-9._-]+", "-", name.strip()).strip("-._")
+    return identifier.lower() or fallback
 
 
 class BlindingState(str, Enum):
@@ -41,6 +46,22 @@ class BlindingState(str, Enum):
 
     BLINDED = "BLINDED"
     UNBLINDED = "UNBLINDED"
+
+
+class AnalysisScope(str, Enum):
+    """Study-wide scientific workflows selected at creation."""
+
+    T1_T2 = "T1_T2"
+    T1_ONLY = "T1_ONLY"
+    T2_ONLY = "T2_ONLY"
+
+    @property
+    def includes_t1(self) -> bool:
+        return self in {AnalysisScope.T1_T2, AnalysisScope.T1_ONLY}
+
+    @property
+    def includes_t2(self) -> bool:
+        return self in {AnalysisScope.T1_T2, AnalysisScope.T2_ONLY}
 
 
 @dataclass(frozen=True)
@@ -66,16 +87,6 @@ class AuditEventRecord:
 
 
 @dataclass(frozen=True)
-class LegacyProjectRecord:
-    """Read-only summary of a schema-v1 project awaiting migration."""
-
-    project_id: str
-    name: str
-    database_path: Path
-    schema_version: int
-
-
-@dataclass(frozen=True)
 class RecentStudy:
     """Small launcher-facing record stored outside the scientific study database."""
 
@@ -94,6 +105,7 @@ class StudySnapshot:
     database_path: Path
     schema_version: int
     blinding_state: BlindingState
+    analysis_scope: AnalysisScope
     created_at: str
     updated_at: str
     unblinded_at: str | None
@@ -281,6 +293,7 @@ class CreateStudyRequest:
     identifier: str
     description: str | None = None
     blinded: bool = True
+    analysis_scope: AnalysisScope = AnalysisScope.T1_T2
     group_definitions: tuple[str, ...] = ()
     actor: str = "Application"
 

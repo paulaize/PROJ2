@@ -21,3 +21,4 @@ derivatives/*
 *.nii.gz
 *.png
 !fiji_image.png
+!packaging/assets/lys-irm-icon.png

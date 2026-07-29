@@ -37,49 +37,49 @@ class BundleTarget:
 
 TARGETS = {
     "wsl": BundleTarget(
-        bundle_root=PurePosixPath("LYS-BBB-Windows"),
+        bundle_root=PurePosixPath("LYS-IRM-Windows"),
         template_directory="packaging/windows",
         template_files=(
-            "Setup-LYS-BBB.cmd",
-            "Setup-LYS-BBB.ps1",
-            "Launch-LYS-BBB.ps1",
-            "Install-LYS-BBB.sh",
+            "Setup-LYS-IRM.cmd",
+            "Setup-LYS-IRM.ps1",
+            "Launch-LYS-IRM.ps1",
+            "Install-LYS-IRM.sh",
             "LISEZ-MOI.txt",
         ),
         environment_file="packaging/windows/environment-wsl.yml",
-        archive_label="LYS-BBB-Windows",
+        archive_label="LYS-IRM-Windows",
         runtime="WSL2/Ubuntu with WSLg",
         graphics="integrated Windows desktop via WSLg",
         feature_profile="full",
     ),
     "native-no-ants": BundleTarget(
-        bundle_root=PurePosixPath("MRI-Tool-Windows-Native-No-ANTs-v1"),
+        bundle_root=PurePosixPath("LYS-IRM-Windows-Native-No-ANTs-v1"),
         template_directory="packaging/windows-native",
         template_files=(
-            "Setup-MRI-Tool.cmd",
-            "Setup-MRI-Tool.ps1",
-            "Launch-MRI-Tool.ps1",
+            "Setup-LYS-IRM.cmd",
+            "Setup-LYS-IRM.ps1",
+            "Launch-LYS-IRM.ps1",
             "LISEZ-MOI.txt",
         ),
         environment_file="packaging/windows-native/environment-win64.yml",
-        archive_label="MRI-Tool-Windows-Native-No-ANTs",
+        archive_label="LYS-IRM-Windows-Native-No-ANTs",
         runtime="native Windows CPython via Miniforge",
         graphics="native Windows desktop",
         feature_profile="windows_native_no_ants_v1",
     ),
     "native-antspyx-preview": BundleTarget(
-        bundle_root=PurePosixPath("MRI-Tool-Windows-Native-ANTsPyx-Preview-v1"),
+        bundle_root=PurePosixPath("LYS-IRM-Windows-Native-ANTsPyx-Preview-v1"),
         template_directory="packaging/windows-native",
         template_files=(
-            "Setup-MRI-Tool.cmd",
-            "Setup-MRI-Tool.ps1",
-            "Launch-MRI-Tool.ps1",
+            "Setup-LYS-IRM.cmd",
+            "Setup-LYS-IRM.ps1",
+            "Launch-LYS-IRM.ps1",
             "LISEZ-MOI-ANTSPYX.txt",
         ),
         environment_file=(
             "packaging/windows-native/environment-win64-antspyx.yml"
         ),
-        archive_label="MRI-Tool-Windows-Native-ANTsPyx-Preview",
+        archive_label="LYS-IRM-Windows-Native-ANTsPyx-Preview",
         runtime="native Windows CPython with ANTsPyx",
         graphics="native Windows desktop",
         feature_profile="windows_native_antspyx_preview_v1",
@@ -114,9 +114,12 @@ def _payload_files(source: Path, environment_file: str) -> tuple[str, ...]:
     selected = tuple(
         path
         for path in candidates
-        if path in PAYLOAD_ROOT_FILES
-        or path == environment_file
-        or path.startswith(PAYLOAD_PREFIXES)
+        if (
+            path in PAYLOAD_ROOT_FILES
+            or path == environment_file
+            or path.startswith(PAYLOAD_PREFIXES)
+        )
+        and (source / path).is_file()
     )
     return tuple(sorted(selected))
 
@@ -192,7 +195,7 @@ def _bundle_t1_model_release(
         "delivery": "bundled",
         "bundle_path": str(T1_MODEL_BUNDLE_DIRECTORY),
         "install_path": (
-            r"%LOCALAPPDATA%\LYS BBB\models\rs2net-m-seam-v1"
+            r"%LOCALAPPDATA%\LYS IRM\models\rs2net-m-seam-v1"
         ),
         "source_commit": release.source_commit,
         "weights_sha256": release.weights_sha256,
@@ -225,7 +228,7 @@ def _bundle_t2_model_release(
         "delivery": "bundled",
         "bundle_path": str(T2_MODEL_BUNDLE_DIRECTORY),
         "install_path": (
-            r"%LOCALAPPDATA%\LYS BBB\models\ratlesnetv2-lys-v1"
+            r"%LOCALAPPDATA%\LYS IRM\models\ratlesnetv2-lys-v1"
         ),
         "manifest_sha256": release.manifest_sha256,
         "model_sha256": list(release.model_sha256),
@@ -236,7 +239,7 @@ def _bundle_t2_model_release(
 def windows_icon_bytes(source: Path) -> bytes:
     """Load the checked-in multi-resolution Windows icon."""
 
-    return (source / "packaging" / "assets" / "mri-tool.ico").read_bytes()
+    return (source / "packaging" / "assets" / "lys-irm.ico").read_bytes()
 
 
 def build_bundle(
@@ -275,9 +278,7 @@ def build_bundle(
         entries[target.bundle_root / name] = (
             template_directory / name
         ).read_bytes()
-    icon_name = (
-        "mri-tool.ico" if target_name.startswith("native") else "lys-bbb.ico"
-    )
+    icon_name = "lys-irm.ico"
     entries[target.bundle_root / icon_name] = windows_icon_bytes(source)
     for relative in _payload_files(source, target.environment_file):
         entries[target.bundle_root / "app" / PurePosixPath(relative)] = (
@@ -305,7 +306,7 @@ def build_bundle(
     }
     manifest = {
         "schema_version": 1,
-        "application": "MRI Tool",
+        "application": "LYS IRM",
         "application_version": version,
         "source_branch": branch,
         "source_commit": commit,

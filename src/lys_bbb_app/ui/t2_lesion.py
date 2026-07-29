@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from lys_bbb_app.domain.view_models import SubjectViewModel
-from lys_bbb_app.ui.layout_helpers import clear_layout
+from lys_bbb_app.ui.layout_helpers import clear_layout, populate_stat_grid
 from lys_bbb_app.ui.widgets import (
     CollapsibleSection,
     ElidedLabel,
@@ -198,13 +198,13 @@ class T2LesionPanel(QScrollArea):
                 ),
             ),
         )
-        _populate_stat_grid(self.stats_layout, stats)
+        populate_stat_grid(self.stats_layout, stats)
         technical_stats = (
             ("Threshold", artifact.threshold_text),
             ("Device", artifact.device.upper()),
             ("Release", artifact.release_label),
         )
-        _populate_stat_grid(self.technical_stats_layout, technical_stats)
+        populate_stat_grid(self.technical_stats_layout, technical_stats)
         self.mask_path.setText(str(artifact.mask_path))
         self.probability_path.setText(str(artifact.probability_path))
         preview = artifact.qc_preview_path
@@ -261,20 +261,3 @@ class T2LesionPanel(QScrollArea):
                 self.current_subject.subject_id,
                 self.current_subject.t2_artifact.artifact_id,
             )
-
-
-def _populate_stat_grid(
-    grid: QGridLayout,
-    stats: tuple[tuple[str, str], ...],
-) -> None:
-    for index, (label, value) in enumerate(stats):
-        row, column = divmod(index, 3)
-        block = QVBoxLayout()
-        key = QLabel(label)
-        key.setObjectName("metadata")
-        val = QLabel(value)
-        val.setWordWrap(True)
-        val.setStyleSheet("font-weight: 700;")
-        block.addWidget(key)
-        block.addWidget(val)
-        grid.addLayout(block, row, column)

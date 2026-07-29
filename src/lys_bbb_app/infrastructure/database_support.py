@@ -6,10 +6,17 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 from uuid import uuid4
 
 from lys_bbb_app.domain.errors import StudyStateError
+
+
+class StudyDatabaseContext(Protocol):
+    """Minimal study-root interface shared by feature repositories."""
+
+    root_path: Path
+    database_path: Path
 
 
 def utc_now() -> str:
@@ -31,7 +38,9 @@ def normalize_required(value: str, field_name: str) -> str:
 
 
 def single_study(connection: sqlite3.Connection) -> sqlite3.Row:
-    row = connection.execute("SELECT id, blinding_state FROM studies").fetchone()
+    row = connection.execute(
+        "SELECT id, blinding_state, analysis_scope FROM studies"
+    ).fetchone()
     if row is None:
         raise StudyStateError("The study database has no study record.")
     return row

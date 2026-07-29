@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
-from lys_bbb.project_state import InputFolderKind, ProjectDatabase
-from lys_bbb_app.domain.study import CreateStudyRequest, CreateSubjectRequest
+from lys_bbb_app.domain.study import (
+    AnalysisScope,
+    CreateStudyRequest,
+    CreateSubjectRequest,
+)
 from lys_bbb_app.infrastructure.recent_studies import RecentStudiesStore
 from lys_bbb_app.infrastructure.study_database import (
     STUDY_APPLICATION_ID,
     STUDY_DATABASE_NAME,
     STUDY_DIRECTORIES,
+    STUDY_MANIFEST_FORMAT,
     STUDY_MANIFEST_NAME,
     STUDY_SCHEMA_VERSION,
     DuplicateSubjectError,
@@ -23,9 +26,6 @@ from lys_bbb_app.infrastructure.study_database import (
     StudyRepository,
     StudyStateError,
 )
-from lys_bbb_app.services.study_service import StudyService
-
-
 def _create_study(tmp_path: Path, *, blinded: bool = True) -> StudyRepository:
     return StudyRepository.create(
         CreateStudyRequest(
@@ -53,6 +53,8 @@ def test_create_study_root_writes_manifest_database_and_managed_directories(
     assert snapshot.group_definitions == ("Vehicle", "Treatment A")
     assert (snapshot.root_path / STUDY_MANIFEST_NAME).is_file()
     assert all((snapshot.root_path / name).is_dir() for name in STUDY_DIRECTORIES)
+    manifest = json.loads((snapshot.root_path / STUDY_MANIFEST_NAME).read_text())
+    assert manifest["format"] == STUDY_MANIFEST_FORMAT
 
     with sqlite3.connect(snapshot.database_path) as connection:
         assert connection.execute("PRAGMA application_id").fetchone()[0] == STUDY_APPLICATION_ID
@@ -159,6 +161,75 @@ def test_subjects_reopen_with_expected_workflows_and_no_invented_group(
     assert subject.expected_t2 is True
 
 
+@pytest.mark.parametrize(
+    ("scope", "expected_t1", "expected_t2"),
+    (
+        (AnalysisScope.T1_ONLY, True, False),
+        (AnalysisScope.T2_ONLY, False, True),
+    ),
+)
+def test_single_modality_scope_persists_and_rejects_incompatible_subjects(
+    tmp_path: Path,
+    scope: AnalysisScope,
+    expected_t1: bool,
+    expected_t2: bool,
+) -> None:
+    repository = StudyRepository.create(
+        CreateStudyRequest(
+            root_path=tmp_path / scope.value.lower(),
+            name="Single-modality study",
+            identifier=scope.value.lower(),
+            analysis_scope=scope,
+            actor="Reviewer A",
+        )
+    )
+    repository.add_subject(
+        CreateSubjectRequest(
+            "Mouse-001",
+            expected_t1,
+            expected_t2,
+            actor="Reviewer A",
+        )
+    )
+
+    reopened = StudyRepository.open(repository.root_path).snapshot()
+
+    assert reopened.analysis_scope is scope
+    assert reopened.subjects[0].expected_t1 is expected_t1
+    assert reopened.subjects[0].expected_t2 is expected_t2
+    with pytest.raises(StudyStateError, match="configured for"):
+        repository.add_subject(
+            CreateSubjectRequest(
+                "Mouse-002",
+                not expected_t1,
+                not expected_t2,
+                actor="Reviewer A",
+            )
+        )
+
+
+def test_schema_eleven_study_migrates_to_combined_analysis_scope(
+    tmp_path: Path,
+) -> None:
+    repository = _create_study(tmp_path)
+    with sqlite3.connect(repository.database_path) as connection:
+        connection.executescript(
+            """
+            ALTER TABLE studies DROP COLUMN analysis_scope;
+            DELETE FROM schema_migrations WHERE version = 12;
+            PRAGMA user_version = 11;
+            """
+        )
+    manifest_path = repository.root_path / STUDY_MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 11
+    manifest_path.write_text(json.dumps(manifest))
+
+    reopened = StudyRepository.open(repository.root_path).snapshot()
+
+    assert reopened.analysis_scope is AnalysisScope.T1_T2
+
+
 def test_blinded_study_rejects_group_assignment_until_audited_unblinding(
     tmp_path: Path,
 ) -> None:
@@ -251,31 +322,6 @@ def test_subject_rename_rejects_a_case_insensitive_duplicate(tmp_path: Path) -> 
         repository.rename_subject(first.id, "mouse-002", actor="Reviewer A")
 
 
-def test_legacy_migration_preserves_source_and_folder_references(tmp_path: Path) -> None:
-    legacy_path = tmp_path / "legacy.lysbbb"
-    t1_path = tmp_path / "external-drive" / "t1"
-    t2_path = tmp_path / "external-drive" / "t2"
-    t1_path.mkdir(parents=True)
-    t2_path.mkdir()
-    legacy = ProjectDatabase.create(legacy_path, name="Legacy study")
-    legacy.set_input_folder(InputFolderKind.T1, t1_path)
-    legacy.set_input_folder(InputFolderKind.T2, t2_path)
-    before = hashlib.sha256(legacy_path.read_bytes()).hexdigest()
-
-    service = StudyService()
-    migrated = service.migrate_legacy_project(
-        legacy_path,
-        tmp_path / "migrated-study",
-        actor="Researcher",
-    )
-
-    assert hashlib.sha256(legacy_path.read_bytes()).hexdigest() == before
-    assert migrated.name == "Legacy study"
-    assert migrated.t1_input_folder == t1_path.resolve()
-    assert migrated.t2_input_folder == t2_path.resolve()
-    assert service.list_audit_events()[0].event_type == "LEGACY_PROJECT_MIGRATED"
-
-
 def test_recent_studies_round_trip_without_touching_study_state(tmp_path: Path) -> None:
     repository = _create_study(tmp_path)
     store = RecentStudiesStore(tmp_path / "preferences" / "recent.json")
@@ -286,6 +332,32 @@ def test_recent_studies_round_trip_without_touching_study_state(tmp_path: Path) 
     assert len(recent) == 1
     assert recent[0].name == "EAE Mouse Study"
     assert Path(recent[0].path) == repository.root_path
+
+
+def test_recent_studies_reads_historical_brand_location_until_new_store_exists(
+    tmp_path: Path,
+) -> None:
+    current_path = tmp_path / "LYS IRM" / "recent_studies.json"
+    legacy_path = tmp_path / ".lys_bbb" / "recent_studies.json"
+    legacy_path.parent.mkdir()
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "recent_studies": [
+                    {
+                        "name": "Existing study",
+                        "path": str(tmp_path / "existing-study"),
+                        "last_opened": "2026-07-01T12:00:00+00:00",
+                    }
+                ]
+            }
+        )
+    )
+    store = RecentStudiesStore(current_path, legacy_path=legacy_path)
+
+    recent = store.list()
+
+    assert recent[0].name == "Existing study"
 
 
 def test_source_folder_is_referenced_in_place_and_audited(tmp_path: Path) -> None:

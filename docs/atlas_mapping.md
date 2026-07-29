@@ -54,7 +54,7 @@ and regional results until Paul approves the exact scheme checksum.
 
 ## Registration methods
 
-Native macOS-arm64 ANTs 2.6.5 is installed in the existing `lys-bbb` environment and
+Native macOS-arm64 ANTs 2.6.5 is installed in the existing `lys-irm` environment and
 pinned in `environment.yml`. The installed `antsRegistration`, `antsApplyTransforms`,
 `N4BiasFieldCorrection`, and `CreateJacobianDeterminantImage` interfaces were inspected
 before commands were implemented. Commands use subprocess argument lists with

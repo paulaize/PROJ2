@@ -6,7 +6,7 @@ import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 from uuid import uuid4
 
 from lys_bbb.t1_brain_mask_release import FrozenT1BrainMaskRelease
@@ -23,6 +23,7 @@ from lys_bbb_app.domain.t1_brain_mask import (
 )
 from lys_bbb_app.domain.t2_lesion import ArtifactState, ProcessingJobState
 from lys_bbb_app.infrastructure.database_support import (
+    StudyDatabaseContext,
     connect,
     insert_audit,
     normalize_required,
@@ -34,13 +35,6 @@ from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_anal
 from lys_bbb_app.infrastructure.atlas_mapping_repository import (
     invalidate_atlas_for_t1_mask_change,
 )
-
-
-class StudyDatabaseContext(Protocol):
-    root_path: Path
-    database_path: Path
-
-
 def register_t1_brain_mask_release(
     repository: StudyDatabaseContext,
     release: FrozenT1BrainMaskRelease,

@@ -1,10 +1,10 @@
-"""Connected main shell for persistent MRI studies."""
+"""Connected main shell for MRI studies."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QTimer
+from PySide6.QtCore import QElapsedTimer, QTimer, Qt
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -21,13 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from lys_bbb_app.application.study_presenter import (
-    present_legacy_project,
-    present_study,
-)
+from lys_bbb_app.application.study_presenter import present_study
 from lys_bbb_app.domain.errors import StudyStateError
-from lys_bbb_app.domain.scan_import import ScanImportAssignment
-from lys_bbb_app.domain.study import LEGACY_PROJECT_FILE_SUFFIX, StudySnapshot
+from lys_bbb_app.domain.scan_import import ScanImportAssignment, ScanRole
+from lys_bbb_app.domain.study import StudySnapshot
 from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
 from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.platform_paths import (
@@ -37,6 +34,8 @@ from lys_bbb_app.platform_paths import (
 )
 from lys_bbb_app.services.recent_studies_service import RecentStudiesService
 from lys_bbb_app.services.study_service import StudyService
+from lys_bbb_app.ui.background_jobs import BackgroundJobRegistry
+from lys_bbb_app.ui.main_window_connections import connect_main_window_signals
 from lys_bbb_app.ui.dialogs import (
     AddSubjectDialog,
     AuditHistoryDialog,
@@ -75,14 +74,8 @@ from lys_bbb_app.ui.workers import (
     T2InferenceThread,
 )
 
-
-LEGACY_PROJECT_FILTER = (
-    f"MRI Tool legacy projects (*{LEGACY_PROJECT_FILE_SUFFIX})"
-)
-
-
 class MainWindow(QMainWindow):
-    """Application shell for canonical persistent studies and legacy inspection."""
+    """Application shell for canonical persistent studies."""
 
     def __init__(
         self,
@@ -101,11 +94,8 @@ class MainWindow(QMainWindow):
         self.blinded_review = False
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_indices: dict[str, int] = {}
-        self._scan_import_thread: ScanImportThread | None = None
-        self._input_validation_thread: InputValidationThread | None = None
-        self._t2_inference_thread: T2InferenceThread | None = None
+        self._background_jobs = BackgroundJobRegistry()
         self._t2_target_subject_ids: tuple[str, ...] | None = None
-        self._t1_brain_mask_thread: T1BrainMaskThread | None = None
         self._t1_target_subject_ids: tuple[str, ...] | None = None
         self._t1_brain_mask_elapsed = QElapsedTimer()
         self._t1_brain_mask_heartbeat = QTimer(self)
@@ -113,18 +103,15 @@ class MainWindow(QMainWindow):
         self._t1_brain_mask_heartbeat.timeout.connect(
             self._show_t1_brain_mask_heartbeat
         )
-        self._t1_registration_thread: T1RegistrationThread | None = None
         self._t1_registration_target_subject_ids: tuple[str, ...] | None = None
-        self._t1_enhancement_thread: T1EnhancementThread | None = None
         self._t1_enhancement_target_subject_ids: tuple[str, ...] | None = None
-        self._atlas_mapping_thread: AtlasMappingThread | None = None
         self._atlas_mapping_subject_id: str | None = None
         self._atlas_mapping_action: str | None = None
         self._validation_subject_id: str | None = None
         self._validation_return_page = "workspace"
         self._scan_operation_name = "MRI import"
 
-        window_title = "MRI Tool"
+        window_title = "LYS IRM"
         if self.features.window_title_suffix:
             window_title = f"{window_title} — {self.features.window_title_suffix}"
         self.setWindowTitle(window_title)
@@ -148,10 +135,6 @@ class MainWindow(QMainWindow):
         open_action.triggered.connect(self.open_project)
         file_menu.addAction(open_action)
 
-        migrate_action = QAction("&Migrate legacy .lysbbb project…", self)
-        migrate_action.triggered.connect(self.migrate_legacy_project)
-        file_menu.addAction(migrate_action)
-
         self.close_study_action = QAction("&Close study", self)
         self.close_study_action.setEnabled(False)
         self.close_study_action.triggered.connect(self.close_study)
@@ -168,7 +151,6 @@ class MainWindow(QMainWindow):
         self.launcher_page = StudyLauncherPage()
         self.launcher_page.create_requested.connect(self.create_project)
         self.launcher_page.open_requested.connect(self.open_project)
-        self.launcher_page.migrate_requested.connect(self.migrate_legacy_project)
         self.launcher_page.recent_open_requested.connect(self.open_project_path)
         self.launcher_page.set_recent_studies(self.recent_studies.list())
         self.root_stack.addWidget(self.launcher_page)
@@ -219,144 +201,7 @@ class MainWindow(QMainWindow):
         body.addWidget(content, 1)
         root_layout.addLayout(body, 1)
 
-        self.overview_page.navigate_requested.connect(self.show_page)
-        self.subjects_page.subject_open_requested.connect(self.open_subject)
-        self.subjects_page.subject_mri_open_requested.connect(
-            self.open_subject_mri_in_itksnap
-        )
-        self.subjects_page.subject_validation_requested.connect(
-            lambda subject_id: self.validate_subject_inputs(
-                subject_id,
-                return_page="subjects",
-            )
-        )
-        self.subjects_page.subjects_flip_requested.connect(self.bulk_flip_subjects)
-        self.subjects_page.subject_remove_requested.connect(self.remove_subject)
-        self.subjects_page.subject_restore_requested.connect(self.restore_subject)
-        self.subjects_page.add_subject_requested.connect(self.add_subject)
-        self.subjects_page.import_mri_requested.connect(self.select_mri_source_folder)
-        self.subjects_page.group_assignment_requested.connect(self.manage_groups)
-        self.subjects_page.audit_history_requested.connect(self.show_audit_history)
-        self.subjects_page.t2_inference_requested.connect(
-            self.run_t2_inference_for_study
-        )
-        self.workspace_page.back_requested.connect(lambda: self.show_page("subjects"))
-        self.workspace_page.open_mri_requested.connect(
-            self.open_subject_mri_in_itksnap
-        )
-        self.workspace_page.input_mri_open_requested.connect(
-            self.open_scan_input_in_itksnap
-        )
-        self.workspace_page.input_validation_requested.connect(
-            self.validate_subject_inputs
-        )
-        self.workspace_page.input_flip_requested.connect(
-            lambda subject_id: self.bulk_flip_subjects((subject_id,))
-        )
-        self.workspace_page.input_import_requested.connect(
-            self.select_mri_source_folder
-        )
-        self.workspace_page.rename_requested.connect(self.rename_subject)
-        self.workspace_page.t2_release_requested.connect(
-            self.select_t2_model_release
-        )
-        self.workspace_page.t2_run_subject_requested.connect(
-            lambda subject_id: self.run_t2_inference_for_study((subject_id,))
-        )
-        self.workspace_page.t2_run_study_requested.connect(
-            self.run_t2_inference_for_study
-        )
-        self.workspace_page.t2_manual_edit_requested.connect(
-            self.manually_edit_t2_mask
-        )
-        self.workspace_page.t2_approve_requested.connect(self.approve_t2_mask)
-        self.workspace_page.t1_brain_mask_release_requested.connect(
-            self.select_t1_brain_mask_release
-        )
-        self.workspace_page.t1_brain_mask_run_requested.connect(
-            self.run_t1_brain_mask_for_subject
-        )
-        self.workspace_page.t1_brain_mask_manual_edit_requested.connect(
-            self.manually_edit_t1_brain_mask
-        )
-        self.workspace_page.t1_brain_mask_approve_requested.connect(
-            self.approve_t1_brain_mask
-        )
-        self.workspace_page.t1_registration_run_requested.connect(
-            self.run_t1_registration_for_subject
-        )
-        self.workspace_page.t1_registration_approve_requested.connect(
-            self.approve_t1_registration
-        )
-        self.workspace_page.t1_enhancement_run_requested.connect(
-            self.run_t1_enhancement_for_subject
-        )
-        if self.features.atlas_mapping:
-            self.workspace_page.atlas_resource_requested.connect(
-                self.configure_atlas_resource
-            )
-            self.workspace_page.atlas_scheme_register_requested.connect(
-                self.register_major_region_scheme
-            )
-            self.workspace_page.atlas_scheme_approve_requested.connect(
-                self.approve_major_region_scheme
-            )
-            self.workspace_page.atlas_support_mask_import_requested.connect(
-                self.import_t2_registration_support_mask
-            )
-            self.workspace_page.atlas_support_mask_approve_requested.connect(
-                self.approve_t2_registration_support_mask
-            )
-            self.workspace_page.atlas_to_t1_run_requested.connect(
-                lambda subject_id: self.start_atlas_mapping_stage(
-                    subject_id, "atlas_to_t1"
-                )
-            )
-            self.workspace_page.atlas_to_t1_approve_requested.connect(
-                self.approve_atlas_to_t1
-            )
-            self.workspace_page.t1_to_t2_run_requested.connect(
-                lambda subject_id: self.start_atlas_mapping_stage(
-                    subject_id, "t1_to_t2"
-                )
-            )
-            self.workspace_page.t1_to_t2_approve_requested.connect(
-                self.approve_atlas_t1_to_t2
-            )
-            self.workspace_page.atlas_composite_create_requested.connect(
-                lambda subject_id: self.start_atlas_mapping_stage(
-                    subject_id, "composite"
-                )
-            )
-            self.workspace_page.atlas_composite_approve_requested.connect(
-                self.approve_atlas_composite
-            )
-            self.workspace_page.atlas_result_calculate_requested.connect(
-                self.calculate_atlas_result
-            )
-        self.reviews_page.approve_requested.connect(
-            lambda subject_id, artifact_id: self.approve_review_mask(
-                subject_id,
-                artifact_id,
-                return_page="reviews",
-            )
-        )
-        self.reviews_page.manual_edit_requested.connect(
-            lambda subject_id, artifact_id: self.manually_edit_review_mask(
-                subject_id,
-                artifact_id,
-                return_page="reviews",
-            )
-        )
-        self.reviews_page.subject_requested.connect(self.open_review_subject)
-        self.reviews_page.qc_slices_requested.connect(
-            self.prepare_review_qc_slices
-        )
-        self.results_page.approved_csv_requested.connect(
-            self.export_approved_t2_results_csv
-        )
-        self.settings_page.blinding_changed.connect(self._handle_blinding_toggle)
-        self.settings_page.input_folder_requested.connect(self.select_input_folder)
+        connect_main_window_signals(self)
         return root
 
     def _build_header(self) -> QFrame:
@@ -366,10 +211,11 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(header)
         layout.setContentsMargins(22, 12, 22, 12)
         titles = QVBoxLayout()
+        titles.setSpacing(1)
         study_caption = QLabel("CURRENT STUDY")
         study_caption.setObjectName("metadata")
         self.study_name_label = QLabel("No study open")
-        self.study_name_label.setStyleSheet("font-size: 17px; font-weight: 700;")
+        self.study_name_label.setObjectName("studyName")
         titles.addWidget(study_caption)
         titles.addWidget(self.study_name_label)
         layout.addLayout(titles)
@@ -394,19 +240,43 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(14, 18, 14, 18)
         layout.setSpacing(5)
-        wordmark = QLabel("MRI Tool")
+        brand = QHBoxLayout()
+        brand.setSpacing(9)
+        brand_mark = QFrame()
+        brand_mark.setObjectName("brandMark")
+        brand_mark.setFixedSize(34, 30)
+        brand_mark_layout = QVBoxLayout(brand_mark)
+        brand_mark_layout.setContentsMargins(0, 0, 0, 0)
+        brand_mark_text = QLabel("LYS")
+        brand_mark_text.setObjectName("brandMarkText")
+        brand_mark_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_mark_layout.addWidget(brand_mark_text)
+        brand.addWidget(brand_mark)
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(0)
+        wordmark = QLabel("LYS IRM")
         wordmark.setObjectName("appWordmark")
-        layout.addWidget(wordmark)
-        layout.addSpacing(12)
+        brand_caption = QLabel("SCIENTIFIC MRI")
+        brand_caption.setObjectName("brandCaption")
+        brand_text.addWidget(wordmark)
+        brand_text.addWidget(brand_caption)
+        brand.addLayout(brand_text)
+        layout.addLayout(brand)
+        layout.addSpacing(18)
+
+        nav_caption = QLabel("WORKSPACE")
+        nav_caption.setObjectName("navCaption")
+        layout.addWidget(nav_caption)
+        layout.addSpacing(3)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         for key, label in (
-            ("overview", "⌂   Overview"),
-            ("subjects", "●   Subjects"),
-            ("reviews", "✓   Reviews"),
-            ("results", "▤   Results && exports"),
-            ("settings", "⚙   Settings"),
+            ("overview", "Overview"),
+            ("subjects", "Subjects"),
+            ("reviews", "Reviews"),
+            ("results", "Results && exports"),
+            ("settings", "Settings"),
         ):
             button = QPushButton(label)
             button.setProperty("kind", "nav")
@@ -419,6 +289,10 @@ class MainWindow(QMainWindow):
             self.nav_buttons[key] = button
             layout.addWidget(button)
         layout.addStretch()
+        self.sidebar_foot = QLabel("T1 · T2 · ATLAS")
+        self.sidebar_foot.setObjectName("sidebarFoot")
+        self.sidebar_foot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.sidebar_foot)
         return sidebar
 
     def create_project(self) -> None:
@@ -446,7 +320,7 @@ class MainWindow(QMainWindow):
     def open_project(self) -> None:
         selected = QFileDialog.getExistingDirectory(
             self,
-            "Open MRI Tool study directory",
+            "Open LYS IRM study directory",
             str(Path.home()),
         )
         if selected:
@@ -454,8 +328,6 @@ class MainWindow(QMainWindow):
 
     def open_project_path(self, project_path: Path | str) -> bool:
         path = Path(project_path).expanduser()
-        if path.suffix.lower() == LEGACY_PROJECT_FILE_SUFFIX:
-            return self._open_legacy_project_path(path)
         try:
             study = self.study_service.open_study(path)
         except (StudyStateError, OSError) as exc:
@@ -469,63 +341,18 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def migrate_legacy_project(self) -> None:
-        legacy_path, _filter = QFileDialog.getOpenFileName(
-            self,
-            "Select a legacy .lysbbb project",
-            str(Path.home()),
-            LEGACY_PROJECT_FILTER,
-        )
-        if not legacy_path:
-            return
-        parent = QFileDialog.getExistingDirectory(
-            self,
-            "Choose the parent directory for the migrated study",
-            str(Path(legacy_path).parent),
-        )
-        if not parent:
-            return
-        target_root = Path(parent) / f"{Path(legacy_path).stem}-study"
-        try:
-            study = self.study_service.migrate_legacy_project(
-                legacy_path,
-                target_root,
-                actor=self._reviewer_identity(),
-            )
-        except (StudyStateError, OSError) as exc:
-            self._show_error("The legacy project could not be migrated.", exc)
-            return
-        self._record_recent(study)
-        self._set_study(present_study(study))
-        self.statusBar().showMessage(
-            "Legacy project migrated without modifying the original .lysbbb file.",
-            9000,
-        )
-
-    def _open_legacy_project_path(self, database_path: Path) -> bool:
-        try:
-            project = self.study_service.inspect_legacy_project(database_path)
-        except (StudyStateError, OSError) as exc:
-            self._show_error("The legacy project could not be opened.", exc)
-            return False
-        self._set_study(present_legacy_project(project))
-        self.statusBar().showMessage(
-            "Legacy project opened read-only for inspection. Use Migrate legacy project "
-            "to add persistent subjects.",
-            9000,
-        )
-        return True
-
     def _set_study(self, study: StudyViewModel, *, page_key: str = "overview") -> None:
         self.current_study = study
         self.study_name_label.setText(study.name)
-        persistent = self.study_service.current_study is not None
+        self.sidebar_foot.setText(
+            "T1 · T2 · ATLAS"
+            if study.analysis_scope.includes_t1
+            and study.analysis_scope.includes_t2
+            else "T1 ENHANCEMENT"
+            if study.analysis_scope.includes_t1
+            else "T2 LESION"
+        )
         banner_messages: list[str] = []
-        if not persistent:
-            banner_messages.append(
-                "LEGACY PROJECT — This schema-v1 file is available for inspection. "
-                "Migrate it to a study directory before adding subjects."
-            )
         if self.features.runtime_notice:
             banner_messages.append(self.features.runtime_notice)
         if banner_messages:
@@ -539,14 +366,11 @@ class MainWindow(QMainWindow):
         self.reviews_page.set_study(study)
         self.results_page.set_study(study)
         self.settings_page.set_study_state(
-            persistent=persistent,
             blinded=study.blinded_review,
         )
         self.settings_page.set_input_folders(
             mri_path=study.mri_input_folder,
-            t1_path=study.t1_input_folder,
-            t2_path=study.t2_input_folder,
-            enabled=persistent,
+            enabled=True,
         )
         self.set_blinded_review(study.blinded_review)
         self.close_study_action.setEnabled(True)
@@ -569,7 +393,11 @@ class MainWindow(QMainWindow):
         if subject is None:
             return
         self.workspace_page.set_subject(subject)
-        if self.features.atlas_mapping:
+        if (
+            self.features.atlas_mapping
+            and self.current_study.analysis_scope.includes_t1
+            and self.current_study.analysis_scope.includes_t2
+        ):
             try:
                 atlas_state = self.study_service.atlas_mapping.state(subject_id)
             except StudyStateError:
@@ -609,12 +437,13 @@ class MainWindow(QMainWindow):
             return
         if self.study_service.current_study is None:
             self._show_error(
-                "Subjects cannot be added to a legacy project.",
-                StudyStateError("Migrate the .lysbbb project to a study directory first."),
+                "The subject could not be added.",
+                StudyStateError("Open a study before adding subjects."),
             )
             return
         dialog = AddSubjectDialog(
             blinded=self.current_study.blinded_review,
+            analysis_scope=self.current_study.analysis_scope,
             group_definitions=self.current_study.group_definitions,
             parent=self,
         )
@@ -775,9 +604,7 @@ class MainWindow(QMainWindow):
         if self.current_study is None:
             return
         if self.study_service.current_study is None:
-            self._show_status_message(
-                "Migrate this legacy project before validating MRI inputs."
-            )
+            self._show_status_message("Open a study before validating MRI inputs.")
             return
         if self._background_job_running():
             self._show_status_message("Another MRI background job is already running.")
@@ -791,7 +618,7 @@ class MainWindow(QMainWindow):
         thread.validation_failed.connect(self._input_validation_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_input_validation_thread)
-        self._input_validation_thread = thread
+        self._background_jobs.register("input_validation", thread)
         self._validation_subject_id = subject_id
         self._validation_return_page = return_page
         self._set_job_status("Input validation running")
@@ -835,7 +662,7 @@ class MainWindow(QMainWindow):
         )
 
     def _clear_input_validation_thread(self) -> None:
-        self._input_validation_thread = None
+        self._background_jobs.clear("input_validation")
         self._validation_subject_id = None
         self._validation_return_page = "workspace"
         self._set_job_status()
@@ -843,7 +670,7 @@ class MainWindow(QMainWindow):
     def select_t1_brain_mask_release(self) -> bool:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before selecting a T1 brain-mask release."
+                "Open a study before selecting a T1 brain-mask release."
             )
             return False
         suggested = default_t1_brain_mask_release_path()
@@ -878,7 +705,7 @@ class MainWindow(QMainWindow):
     def run_t1_brain_mask_for_subject(self, subject_id: str) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before generating a T1 brain mask."
+                "Open a study before generating a T1 brain mask."
             )
             return
         if self._background_job_running():
@@ -932,7 +759,7 @@ class MainWindow(QMainWindow):
         thread.generation_failed.connect(self._t1_brain_mask_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_t1_brain_mask_thread)
-        self._t1_brain_mask_thread = thread
+        self._background_jobs.register("t1_brain_mask", thread)
         self._t1_target_subject_ids = readiness.eligible_subject_ids
         self._t1_brain_mask_elapsed.start()
         self._t1_brain_mask_heartbeat.start()
@@ -970,8 +797,7 @@ class MainWindow(QMainWindow):
 
     def _show_t1_brain_mask_heartbeat(self) -> None:
         if (
-            self._t1_brain_mask_thread is None
-            or not self._t1_brain_mask_thread.isRunning()
+            not self._background_jobs.is_running("t1_brain_mask")
             or not self._t1_brain_mask_elapsed.isValid()
         ):
             return
@@ -986,14 +812,14 @@ class MainWindow(QMainWindow):
     def _clear_t1_brain_mask_thread(self) -> None:
         self._t1_brain_mask_heartbeat.stop()
         self._t1_brain_mask_elapsed.invalidate()
-        self._t1_brain_mask_thread = None
+        self._background_jobs.clear("t1_brain_mask")
         self._t1_target_subject_ids = None
         self._set_job_status()
 
     def run_t1_registration_for_subject(self, subject_id: str) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before running T1 registration."
+                "Open a study before running T1 registration."
             )
             return
         if self._background_job_running():
@@ -1047,7 +873,7 @@ class MainWindow(QMainWindow):
         thread.registration_failed.connect(self._t1_registration_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_t1_registration_thread)
-        self._t1_registration_thread = thread
+        self._background_jobs.register("t1_registration", thread)
         self._t1_registration_target_subject_ids = readiness.eligible_subject_ids
         self._set_job_status("T1 registration running")
         self.statusBar().showMessage("Starting post-to-pre T1 registration…")
@@ -1079,7 +905,7 @@ class MainWindow(QMainWindow):
         self._show_error("T1 registration did not complete.", StudyStateError(error))
 
     def _clear_t1_registration_thread(self) -> None:
-        self._t1_registration_thread = None
+        self._background_jobs.clear("t1_registration")
         self._t1_registration_target_subject_ids = None
         self._set_job_status()
 
@@ -1092,7 +918,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before approving a T1 registration."
+                "Open a study before approving a T1 registration."
             )
             return
         confirmation = QMessageBox.question(
@@ -1115,22 +941,24 @@ class MainWindow(QMainWindow):
         except StudyStateError as exc:
             self._show_error("The T1 registration could not be approved.", exc)
             return
-        self._refresh_after_t1_registration_review(
+        self._refresh_after_review(
             snapshot,
             subject_id,
             return_page=return_page,
+            panel=self.workspace_page.t1_analysis_panel,
         )
         self.statusBar().showMessage(
             "T1 registration approved. Provisional enhancement can now be calculated.",
             12000,
         )
 
-    def _refresh_after_t1_registration_review(
+    def _refresh_after_review(
         self,
         snapshot: StudySnapshot,
         subject_id: str,
         *,
         return_page: str,
+        panel: QWidget,
     ) -> None:
         if return_page == "reviews":
             self._set_study(present_study(snapshot), page_key="reviews")
@@ -1138,14 +966,12 @@ class MainWindow(QMainWindow):
             return
         self._set_study(present_study(snapshot), page_key="subjects")
         self.open_subject(subject_id)
-        self.workspace_page.tabs.setCurrentWidget(
-            self.workspace_page.t1_analysis_panel
-        )
+        self.workspace_page.tabs.setCurrentWidget(panel)
 
     def run_t1_enhancement_for_subject(self, subject_id: str) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before calculating T1 enhancement."
+                "Open a study before calculating T1 enhancement."
             )
             return
         if self._background_job_running():
@@ -1199,7 +1025,7 @@ class MainWindow(QMainWindow):
         thread.calculation_failed.connect(self._t1_enhancement_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_t1_enhancement_thread)
-        self._t1_enhancement_thread = thread
+        self._background_jobs.register("t1_enhancement", thread)
         self._t1_enhancement_target_subject_ids = readiness.eligible_subject_ids
         self._set_job_status("T1 enhancement running")
         self.statusBar().showMessage("Starting provisional T1 enhancement calculation…")
@@ -1237,14 +1063,14 @@ class MainWindow(QMainWindow):
         )
 
     def _clear_t1_enhancement_thread(self) -> None:
-        self._t1_enhancement_thread = None
+        self._background_jobs.clear("t1_enhancement")
         self._t1_enhancement_target_subject_ids = None
         self._set_job_status()
 
     def configure_atlas_resource(self, subject_id: str) -> None:
         if self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before registering atlas resources."
+                "Open a study before registering atlas resources."
             )
             return
         template = QFileDialog.getOpenFileName(
@@ -1405,7 +1231,7 @@ class MainWindow(QMainWindow):
     def start_atlas_mapping_stage(self, subject_id: str, action: str) -> None:
         if self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before running atlas mapping."
+                "Open a study before running atlas mapping."
             )
             return
         if self._background_job_running():
@@ -1471,7 +1297,7 @@ class MainWindow(QMainWindow):
         thread.stage_failed.connect(self._atlas_mapping_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_atlas_mapping_thread)
-        self._atlas_mapping_thread = thread
+        self._background_jobs.register("atlas_mapping", thread)
         self._atlas_mapping_subject_id = subject_id
         self._atlas_mapping_action = action
         self._set_job_status("Atlas mapping running")
@@ -1499,7 +1325,7 @@ class MainWindow(QMainWindow):
         self._show_error("The atlas-mapping stage did not complete.", StudyStateError(error))
 
     def _clear_atlas_mapping_thread(self) -> None:
-        self._atlas_mapping_thread = None
+        self._background_jobs.clear("atlas_mapping")
         self._atlas_mapping_subject_id = None
         self._atlas_mapping_action = None
         self._set_job_status()
@@ -1625,7 +1451,7 @@ class MainWindow(QMainWindow):
     def select_t2_model_release(self) -> bool:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before selecting a T2 model release."
+                "Open a study before selecting a T2 model release."
             )
             return False
         suggested = default_t2_model_release_suggestion()
@@ -1661,9 +1487,7 @@ class MainWindow(QMainWindow):
         if self.current_study is None:
             return
         if self.study_service.current_study is None:
-            self._show_status_message(
-                "Migrate this legacy project before running T2 segmentation."
-            )
+            self._show_status_message("Open a study before running T2 segmentation.")
             return
         if self._background_job_running():
             self._show_status_message("Another MRI background job is already running.")
@@ -1717,7 +1541,7 @@ class MainWindow(QMainWindow):
         thread.inference_failed.connect(self._t2_inference_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_t2_inference_thread)
-        self._t2_inference_thread = thread
+        self._background_jobs.register("t2_inference", thread)
         self._t2_target_subject_ids = readiness.eligible_subject_ids
         self._set_job_status("T2 inference running")
         self.statusBar().showMessage(
@@ -1752,7 +1576,7 @@ class MainWindow(QMainWindow):
         self._show_error("T2 lesion inference did not complete.", StudyStateError(error))
 
     def _clear_t2_inference_thread(self) -> None:
-        self._t2_inference_thread = None
+        self._background_jobs.clear("t2_inference")
         self._t2_target_subject_ids = None
         self._set_job_status()
 
@@ -1879,7 +1703,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before editing a T1 brain mask."
+                "Open a study before editing a T1 brain mask."
             )
             return
         configured_viewer = self.settings_page.external_editor.text().strip() or None
@@ -1910,10 +1734,11 @@ class MainWindow(QMainWindow):
                 exc,
             )
             return
-        self._refresh_after_t1_brain_mask_review(
+        self._refresh_after_review(
             snapshot,
             subject_id,
             return_page=return_page,
+            panel=self.workspace_page.t1_brain_mask_panel,
         )
         self.statusBar().showMessage(
             "The edited brain mask is now the current version and awaits approval.",
@@ -1950,7 +1775,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study to approve a real T1 brain mask."
+                "Open a study to approve a real T1 brain mask."
             )
             return
         confirmation = QMessageBox.question(
@@ -1973,31 +1798,15 @@ class MainWindow(QMainWindow):
         except StudyStateError as exc:
             self._show_error("The T1 brain mask could not be approved.", exc)
             return
-        self._refresh_after_t1_brain_mask_review(
+        self._refresh_after_review(
             snapshot,
             subject_id,
             return_page=return_page,
+            panel=self.workspace_page.t1_brain_mask_panel,
         )
         self.statusBar().showMessage(
             "T1 brain mask approved for downstream registration and analysis.",
             12000,
-        )
-
-    def _refresh_after_t1_brain_mask_review(
-        self,
-        snapshot: StudySnapshot,
-        subject_id: str,
-        *,
-        return_page: str,
-    ) -> None:
-        if return_page == "reviews":
-            self._set_study(present_study(snapshot), page_key="reviews")
-            self.reviews_page.focus_subject(subject_id)
-            return
-        self._set_study(present_study(snapshot), page_key="subjects")
-        self.open_subject(subject_id)
-        self.workspace_page.tabs.setCurrentWidget(
-            self.workspace_page.t1_brain_mask_panel
         )
 
     def manually_edit_t2_mask(
@@ -2009,7 +1818,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study before editing a T2 lesion mask."
+                "Open a study before editing a T2 lesion mask."
             )
             return
         configured_viewer = self.settings_page.external_editor.text().strip() or None
@@ -2034,7 +1843,12 @@ class MainWindow(QMainWindow):
         except StudyStateError as exc:
             self._show_error("The manually edited T2 mask could not be saved.", exc)
             return
-        self._refresh_after_t2_review(snapshot, subject_id, return_page=return_page)
+        self._refresh_after_review(
+            snapshot,
+            subject_id,
+            return_page=return_page,
+            panel=self.workspace_page.t2_panel,
+        )
         self.statusBar().showMessage(
             "The edited mask is now the subject's current mask version and awaits approval.",
             12000,
@@ -2069,7 +1883,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study to approve a real T2 lesion mask."
+                "Open a study to approve a real T2 lesion mask."
             )
             return
         confirmation = QMessageBox.question(
@@ -2092,31 +1906,21 @@ class MainWindow(QMainWindow):
         except StudyStateError as exc:
             self._show_error("The T2 lesion mask could not be approved.", exc)
             return
-        self._refresh_after_t2_review(snapshot, subject_id, return_page=return_page)
+        self._refresh_after_review(
+            snapshot,
+            subject_id,
+            return_page=return_page,
+            panel=self.workspace_page.t2_panel,
+        )
         self.statusBar().showMessage(
             "T2 lesion mask approved; the official native-space volume is available.",
             12000,
         )
 
-    def _refresh_after_t2_review(
-        self,
-        snapshot: StudySnapshot,
-        subject_id: str,
-        *,
-        return_page: str,
-    ) -> None:
-        if return_page == "reviews":
-            self._set_study(present_study(snapshot), page_key="reviews")
-            self.reviews_page.focus_subject(subject_id)
-            return
-        self._set_study(present_study(snapshot), page_key="subjects")
-        self.open_subject(subject_id)
-        self.workspace_page.tabs.setCurrentWidget(self.workspace_page.t2_panel)
-
     def export_approved_t2_results_csv(self) -> None:
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
-                "Open a persistent study with approved T2 results to create this export."
+                "Open a study with approved T2 results to create this export."
             )
             return
         root = self.current_study.root_path
@@ -2149,9 +1953,7 @@ class MainWindow(QMainWindow):
         if self.current_study is None or not subject_ids:
             return
         if self.study_service.current_study is None:
-            self._show_status_message(
-                "Migrate this legacy project before creating flipped MRI versions."
-            )
+            self._show_status_message("Open a study before creating flipped MRI versions.")
             return
         dialog = BulkFlipDialog(len(subject_ids), self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -2171,9 +1973,7 @@ class MainWindow(QMainWindow):
         if self.current_study is None:
             return
         if self.study_service.current_study is None:
-            self._show_status_message(
-                "Migrate this legacy project before assigning subject groups."
-            )
+            self._show_status_message("Open a study before assigning subject groups.")
             return
         if self.current_study.blinded_review:
             confirmation = UnblindingDialog(self)
@@ -2193,7 +1993,6 @@ class MainWindow(QMainWindow):
         assignment = GroupAssignmentDialog(
             self.current_study.subjects,
             self.current_study.group_definitions,
-            persistent=True,
             parent=self,
         )
         if assignment.exec() != QDialog.DialogCode.Accepted:
@@ -2216,9 +2015,7 @@ class MainWindow(QMainWindow):
         if self.current_study is None:
             return
         if self.study_service.current_study is None:
-            self._show_status_message(
-                "Legacy schema-v1 projects do not contain the canonical study audit history."
-            )
+            self._show_status_message("Open a study before viewing its audit history.")
             return
         try:
             events = self.study_service.list_audit_events()
@@ -2229,49 +2026,10 @@ class MainWindow(QMainWindow):
 
     def select_input_folder(self, kind: str) -> None:
         if self.current_study is None or self.study_service.current_study is None:
-            self._show_status_message(
-                "Create or migrate a persistent study before selecting source folders."
-            )
+            self._show_status_message("Open or create a study before selecting MRI data.")
             return
-        current = (
-            self.current_study.mri_input_folder
-            if kind == "mri"
-            else self.current_study.t1_input_folder
-            if kind == "t1"
-            else self.current_study.t2_input_folder
-        )
-        selected = QFileDialog.getExistingDirectory(
-            self,
-            "Select folder containing Bruker sessions or NIfTI MRI files"
-            if kind == "mri"
-            else f"Select {kind.upper()} source folder",
-            str(current or Path.home()),
-        )
-        if not selected:
-            return
-        if kind == "mri":
-            self._discover_and_review_mri(Path(selected))
-            return
-        try:
-            snapshot = self.study_service.set_input_folder(
-                kind,
-                selected,
-                actor=self._reviewer_identity(),
-            )
-        except StudyStateError as exc:
-            self._show_error("The source folder could not be saved.", exc)
-            return
-        self._set_study(present_study(snapshot), page_key="settings")
-        self.statusBar().showMessage(
-            f"{kind.upper()} source folder saved. Files remain in their original location.",
-            8000,
-        )
-
-    def select_mri_source_folder(self) -> None:
-        if self.current_study is None or self.study_service.current_study is None:
-            self._show_status_message(
-                "Create or migrate a persistent study before importing MRI data."
-            )
+        if kind != "mri":
+            self._show_status_message(f"Unsupported input-folder kind: {kind}")
             return
         current = self.current_study.mri_input_folder
         selected = QFileDialog.getExistingDirectory(
@@ -2281,6 +2039,9 @@ class MainWindow(QMainWindow):
         )
         if selected:
             self._discover_and_review_mri(Path(selected))
+
+    def select_mri_source_folder(self) -> None:
+        self.select_input_folder("mri")
 
     def _discover_and_review_mri(self, source_root: Path) -> None:
         try:
@@ -2294,8 +2055,17 @@ class MainWindow(QMainWindow):
         snapshot = self.study_service.current_study
         if snapshot is not None:
             self._set_study(present_study(snapshot), page_key="subjects")
+        scope = self.current_study.analysis_scope
         proposed = [
-            scan for scan in report.scans if scan.suggested_role.value != "IGNORE"
+            scan
+            for scan in report.scans
+            if scan.suggested_role is not ScanRole.IGNORE
+            and (
+                scan.suggested_role is ScanRole.T2
+                and scope.includes_t2
+                or scan.suggested_role in {ScanRole.T1_PRE, ScanRole.T1_POST}
+                and scope.includes_t1
+            )
         ]
         if not proposed:
             details = " ".join(issue.message for issue in report.failures)
@@ -2308,7 +2078,11 @@ class MainWindow(QMainWindow):
                 ),
             )
             return
-        dialog = ScanImportReviewDialog(report, self)
+        dialog = ScanImportReviewDialog(
+            report,
+            analysis_scope=scope,
+            parent=self,
+        )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             self.statusBar().showMessage(
                 "MRI discovery was reviewed but no inputs were imported.",
@@ -2336,7 +2110,7 @@ class MainWindow(QMainWindow):
         thread.import_failed.connect(self._scan_import_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_scan_import_thread)
-        self._scan_import_thread = thread
+        self._background_jobs.register("scan_import", thread)
         self._scan_operation_name = operation_name
         self._set_job_status(f"{operation_name} running")
         self.statusBar().showMessage(
@@ -2380,30 +2154,30 @@ class MainWindow(QMainWindow):
         self._show_error("The MRI import plan could not be started.", StudyStateError(error))
 
     def _clear_scan_import_thread(self) -> None:
-        self._scan_import_thread = None
+        self._background_jobs.clear("scan_import")
         self._scan_operation_name = "MRI import"
 
     def _handle_blinding_toggle(self, blinded: bool) -> None:
         if self.current_study is None:
             return
         if self.study_service.current_study is None:
-            self.settings_page.set_study_state(persistent=False, blinded=True)
+            self.settings_page.set_study_state(blinded=True)
             self.set_blinded_review(True)
             return
         if blinded:
-            self.settings_page.set_study_state(persistent=True, blinded=False)
+            self.settings_page.set_study_state(blinded=False)
             self.set_blinded_review(False)
             self._show_status_message("An unblinded study cannot be blinded again.")
             return
         confirmation = UnblindingDialog(self)
         if confirmation.exec() != QDialog.DialogCode.Accepted:
-            self.settings_page.set_study_state(persistent=True, blinded=True)
+            self.settings_page.set_study_state(blinded=True)
             self.set_blinded_review(True)
             return
         try:
             snapshot = self.study_service.unblind(reviewer=self._reviewer_identity())
         except StudyStateError as exc:
-            self.settings_page.set_study_state(persistent=True, blinded=True)
+            self.settings_page.set_study_state(blinded=True)
             self.set_blinded_review(True)
             self._show_error("The study could not be unblinded.", exc)
             return
@@ -2463,36 +2237,7 @@ class MainWindow(QMainWindow):
         return reviewer or "Local researcher"
 
     def _background_job_running(self) -> bool:
-        return bool(
-            (
-                self._scan_import_thread is not None
-                and self._scan_import_thread.isRunning()
-            )
-            or (
-                self._input_validation_thread is not None
-                and self._input_validation_thread.isRunning()
-            )
-            or (
-                self._t2_inference_thread is not None
-                and self._t2_inference_thread.isRunning()
-            )
-            or (
-                self._t1_brain_mask_thread is not None
-                and self._t1_brain_mask_thread.isRunning()
-            )
-            or (
-                self._t1_registration_thread is not None
-                and self._t1_registration_thread.isRunning()
-            )
-            or (
-                self._t1_enhancement_thread is not None
-                and self._t1_enhancement_thread.isRunning()
-            )
-            or (
-                self._atlas_mapping_thread is not None
-                and self._atlas_mapping_thread.isRunning()
-            )
-        )
+        return self._background_jobs.any_running
 
     def _record_recent(self, study: StudySnapshot) -> None:
         try:
@@ -2505,7 +2250,7 @@ class MainWindow(QMainWindow):
     def _show_error(self, summary: str, exc: Exception) -> None:
         message = QMessageBox(self)
         message.setIcon(QMessageBox.Critical)
-        message.setWindowTitle("MRI Tool")
+        message.setWindowTitle("LYS IRM")
         message.setText(summary)
         message.setInformativeText(str(exc))
         message.exec()

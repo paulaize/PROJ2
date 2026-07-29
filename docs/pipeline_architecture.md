@@ -102,7 +102,7 @@ Each scientific artifact/result should record:
 
 ## Canonical and transitional state
 
-Schema-v11 `StudyRepository` state is canonical for new desktop studies. It owns studies,
+Schema-v12 `StudyRepository` state is canonical for new desktop studies. It owns studies,
 subjects, input versions, validation, T2 model releases/jobs/artifacts/results, T1
 brain-mask releases/jobs/artifacts/approvals, T1 registration methods/jobs/artifacts/
 approvals, provisional enhancement methods/jobs/results, blinding/groups, and audit
@@ -112,9 +112,9 @@ their approval and dependency
 contracts differ from the T2 ensemble and measured result. Presenters merge reviewable
 feature state into the same application presentation layer.
 
-`lys_bbb.project_state.ProjectDatabase` is the frozen compatibility layer for the
-single-file schema-v1 prototype. Production uses it only for inspection and migration;
-it is not a second production service or database and must not receive new features.
+The study record also owns its immutable analysis scope. Services reject incompatible
+subject expectations and MRI roles, while presenters use the same persisted value to
+remove irrelevant modality UI. Schema-v11 studies migrate with combined T1/T2 scope.
 
 CSV manifests in the repository-development workflow remain scientific-validation
 handoffs. Desktop T1 processing uses canonical study state through services. The

@@ -39,7 +39,7 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
-          bash -n packaging/windows/Install-LYS-BBB.sh
+          bash -n packaging/windows/Install-LYS-IRM.sh
 
       - name: Build the verified WSL colleague bundle
         run: python scripts/packaging/build_windows_handoff.py --target wsl
@@ -50,7 +50,7 @@ jobs:
       - name: Upload the downloadable ZIP
         uses: actions/upload-artifact@v6
         with:
-          name: LYS-BBB-Windows-${{ github.sha }}
+          name: LYS-IRM-Windows-${{ github.sha }}
           path: dist/*.zip
           if-no-files-found: error
           retention-days: 30

@@ -68,17 +68,6 @@ class T2RegistrationSupportMaskRecord:
 
 
 @dataclass(frozen=True)
-class AtlasMappingMethodRecord:
-    id: str
-    active: bool
-    method_version: str
-    method_spec_sha256: str
-    config: dict[str, Any]
-    registered_at: str
-    registered_by: str
-
-
-@dataclass(frozen=True)
 class AtlasMappingJobRecord:
     id: str
     subject_id: str

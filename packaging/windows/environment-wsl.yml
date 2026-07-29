@@ -1,4 +1,4 @@
-name: lys-bbb-windows-handoff
+name: lys-irm-windows-handoff
 channels:
   - conda-forge
 dependencies:

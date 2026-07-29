@@ -25,7 +25,8 @@ from lys_bbb_app.domain.scan_import import (
     ScanImportAssignment,
     ScanRole,
 )
-from lys_bbb_app.ui.widgets import secondary_button
+from lys_bbb_app.domain.study import AnalysisScope
+from lys_bbb_app.ui.widgets import secondary_button, show_inline_error
 
 
 class ScanImportReviewDialog(QDialog):
@@ -45,10 +46,19 @@ class ScanImportReviewDialog(QDialog):
     def __init__(
         self,
         report: ScanDiscoveryReport,
+        analysis_scope: AnalysisScope = AnalysisScope.T1_T2,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.report = report
+        self.analysis_scope = analysis_scope
+        self.allowed_roles = (
+            (ScanRole.IGNORE, ScanRole.T1_PRE, ScanRole.T1_POST, ScanRole.T2)
+            if analysis_scope is AnalysisScope.T1_T2
+            else (ScanRole.IGNORE, ScanRole.T1_PRE, ScanRole.T1_POST)
+            if analysis_scope is AnalysisScope.T1_ONLY
+            else (ScanRole.IGNORE, ScanRole.T2)
+        )
         self.setWindowTitle("Review discovered MRI inputs")
         self.setModal(True)
         self.resize(1240, 720)
@@ -67,7 +77,7 @@ class ScanImportReviewDialog(QDialog):
         summary = QLabel(
             f"Found {report.session_count} acquisition folder(s), "
             f"{len(report.proposed_subject_codes)} proposed subject(s), and "
-            f"{len(report.scans) - report.ignored_scan_count} proposed T1/T2 input(s). "
+            f"{len(report.scans) - report.ignored_scan_count} proposed MRI input(s). "
             "Nothing is imported until you confirm this table."
         )
         summary.setObjectName("infoBanner")
@@ -128,9 +138,14 @@ class ScanImportReviewDialog(QDialog):
             self.table.setCellWidget(row, 0, subject)
 
             role = QComboBox()
-            for value in (ScanRole.IGNORE, ScanRole.T1_PRE, ScanRole.T1_POST, ScanRole.T2):
+            for value in self.allowed_roles:
                 role.addItem(self.ROLE_LABELS[value], value.value)
-            role.setCurrentIndex(role.findData(scan.suggested_role.value))
+            suggested_role = (
+                scan.suggested_role
+                if scan.suggested_role in self.allowed_roles
+                else ScanRole.IGNORE
+            )
+            role.setCurrentIndex(role.findData(suggested_role.value))
             role.currentIndexChanged.connect(
                 lambda _index, table_row=row: self._role_changed(table_row)
             )
@@ -245,7 +260,7 @@ class ScanImportReviewDialog(QDialog):
     def accept(self) -> None:
         assignments = self.assignments()
         if not assignments:
-            self._show_error("Assign at least one scan to T1 pre, T1 post, or T2.")
+            self._show_error("Assign at least one scan to an available import role.")
             return
         if any(not assignment.subject_code for assignment in assignments):
             self._show_error("Every imported scan requires a subject ID.")
@@ -323,5 +338,4 @@ class ScanImportReviewDialog(QDialog):
             self.table.setRowHidden(row, hidden_by_default and not show_ignored)
 
     def _show_error(self, message: str) -> None:
-        self.error.setText(message)
-        self.error.show()
+        show_inline_error(self.error, message)

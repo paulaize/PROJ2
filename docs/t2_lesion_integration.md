@@ -125,10 +125,20 @@ value by default and requires audited unblinding before adding group columns.
 
 ## Deferred
 
-- Lesion-associated T1 enhancement.
-- Detailed Allen labels, Waxholm comparison, and cohort atlas exports.
+- Lesion-associated T1 enhancement is deferred implementation work but remains a final
+  cross-workflow objective: calculate enhancement in native pre-T1 space, connect it
+  through an independently approved pre-T1→T2 transform, and compare signal-intensity
+  change inside the untouched native T2 lesion with a predeclared outside-lesion brain
+  reference.
+- Broad atlas-specific lesion and enhancement summaries remain planned additions.
+  Detailed Allen labels, Waxholm comparison, and cohort atlas exports remain deferred.
 - Embedded mask editing.
 - Model release marketplaces or arbitrary parameter editing.
+
+These additions do not supersede the independent endpoints. Native T2 lesion
+segmentation/volume and general pre/post-T1 enhancement remain useful required results
+even when atlas mapping, cross-modal registration, or combined analysis is unavailable
+or fails review.
 
 The implemented acceptance criteria are listed in `current_state.md` and exercised by
 `tests/test_t2_review.py`.

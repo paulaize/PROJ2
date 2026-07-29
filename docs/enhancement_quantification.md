@@ -28,6 +28,41 @@ This post→pre transform belongs only to enhancement. Atlas mapping independent
 MRI-atlas→pre-T1 and pre-T1→native-T2 branches and must never consume the post-Gd image
 or post→pre artifact.
 
+## Final combined MRI objective
+
+The final product objective has three additive result levels. Completing a later level
+must not replace, hide, or delay an independently valid earlier result:
+
+1. **Independent general results:** whole-brain pre/post T1-weighted gadolinium
+   enhancement in native pre-T1 space, and lesion segmentation plus volume on the
+   untouched native T2 grid.
+2. **Atlas-specific results:** broad-region summaries of approved lesion and, after the
+   required registration and signal-preservation validation, enhancement measurements.
+3. **Combined T1/T2 results:** comparison of gadolinium signal-intensity change inside
+   the native T2 lesion with a predeclared outside-lesion brain reference.
+
+The planned combined spatial chain is:
+
+```text
+post-Gd T1 → native pre-Gd T1 → native T2
+                  │                 + untouched native T2 lesion
+                  └→ enhancement    → inside-versus-outside lesion result
+```
+
+Enhancement is calculated first in native pre-T1 space. A versioned enhancement map may
+then be represented once on the native T2 grid through an independently reviewed
+pre-T1→T2 transform; the native T2 lesion is not resampled. Post-Gd T1 remains excluded
+from estimating atlas→pre-T1 and pre-T1→T2 transforms even though the resulting
+enhancement map is spatially connected through pre-T1.
+
+This combined endpoint is a final objective, not a currently validated result. Before
+implementation, freeze the exact outside-lesion reference (for example, acquired brain
+outside the lesion versus a separately justified reference region), interpolation and
+partial-volume policy, summary statistics, failure rules, and full-chain registration
+acceptance criteria. Do not choose them after inspecting group effects. Until those
+contracts and the enhancement method are validated, combined and atlas-stratified
+enhancement outputs remain explicitly provisional.
+
 The full approved brain mask defines whole-brain analysis. Coronal slices 50–170 are a
 standardized QC display range only. They do not crop the mask or define an anatomical
 analysis slab.

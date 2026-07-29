@@ -58,7 +58,7 @@ def convert_scan_assignment(
         spacing = tuple(float(value) for value in image.header.get_zooms()[:3])
         axis_codes = tuple(str(value) for value in nib.aff2axcodes(image.affine))
         provenance = {
-            "format": "lys-bbb-scan-import",
+            "format": "lys-irm-scan-import",
             "version": 1,
             "subject_code": assignment.subject_code,
             "role": assignment.role.value,

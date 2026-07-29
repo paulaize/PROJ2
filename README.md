@@ -1,6 +1,6 @@
-# MRI Tool
+# LYS IRM
 
-MRI Tool is a subject-centred desktop application and scientific backend for mouse MRI.
+LYS IRM is a subject-centred desktop application and scientific backend for mouse MRI.
 It owns three connected workflows:
 
 ```text
@@ -60,8 +60,8 @@ changing inventory.
 
 ```bash
 conda env create -f environment.yml
-conda run -n lys-bbb python -m pip install --no-deps -e .
-conda run -n lys-bbb lys-bbb-desktop
+conda run -n lys-irm python -m pip install --no-deps -e .
+conda run -n lys-irm lys-irm-desktop
 ```
 
 For the first native Windows 11 colleague test bundle, which deliberately omits the
@@ -76,7 +76,7 @@ Run the complete test suite with:
 
 ```bash
 env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-  conda run -n lys-bbb python -m pytest tests -q
+  conda run -n lys-irm python -m pytest tests -q
 ```
 
 Raw MRI data may live on mounted hard drives. Study creation records source references

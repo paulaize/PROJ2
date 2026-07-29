@@ -4,7 +4,7 @@
 
 ```bash
 conda env create -f environment.yml
-conda run -n lys-bbb python -m pip install --no-deps -e .
+conda run -n lys-irm python -m pip install --no-deps -e .
 ```
 
 Keep raw Bruker data read-only. Generated development data belongs under ignored
@@ -16,13 +16,13 @@ Run the same command used by CI:
 
 ```bash
 env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 QT_QPA_PLATFORM=offscreen \
-  conda run -n lys-bbb python -m pytest tests -q
+  conda run -n lys-irm python -m pytest tests -q
 ```
 
 Also run:
 
 ```bash
-conda run -n lys-bbb ruff check src tests
+conda run -n lys-irm ruff check src scripts tests
 ```
 
 Tests prove software behavior; they do not replace anatomical review or a frozen
@@ -32,17 +32,17 @@ raw-data-to-result validation set.
 
 ```bash
 # Launcher
-conda run -n lys-bbb lys-bbb-desktop
+conda run -n lys-irm lys-irm-desktop
 
 # Open a canonical study root
-conda run -n lys-bbb lys-bbb-desktop /path/to/study-root
+conda run -n lys-irm lys-irm-desktop /path/to/study-root
 ```
 
 The desktop normally owns T2 execution. A backend smoke test accepts inputs arranged as
 `<input>/<case-id>/scan.nii.gz` and requires new work/output directories:
 
 ```bash
-conda run -n lys-bbb python -m lys_bbb.t2_inference_cli \
+conda run -n lys-irm python -m lys_bbb.t2_inference_cli \
   --release ~/Downloads/LYS_v1_RatLesNetV2_mac_inference \
   --input /absolute/path/to/inference_input \
   --work /absolute/path/to/new_work \
@@ -54,6 +54,11 @@ conda run -n lys-bbb python -m lys_bbb.t2_inference_cli \
 approve, or calculate an accuracy metric.
 
 ## Current source boundaries
+
+The product and Python distribution are named **LYS IRM** (`lys-irm`). The established
+`lys_bbb` and `lys_bbb_app` Python import namespaces remain stable implementation
+contracts so existing studies, frozen workers, and research adapters do not require a
+risky API migration.
 
 | Layer | Location | Responsibility |
 |---|---|---|
@@ -68,8 +73,6 @@ modules from widgets or Qt from domain/backend code. `tests/test_app_architectur
 enforces this boundary.
 
 Current production state uses `StudyRepository` and feature-specific repositories.
-`lys_bbb.project_state.ProjectDatabase` is the frozen schema-v1 compatibility layer.
-Production uses it only for legacy inspection and migration; do not extend it.
 
 The T2 review slice is divided into `lys_bbb.t2_review` for native-grid binary-mask
 validation and measurement, `T2ReviewService` for managed correction/approval
@@ -82,12 +85,12 @@ approved-only CSV. Keep new image logic in the backend and new use cases out of 
 ### T1 refinement and review
 
 ```bash
-conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py --help
-conda run -n lys-bbb python scripts/brain_extraction/build_rs2_refinement_notebook.py
-conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py --help
-conda run -n lys-bbb lys-bbb-t1-mask-setup --help
-conda run -n lys-bbb lys-bbb-t1-mask --help
-conda run -n lys-bbb python scripts/masks/open_manual_mask_editor.py --help
+conda run -n lys-irm python scripts/brain_extraction/prepare_colab_package.py --help
+conda run -n lys-irm python scripts/brain_extraction/build_rs2_refinement_notebook.py
+conda run -n lys-irm python scripts/brain_extraction/review_colab_results.py --help
+conda run -n lys-irm lys-irm-t1-mask-setup --help
+conda run -n lys-irm lys-irm-t1-mask --help
+conda run -n lys-irm python scripts/masks/open_manual_mask_editor.py --help
 ```
 
 The notebook builder embeds the tested `brain_mask_refinement.py` source. Rebuild and
@@ -101,7 +104,7 @@ and provenance separately. These are automatic drafts, never approvals.
 The desktop uses the default local release at:
 
 ```text
-~/Library/Application Support/LYS BBB/models/rs2net-m-seam-v1
+~/Library/Application Support/LYS IRM/models/rs2net-m-seam-v1
 ```
 
 After importing and validating the native pre-Gd T1, open the subject's `T1 Brain Mask`
@@ -129,15 +132,6 @@ milestone:
 
 Do not interpret cohort outputs biologically until masks, exact registrations, metadata,
 normalization, and thresholds pass their documented gates.
-
-## Legacy project compatibility
-
-`.lysbbb` is the frozen single-file schema-v1 prototype. It may be inspected or migrated
-through the launcher, but new studies never use it. Migration creates a new study root
-and leaves the original file unchanged.
-
-The compatibility tests exercise the schema-v1 database class directly so old user
-projects remain recoverable without maintaining a second application service.
 
 ## Generated outputs
 

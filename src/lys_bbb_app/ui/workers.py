@@ -12,6 +12,37 @@ from lys_bbb_app.domain.scan_import import ScanImportAssignment, ScanImportState
 from lys_bbb_app.services.study_service import StudyService
 
 
+class _SubjectJobThread(QThread):
+    """Shared immutable context for a subject-scoped study job."""
+
+    def __init__(
+        self,
+        service: StudyService,
+        *,
+        actor: str,
+        subject_ids: tuple[str, ...] | None,
+    ) -> None:
+        super().__init__()
+        self._service = service
+        self._actor = actor
+        self._subject_ids = subject_ids
+
+
+class _DeviceJobThread(_SubjectJobThread):
+    """Subject job that also selects a compute device."""
+
+    def __init__(
+        self,
+        service: StudyService,
+        *,
+        actor: str,
+        subject_ids: tuple[str, ...] | None,
+        device_name: str = "auto",
+    ) -> None:
+        super().__init__(service, actor=actor, subject_ids=subject_ids)
+        self._device_name = device_name
+
+
 class ScanImportThread(QThread):
     progress_changed = Signal(int, int, str)
     import_completed = Signal(object, int)
@@ -76,7 +107,7 @@ class InputValidationThread(QThread):
         self.validation_completed.emit(snapshot)
 
 
-class T2InferenceThread(QThread):
+class T2InferenceThread(_DeviceJobThread):
     progress_changed = Signal(int, int, str)
     inference_completed = Signal(object)
     inference_failed = Signal(str)
@@ -89,11 +120,12 @@ class T2InferenceThread(QThread):
         subject_ids: tuple[str, ...] | None = None,
         device_name: str = "auto",
     ) -> None:
-        super().__init__()
-        self._service = service
-        self._actor = actor
-        self._subject_ids = subject_ids
-        self._device_name = device_name
+        super().__init__(
+            service,
+            actor=actor,
+            subject_ids=subject_ids,
+            device_name=device_name,
+        )
 
     def run(self) -> None:
         try:
@@ -109,24 +141,10 @@ class T2InferenceThread(QThread):
         self.inference_completed.emit(snapshot)
 
 
-class T1BrainMaskThread(QThread):
+class T1BrainMaskThread(_DeviceJobThread):
     progress_changed = Signal(int, int, str)
     generation_completed = Signal(object)
     generation_failed = Signal(str)
-
-    def __init__(
-        self,
-        service: StudyService,
-        *,
-        actor: str,
-        subject_ids: tuple[str, ...],
-        device_name: str = "auto",
-    ) -> None:
-        super().__init__()
-        self._service = service
-        self._actor = actor
-        self._subject_ids = subject_ids
-        self._device_name = device_name
 
     def run(self) -> None:
         try:
@@ -142,22 +160,10 @@ class T1BrainMaskThread(QThread):
         self.generation_completed.emit(snapshot)
 
 
-class T1RegistrationThread(QThread):
+class T1RegistrationThread(_SubjectJobThread):
     progress_changed = Signal(int, int, str)
     registration_completed = Signal(object)
     registration_failed = Signal(str)
-
-    def __init__(
-        self,
-        service: StudyService,
-        *,
-        actor: str,
-        subject_ids: tuple[str, ...],
-    ) -> None:
-        super().__init__()
-        self._service = service
-        self._actor = actor
-        self._subject_ids = subject_ids
 
     def run(self) -> None:
         try:
@@ -172,22 +178,10 @@ class T1RegistrationThread(QThread):
         self.registration_completed.emit(snapshot)
 
 
-class T1EnhancementThread(QThread):
+class T1EnhancementThread(_SubjectJobThread):
     progress_changed = Signal(int, int, str)
     calculation_completed = Signal(object)
     calculation_failed = Signal(str)
-
-    def __init__(
-        self,
-        service: StudyService,
-        *,
-        actor: str,
-        subject_ids: tuple[str, ...],
-    ) -> None:
-        super().__init__()
-        self._service = service
-        self._actor = actor
-        self._subject_ids = subject_ids
 
     def run(self) -> None:
         try:

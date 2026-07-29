@@ -12,9 +12,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts" / "packaging" / "build_windows_handoff.py"
-BUNDLE_ROOT = "LYS-BBB-Windows/"
-NATIVE_BUNDLE_ROOT = "MRI-Tool-Windows-Native-No-ANTs-v1/"
-ANTSPYX_BUNDLE_ROOT = "MRI-Tool-Windows-Native-ANTsPyx-Preview-v1/"
+BUNDLE_ROOT = "LYS-IRM-Windows/"
+NATIVE_BUNDLE_ROOT = "LYS-IRM-Windows-Native-No-ANTs-v1/"
+ANTSPYX_BUNDLE_ROOT = "LYS-IRM-Windows-Native-ANTsPyx-Preview-v1/"
 
 
 def _write_tiny_t2_release(root: Path) -> Path:
@@ -99,11 +99,11 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
 
     with zipfile.ZipFile(archive_path) as archive:
         names = set(archive.namelist())
-        assert BUNDLE_ROOT + "Setup-LYS-BBB.cmd" in names
-        assert BUNDLE_ROOT + "Setup-LYS-BBB.ps1" in names
-        assert BUNDLE_ROOT + "Launch-LYS-BBB.ps1" in names
-        assert BUNDLE_ROOT + "Install-LYS-BBB.sh" in names
-        assert BUNDLE_ROOT + "lys-bbb.ico" in names
+        assert BUNDLE_ROOT + "Setup-LYS-IRM.cmd" in names
+        assert BUNDLE_ROOT + "Setup-LYS-IRM.ps1" in names
+        assert BUNDLE_ROOT + "Launch-LYS-IRM.ps1" in names
+        assert BUNDLE_ROOT + "Install-LYS-IRM.sh" in names
+        assert BUNDLE_ROOT + "lys-irm.ico" in names
         assert BUNDLE_ROOT + "handoff-manifest.json" in names
         assert BUNDLE_ROOT + "app/pyproject.toml" in names
         assert BUNDLE_ROOT + "app/src/lys_bbb_app/main.py" in names
@@ -112,7 +112,7 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
             in names
         )
 
-        icon = archive.read(BUNDLE_ROOT + "lys-bbb.ico")
+        icon = archive.read(BUNDLE_ROOT + "lys-irm.ico")
         assert icon[:4] == b"\x00\x00\x01\x00"
         assert int.from_bytes(icon[4:6], "little") >= 1
 
@@ -127,7 +127,7 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
 
 def test_wsl_installer_has_valid_bash_syntax() -> None:
     subprocess.run(
-        ["bash", "-n", str(PROJECT_ROOT / "packaging/windows/Install-LYS-BBB.sh")],
+        ["bash", "-n", str(PROJECT_ROOT / "packaging/windows/Install-LYS-IRM.sh")],
         check=True,
     )
 
@@ -156,11 +156,11 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
 
     with zipfile.ZipFile(archive_path) as archive:
         names = set(archive.namelist())
-        assert NATIVE_BUNDLE_ROOT + "Setup-MRI-Tool.cmd" in names
-        assert NATIVE_BUNDLE_ROOT + "Setup-MRI-Tool.ps1" in names
-        assert NATIVE_BUNDLE_ROOT + "Launch-MRI-Tool.ps1" in names
-        assert NATIVE_BUNDLE_ROOT + "mri-tool.ico" in names
-        assert NATIVE_BUNDLE_ROOT + "Install-LYS-BBB.sh" not in names
+        assert NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.cmd" in names
+        assert NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.ps1" in names
+        assert NATIVE_BUNDLE_ROOT + "Launch-LYS-IRM.ps1" in names
+        assert NATIVE_BUNDLE_ROOT + "lys-irm.ico" in names
+        assert NATIVE_BUNDLE_ROOT + "Install-LYS-IRM.sh" not in names
         environment_path = (
             NATIVE_BUNDLE_ROOT
             + "app/packaging/windows-native/environment-win64.yml"
@@ -171,7 +171,7 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
         assert "\n  - ants" not in environment.casefold()
 
         launcher = archive.read(
-            NATIVE_BUNDLE_ROOT + "Launch-MRI-Tool.ps1"
+            NATIVE_BUNDLE_ROOT + "Launch-LYS-IRM.ps1"
         ).decode()
         assert "windows_native_no_ants_v1" in launcher
         assert "wsl.exe" not in launcher.casefold()
@@ -181,6 +181,7 @@ def test_native_windows_bundle_contains_no_ants_or_wsl_runtime(
                 NATIVE_BUNDLE_ROOT + "handoff-manifest.json"
             )
         )
+        assert manifest["application"] == "LYS IRM"
         assert manifest["target"]["runtime"].startswith("native Windows")
         assert (
             manifest["target"]["feature_profile"]
@@ -220,9 +221,9 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
 
     with zipfile.ZipFile(archive_path) as archive:
         names = set(archive.namelist())
-        assert ANTSPYX_BUNDLE_ROOT + "Setup-MRI-Tool.cmd" in names
-        assert ANTSPYX_BUNDLE_ROOT + "mri-tool.ico" in names
-        assert ANTSPYX_BUNDLE_ROOT + "Install-LYS-BBB.sh" not in names
+        assert ANTSPYX_BUNDLE_ROOT + "Setup-LYS-IRM.cmd" in names
+        assert ANTSPYX_BUNDLE_ROOT + "lys-irm.ico" in names
+        assert ANTSPYX_BUNDLE_ROOT + "Install-LYS-IRM.sh" not in names
         environment_path = (
             ANTSPYX_BUNDLE_ROOT
             + "app/packaging/windows-native/environment-win64-antspyx.yml"
@@ -238,7 +239,7 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
         assert "\n  - requests" in environment
         assert "vc14_runtime" in environment
         setup = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "Setup-MRI-Tool.ps1"
+            ANTSPYX_BUNDLE_ROOT + "Setup-LYS-IRM.ps1"
         ).decode().casefold()
         assert "antspyx==0.6.3" in setup
         assert "antspyx-0.6.3-cp311-cp311-win_amd64.whl" in setup
@@ -261,7 +262,7 @@ def test_native_antspyx_preview_bundle_is_windows_only_and_pinned(
             "windows_native_antspyx_preview_v1"
         )
         launcher = archive.read(
-            ANTSPYX_BUNDLE_ROOT + "Launch-MRI-Tool.ps1"
+            ANTSPYX_BUNDLE_ROOT + "Launch-LYS-IRM.ps1"
         ).decode()
         assert "wsl.exe" not in launcher.casefold()
 

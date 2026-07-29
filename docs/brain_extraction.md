@@ -37,41 +37,6 @@ review the full posterior-anterior extent.
 
 ## Active reproducible workflow
 
-### Lightweight local MouseBSE trial
-
-MouseBSE is available as an isolated desktop experiment for comparing a classical,
-CPU-only extraction with RS2/M-seam. It is not the selected production method and its
-output is always an unapproved draft.
-
-From the project root, run:
-
-```bash
-conda run --no-capture-output -n lys-bbb \
-  python scripts/brain_extraction/run_mousebse_test.py
-```
-
-The first run clones the official MouseBSE source at pinned commit
-`ef3039c68dde4f3649e454f365a883e2b1c48d2f` and compiles it with at most two build
-jobs. It then processes `C23S3_D1_bis/pre_coronal.nii.gz` with the official v25a
-defaults and `--norotate`, validates that the output remains on the native image grid,
-creates a 0/1 editable copy, writes provenance and per-slice QC, and opens that copy
-over the T1 in ITK-SNAP. It does not overwrite the source image, raw MouseBSE output,
-or any production manual mask.
-
-To test a different coronal T1:
-
-```bash
-conda run --no-capture-output -n lys-bbb \
-  python scripts/brain_extraction/run_mousebse_test.py --case C25S1_D1
-```
-
-Every invocation creates a new timestamped directory under
-`derivatives/brain_extraction/mousebse_tests/<case>/`. In ITK-SNAP, edit only the
-loaded file under that run's `editable/` folder and save it in place. Review all slices,
-especially the olfactory bulbs, superior cortex, inferior surface, cerebellum,
-brainstem, and anterior/posterior endpoints. The mask remains unsuitable for
-quantification until it is manually reviewed and explicitly approved.
-
 ### Exact-TTA all-mice Colab handoff
 
 Use
@@ -87,7 +52,7 @@ The ready-to-upload package is
 without silently changing the cohort with:
 
 ```bash
-conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py \
+conda run -n lys-irm python scripts/brain_extraction/prepare_colab_package.py \
   --input-root output/all_mice \
   --case-file config/brain_extraction_all_mice_34.txt \
   --out-dir derivatives/brain_extraction/colab \
@@ -124,7 +89,7 @@ ditto -x -k \
 First validate all 34 local image/pre-label pairs without copying or opening anything:
 
 ```bash
-conda run -n lys-bbb python scripts/masks/open_manual_mask_editor.py \
+conda run -n lys-irm python scripts/masks/open_manual_mask_editor.py \
   --input-root output/all_mice \
   --prelabel-dir derivatives/brain_extraction/colab_results/all_mice_rs2_m_seam_run_01/t1_brain_masks_all_mice_itksnap_handoff/itksnap_prelabels \
   --prelabel-glob '*_rs2_m_seam_mask.nii.gz' \
@@ -151,10 +116,10 @@ filename marks approval.
 Install the exact reviewed RS2 source and weight once:
 
 ```bash
-conda run -n lys-bbb python -m pip install -e '.[t1-inference]'
+conda run -n lys-irm python -m pip install -e '.[t1-inference]'
 
-conda run --no-capture-output -n lys-bbb lys-bbb-t1-mask-setup \
-  --destination "$HOME/Library/Application Support/LYS BBB/models/rs2net-m-seam-v1"
+conda run --no-capture-output -n lys-irm lys-irm-t1-mask-setup \
+  --destination "$HOME/Library/Application Support/LYS IRM/models/rs2net-m-seam-v1"
 ```
 
 The setup validates source commit `144b032d...` and model SHA-256
@@ -163,8 +128,8 @@ The setup validates source commit `144b032d...` and model SHA-256
 Generate one automatic draft directly from a native pre-Gd T1 NIfTI:
 
 ```bash
-conda run --no-capture-output -n lys-bbb lys-bbb-t1-mask \
-  --release "$HOME/Library/Application Support/LYS BBB/models/rs2net-m-seam-v1" \
+conda run --no-capture-output -n lys-irm lys-irm-t1-mask \
+  --release "$HOME/Library/Application Support/LYS IRM/models/rs2net-m-seam-v1" \
   --input /absolute/path/to/mouse_pre_t1.nii.gz \
   --output /absolute/path/to/a/new/output_directory \
   --device auto
@@ -176,8 +141,8 @@ fallback. The MPS adapter transfers each completed mirrored prediction to CPU an
 the Metal cache before the next pass. For a faster local draft variant, explicitly use:
 
 ```bash
-conda run --no-capture-output -n lys-bbb lys-bbb-t1-mask \
-  --release "$HOME/Library/Application Support/LYS BBB/models/rs2net-m-seam-v1" \
+conda run --no-capture-output -n lys-irm lys-irm-t1-mask \
+  --release "$HOME/Library/Application Support/LYS IRM/models/rs2net-m-seam-v1" \
   --input /absolute/path/to/mouse_pre_t1.nii.gz \
   --output /absolute/path/to/a/new/output_directory \
   --device mps \
@@ -221,7 +186,7 @@ To apply the selected refinement to an existing raw RS2 output without rerunning
 network:
 
 ```bash
-conda run -n lys-bbb lys-bbb-t1-mask \
+conda run -n lys-irm lys-irm-t1-mask \
   --input /absolute/path/to/mouse_pre_t1.nii.gz \
   --raw-mask /absolute/path/to/raw_rs2_mask.nii.gz \
   --output /absolute/path/to/a/new/output_directory
@@ -235,7 +200,7 @@ The frozen cohort is `config/brain_extraction_benchmark_10.txt`. Rebuild its inp
 archive with:
 
 ```bash
-conda run -n lys-bbb python scripts/brain_extraction/prepare_colab_package.py \
+conda run -n lys-irm python scripts/brain_extraction/prepare_colab_package.py \
   --input-root output/all_mice \
   --case-file config/brain_extraction_benchmark_10.txt \
   --out-dir derivatives/brain_extraction/colab \
@@ -247,7 +212,7 @@ Run the RS2 refinement notebook in a fresh Colab T4 runtime and upload that arch
 Review the downloaded result locally:
 
 ```bash
-conda run -n lys-bbb python scripts/brain_extraction/review_colab_results.py \
+conda run -n lys-irm python scripts/brain_extraction/review_colab_results.py \
   ~/Downloads/t1_brain_extraction_rs2_refinement_results.zip
 ```
 

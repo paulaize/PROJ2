@@ -20,20 +20,23 @@ from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
     QFileDialog,
+    QLabel,
     QMessageBox,
+    QPushButton,
 )
 
-from lys_bbb.project_state import ProjectDatabase  # noqa: E402
 from lys_bbb.scan_discovery import discover_mri_source  # noqa: E402
-from lys_bbb_app.application.study_presenter import present_legacy_project  # noqa: E402
+from lys_bbb_app.application.study_presenter import present_study  # noqa: E402
+from lys_bbb_app.domain.scan_import import ScanRole  # noqa: E402
 from lys_bbb_app.domain.study import (  # noqa: E402
+    AnalysisScope,
     CreateStudyRequest,
     CreateSubjectRequest,
-    LegacyProjectRecord,
 )
 from lys_bbb_app.domain.view_models import (  # noqa: E402
     ReviewItemViewModel,
     StatusValue,
+    StudyViewModel,
 )
 from lys_bbb_app.features import (  # noqa: E402
     FULL_FEATURES,
@@ -49,6 +52,7 @@ from lys_bbb_app.services.recent_studies_service import (  # noqa: E402
 from lys_bbb_app.services.study_service import StudyService  # noqa: E402
 from lys_bbb_app.ui.dialogs import (  # noqa: E402
     AddSubjectDialog,
+    CreateStudyDialog,
     GroupAssignmentDialog,
     RestoreSubjectDialog,
     UnblindingDialog,
@@ -64,6 +68,20 @@ def qt_app():
     app = QApplication.instance() or QApplication([])
     yield app
     app.closeAllWindows()
+
+
+def _empty_study_view(tmp_path: Path) -> StudyViewModel:
+    return StudyViewModel(
+        study_id="study",
+        name="Study",
+        root_path=tmp_path,
+        metrics=(),
+        workflows=(),
+        priority_actions=(),
+        subjects=(),
+        reviews=(),
+        results=(),
+    )
 
 
 def test_launcher_accepts_only_an_optional_project_path() -> None:
@@ -84,7 +102,7 @@ def test_native_windows_profile_removes_all_atlas_entry_points(
         features_for_profile("windows_native_antspyx_preview_v1")
         is WINDOWS_NATIVE_ANTSPYX_PREVIEW_V1_FEATURES
     )
-    with pytest.raises(ValueError, match="Unknown MRI Tool feature profile"):
+    with pytest.raises(ValueError, match="Unknown LYS IRM feature profile"):
         features_for_profile("unexpected")
 
     atlas_review = ReviewItemViewModel(
@@ -106,9 +124,7 @@ def test_native_windows_profile_removes_all_atlas_entry_points(
         artifact_name="Post-Gd to pre-Gd registration",
     )
     study = replace(
-        present_legacy_project(
-            LegacyProjectRecord("study", "Study", tmp_path / "project.sqlite", 1)
-        ),
+        _empty_study_view(tmp_path),
         reviews=(atlas_review, t1_review),
     )
 
@@ -125,7 +141,7 @@ def test_native_windows_profile_removes_all_atlas_entry_points(
     ] == [
         "Inputs",
         "T1 Brain Mask",
-        "T1 Registration & Result",
+        "T1 Registration + Result",
         "T2 Lesion",
         "History",
     ]
@@ -171,6 +187,200 @@ def test_technical_details_are_collapsed_but_accessible(
     section.close()
 
 
+def test_shell_has_specific_scientific_identity_and_plain_navigation(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(
+        recent_studies=RecentStudiesService(tmp_path / "preferences" / "recent.json")
+    )
+
+    assert window.windowTitle() == "LYS IRM"
+    assert [
+        button.text().replace("&&", "&") for button in window.nav_buttons.values()
+    ] == [
+        "Overview",
+        "Subjects",
+        "Reviews",
+        "Results & exports",
+        "Settings",
+    ]
+    assert window.workspace_page.next_action_card.objectName() == "nextActionCard"
+    assert (
+        window.workspace_page.tabs.tabText(2)
+        == "T1 Registration + Result"
+    )
+    subject_actions = {
+        button.text(): button.property("kind")
+        for button in window.subjects_page.findChildren(QPushButton)
+    }
+    assert subject_actions["Import MRI folder…"] is None
+    assert subject_actions["Add subject"] == "secondary"
+    assert subject_actions["Run T2 segmentation…"] == "secondary"
+    window.close()
+
+
+def test_create_study_dialog_derives_hidden_identifier_from_name(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    dialog = CreateStudyDialog()
+    dialog.name.setText("  EAE Pilot / 2026  ")
+    assert Path(dialog.root_path.text()).name == "eae-pilot-2026"
+    dialog.root_path.setText(str(tmp_path / "eae-pilot"))
+
+    request = dialog.request(actor="QA Researcher")
+
+    assert request.name == "EAE Pilot / 2026"
+    assert request.identifier == "eae-pilot-2026"
+    assert request.analysis_scope is AnalysisScope.T1_T2
+    assert not any(
+        label.text() == "Study identifier"
+        for label in dialog.findChildren(QLabel)
+    )
+    dialog.accept()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    dialog.close()
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected_tabs", "t1_hidden", "t2_hidden"),
+    (
+        (
+            AnalysisScope.T1_ONLY,
+            ("Inputs", "T1 Brain Mask", "T1 Registration + Result", "History"),
+            False,
+            True,
+        ),
+        (
+            AnalysisScope.T2_ONLY,
+            ("Inputs", "T2 Lesion", "History"),
+            True,
+            False,
+        ),
+    ),
+)
+def test_single_modality_study_removes_irrelevant_ui(
+    qt_app: QApplication,
+    tmp_path: Path,
+    scope: AnalysisScope,
+    expected_tabs: tuple[str, ...],
+    t1_hidden: bool,
+    t2_hidden: bool,
+) -> None:
+    service = StudyService()
+    service.create_study(
+        CreateStudyRequest(
+            tmp_path / scope.value.lower(),
+            "Scoped study",
+            scope.value.lower(),
+            analysis_scope=scope,
+            actor="Reviewer A",
+        )
+    )
+    snapshot = service.add_subject(
+        CreateSubjectRequest(
+            "Mouse-001",
+            scope.includes_t1,
+            scope.includes_t2,
+            actor="Reviewer A",
+        )
+    )
+    window = MainWindow(
+        study_service=service,
+        recent_studies=RecentStudiesService(
+            tmp_path / f"{scope.value.lower()}-preferences" / "recent.json"
+        ),
+    )
+    window._set_study(present_study(snapshot))
+    window.open_subject(snapshot.subjects[0].id)
+    qt_app.processEvents()
+
+    assert window.current_study.analysis_scope is scope
+    assert [workflow.key for workflow in window.current_study.workflows] == [
+        "t1" if scope.includes_t1 else "t2"
+    ]
+    assert window.subjects_page.table.isColumnHidden(2) is t1_hidden
+    assert window.subjects_page.table.isColumnHidden(3) is t2_hidden
+    assert window.results_page.table.isColumnHidden(2) is t1_hidden
+    assert window.results_page.table.isColumnHidden(3) is t2_hidden
+    assert window.subjects_page.run_t2.isHidden() is (not scope.includes_t2)
+    assert window.reviews_page.modality_buttons["T1"].isHidden() is t1_hidden
+    assert window.reviews_page.modality_buttons["T2"].isHidden() is t2_hidden
+    assert tuple(
+        window.workspace_page.tabs.tabText(index)
+        for index in range(window.workspace_page.tabs.count())
+        if window.workspace_page.tabs.isTabVisible(index)
+    ) == expected_tabs
+    assert window.workspace_page.t1_summary.isHidden() is t1_hidden
+    assert window.workspace_page.t2_summary.isHidden() is t2_hidden
+    window.close()
+
+
+def test_creation_dialog_records_selected_analysis_scope(
+    qt_app: QApplication,
+) -> None:
+    dialog = CreateStudyDialog()
+    dialog.analysis_scope.setCurrentIndex(
+        dialog.analysis_scope.findData(AnalysisScope.T2_ONLY)
+    )
+
+    assert dialog.request(actor="QA Researcher").analysis_scope is AnalysisScope.T2_ONLY
+    dialog.close()
+
+
+def test_add_subject_inherits_scope_without_extra_workflow_fields(
+    qt_app: QApplication,
+) -> None:
+    dialog = AddSubjectDialog(
+        blinded=True,
+        analysis_scope=AnalysisScope.T2_ONLY,
+    )
+    dialog.subject_code.setText("Mouse-001")
+
+    request = dialog.request(actor="QA Researcher")
+
+    assert request.expected_t1 is False
+    assert request.expected_t2 is True
+    assert not any(
+        label.text() == "Expected workflows"
+        for label in dialog.findChildren(QLabel)
+    )
+    dialog.close()
+
+
+def test_overview_workflow_grid_reflows_at_supported_window_sizes(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    service = StudyService()
+    service.create_study(
+        CreateStudyRequest(
+            tmp_path / "responsive-study",
+            "Responsive study",
+            "responsive-study",
+            actor="QA Researcher",
+        )
+    )
+    service.add_subject(
+        CreateSubjectRequest("Mouse-001", True, True, actor="QA Researcher")
+    )
+    window = MainWindow(
+        study_service=service,
+        recent_studies=RecentStudiesService(tmp_path / "preferences" / "recent.json"),
+    )
+    window.resize(1180, 760)
+    window._set_study(present_study(service.current_study))
+    window.show()
+    qt_app.processEvents()
+    assert window.overview_page._workflow_column_count == 2
+
+    window.resize(1440, 900)
+    qt_app.processEvents()
+    assert window.overview_page._workflow_column_count == 3
+    window.close()
+
+
 def test_persistent_review_queue_emits_connected_t2_actions(
     qt_app: QApplication,
     tmp_path: Path,
@@ -195,9 +405,7 @@ def test_persistent_review_queue_emits_connected_t2_actions(
         qc_preview_path=qc_slices[1],
         qc_slice_paths=tuple(qc_slices),
     )
-    base = present_legacy_project(
-        LegacyProjectRecord("study", "Study", tmp_path / "project.sqlite", 1)
-    )
+    base = _empty_study_view(tmp_path)
     page = ReviewsPage()
     page.set_study(replace(base, reviews=(review,)))
     approvals: list[tuple[str, str]] = []
@@ -255,9 +463,7 @@ def test_registration_review_uses_qc_approval_without_mask_editing(
         can_manual_edit=False,
         supports_slice_qc=False,
     )
-    base = present_legacy_project(
-        LegacyProjectRecord("study", "Study", tmp_path / "project.sqlite", 1)
-    )
+    base = _empty_study_view(tmp_path)
     page = ReviewsPage()
     page.set_study(replace(base, reviews=(review,)))
     approvals: list[tuple[str, str]] = []
@@ -278,27 +484,6 @@ def test_registration_review_uses_qc_approval_without_mask_editing(
     page.approve.click()
     assert approvals == [("stable-subject-id", "registration-v1")]
     page.close()
-
-
-def test_opening_real_schema_v1_project_does_not_inject_records(
-    qt_app: QApplication,
-    tmp_path: Path,
-) -> None:
-    project_path = tmp_path / "real-study.lysbbb"
-    ProjectDatabase.create(project_path, name="Real study")
-
-    window = MainWindow()
-    assert window.open_project_path(project_path) is True
-    qt_app.processEvents()
-
-    assert window.current_study is not None
-    assert window.current_study.name == "Real study"
-    assert window.subjects_page.proxy.rowCount() == 0
-    assert len(window.reviews_page.queue_buttons) == 0
-    assert window.results_page.proxy.rowCount() == 0
-    assert "legacy project" in window.study_banner.text().lower()
-    assert not window.study_banner.isHidden()
-    window.close()
 
 
 def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
@@ -373,19 +558,6 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.subjects_page.model.columnCount() == 5
     assert window.subjects_page.group_filter.isHidden()
 
-    t1_source = tmp_path / "external-drive" / "t1"
-    t1_source.mkdir(parents=True)
-    monkeypatch.setattr(
-        QFileDialog,
-        "getExistingDirectory",
-        lambda *_args, **_kwargs: str(t1_source),
-    )
-    window.select_input_folder("t1")
-    assert window.current_study is not None
-    assert window.current_study.t1_input_folder == t1_source.resolve()
-    assert "T1:" in window.settings_page.legacy_input_note.text()
-    assert not window.settings_page.legacy_input_note.isHidden()
-
     monkeypatch.setattr(UnblindingDialog, "exec", lambda _dialog: QDialog.Accepted)
     monkeypatch.setattr(GroupAssignmentDialog, "exec", lambda _dialog: QDialog.Accepted)
     monkeypatch.setattr(
@@ -449,7 +621,7 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     monkeypatch.setattr(ScanImportReviewDialog, "exec", lambda _dialog: QDialog.Accepted)
 
     window.select_mri_source_folder()
-    thread = window._scan_import_thread
+    thread = window._background_jobs.get("scan_import")
     assert thread is not None
     assert thread.wait(5000)
     for _ in range(10):
@@ -481,7 +653,7 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     qt_app.processEvents()
     assert window.subjects_page.validate_selected.isEnabled()
     window.subjects_page.validate_selected.click()
-    validation_thread = window._input_validation_thread
+    validation_thread = window._background_jobs.get("input_validation")
     assert validation_thread is not None
     assert validation_thread.wait(5000)
     for _ in range(10):
@@ -540,6 +712,30 @@ def test_scan_review_can_exclude_and_restore_an_entire_discovered_subject(
         "C1S1_D1",
         "C2S2_D1",
     }
+    dialog.close()
+
+
+def test_scan_review_only_offers_roles_from_the_study_scope(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "mri"
+    source_root.mkdir()
+    nib.save(
+        nib.Nifti1Image(np.ones((3, 4, 5), dtype=np.float32), np.eye(4)),
+        source_root / "C1S1_D1_t2w.nii.gz",
+    )
+    dialog = ScanImportReviewDialog(
+        discover_mri_source(source_root),
+        analysis_scope=AnalysisScope.T1_ONLY,
+    )
+    selector = dialog._role_selectors[0]
+
+    assert {
+        ScanRole(selector.itemData(index))
+        for index in range(selector.count())
+    } == {ScanRole.IGNORE, ScanRole.T1_PRE, ScanRole.T1_POST}
+    assert ScanRole(selector.currentData()) is ScanRole.IGNORE
     dialog.close()
 
 

@@ -59,7 +59,7 @@ class AntsExecutables:
             if path is None:
                 raise FileNotFoundError(
                     f"{name} is unavailable. Install conda-forge::ants={ANTS_VERSION} "
-                    "in the lys-bbb environment."
+                    "in the lys-irm environment."
                 )
             resolved[field] = Path(path).resolve()
         version = subprocess.run(

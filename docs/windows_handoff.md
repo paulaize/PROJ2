@@ -17,10 +17,10 @@ would change the registered scientific method rather than merely package the app
 Build only from the clean release snapshot:
 
 ```bash
-conda run -n lys-bbb python scripts/packaging/build_windows_handoff.py
+conda run -n lys-irm python scripts/packaging/build_windows_handoff.py
 ```
 
-The command writes `dist/LYS-BBB-Windows-<version>-<commit>.zip` and prints its SHA-256.
+The command writes `dist/LYS-IRM-Windows-<version>-<commit>.zip` and prints its SHA-256.
 The builder refuses a dirty tree so the archive always identifies one exact commit.
 
 ## Colleague installation
@@ -28,10 +28,10 @@ The builder refuses a dirty tree so the archive always identifies one exact comm
 The colleague:
 
 1. downloads and fully extracts the ZIP;
-2. double-clicks `Setup-LYS-BBB.cmd`;
+2. double-clicks `Setup-LYS-IRM.cmd`;
 3. accepts the Windows administrator prompt if WSL2 is not installed;
 4. restarts Windows and double-clicks the setup file again if requested; and
-5. launches the app from the new `LYS BBB` Desktop icon.
+5. launches the app from the new `LYS IRM` Desktop icon.
 
 The first setup needs Internet access, at least 12 GiB free on the Windows system drive,
 and typically 20–45 minutes. It installs:
@@ -50,7 +50,7 @@ The launcher caps ANTs/OpenMP/MKL work at two threads to leave usable memory on 
 
 ## Data and external scientific releases
 
-Windows `Downloads` is linked to `/home/lysbbb/Downloads`; all Windows drives remain
+Windows `Downloads` is linked to `/home/lysirm/Downloads`; all Windows drives remain
 available as `/mnt/c`, `/mnt/d`, and so on. Study SQLite files should be opened by only
 one machine/process at a time.
 
@@ -64,5 +64,5 @@ raw MRI data read-only.
 Make changes on the development branch, test them, and then deliberately update the
 release branch snapshot. Re-run the builder and hand over the newly named commit ZIP.
 Installing a newer bundle preserves the previous application source under
-`/opt/lys-bbb/app.previous.<UTC timestamp>` before switching the dedicated environment
+`/opt/lys-irm/app.previous.<UTC timestamp>` before switching the dedicated environment
 to the new version.

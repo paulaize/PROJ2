@@ -7,7 +7,7 @@ import math
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 from uuid import uuid4
 
 from lys_bbb_app.domain.errors import StudyStateError
@@ -26,6 +26,7 @@ from lys_bbb_app.domain.t1_analysis import (
 )
 from lys_bbb_app.domain.t2_lesion import ProcessingJobState
 from lys_bbb_app.infrastructure.database_support import (
+    StudyDatabaseContext,
     connect,
     insert_audit,
     normalize_required,
@@ -33,11 +34,6 @@ from lys_bbb_app.infrastructure.database_support import (
     touch_study,
     utc_now,
 )
-
-
-class StudyDatabaseContext(Protocol):
-    root_path: Path
-    database_path: Path
 
 
 def _relative(repository: StudyDatabaseContext, path: Path) -> str:

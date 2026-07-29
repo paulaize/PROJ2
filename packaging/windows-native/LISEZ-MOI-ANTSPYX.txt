@@ -1,4 +1,4 @@
-MRI TOOL - APERCU WINDOWS NATIF AVEC ANTsPyx
+LYS IRM - APERCU WINDOWS NATIF AVEC ANTsPyx
 ============================================
 
 Ce paquet fonctionne directement sous Windows 11. Il n'installe ni Ubuntu, ni WSL2,
@@ -6,11 +6,11 @@ ni les executables ANTs separes. Il installe ANTsPyx 0.6.3 dans l'environnement 
 de l'application.
 
 1. Decompressez completement le fichier ZIP.
-2. Double-cliquez sur Setup-MRI-Tool.cmd.
+2. Double-cliquez sur Setup-LYS-IRM.cmd.
 3. Laissez la fenetre ouverte pendant le telechargement des dependances.
 4. ITK-SNAP est facultatif. Si vous acceptez son installation, Windows demandera
    une autorisation administrateur pour ce logiciel uniquement.
-5. A la fin, double-cliquez sur "MRI Tool" sur le Bureau.
+5. A la fin, double-cliquez sur "LYS IRM" sur le Bureau.
 
 Prevoir une connexion Internet, 8 Gio d'espace libre et environ 15 a 40 minutes
 pour la premiere installation. Les lancements suivants utilisent l'icone.
@@ -37,9 +37,9 @@ dossier de modeles de l'utilisateur et l'application les detecte automatiquement
 Aucun transfert manuel de poids n'est necessaire.
 
 Les donnees et le logiciel sont stockes dans:
-  %LOCALAPPDATA%\LYS_BBB
+  %LOCALAPPDATA%\LYS IRM
 
 Les modeles sont installes dans:
-  %LOCALAPPDATA%\LYS BBB\models
+  %LOCALAPPDATA%\LYS IRM\models
 
 Ne jamais ouvrir le meme dossier d'etude simultanement sur deux ordinateurs.

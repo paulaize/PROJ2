@@ -6,16 +6,10 @@ from __future__ import annotations
 import argparse
 import csv
 import subprocess
-import sys
 from collections import Counter
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from lys_bbb.brain_extraction_review import (  # noqa: E402
+from lys_bbb.brain_extraction_review import (
     MODEL_LABELS,
     MODEL_ORDER,
     find_itksnap,

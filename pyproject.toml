@@ -1,7 +1,7 @@
 [project]
-name = "lys-bbb"
+name = "lys-irm"
 version = "0.1.0"
-description = "Subject-centred mouse T1 and T2 MRI quantification backend and desktop application."
+description = "LYS IRM subject-centred mouse MRI analysis desktop application and backend."
 requires-python = ">=3.10"
 dependencies = [
   "matplotlib>=3.8",
@@ -12,10 +12,10 @@ dependencies = [
 ]
 
 [project.scripts]
-lys-bbb-desktop = "lys_bbb_app.main:main"
-lys-bbb-t2-infer = "lys_bbb.t2_inference_cli:main"
-lys-bbb-t1-mask = "lys_bbb.t1_brain_mask_cli:main"
-lys-bbb-t1-mask-setup = "lys_bbb.t1_brain_mask_setup_cli:main"
+lys-irm-desktop = "lys_bbb_app.main:main"
+lys-irm-t2-infer = "lys_bbb.t2_inference_cli:main"
+lys-irm-t1-mask = "lys_bbb.t1_brain_mask_cli:main"
+lys-irm-t1-mask-setup = "lys_bbb.t1_brain_mask_setup_cli:main"
 
 [project.optional-dependencies]
 conversion = ["brkraw==0.5.7"]
@@ -37,5 +37,5 @@ t1-inference = [
 test = ["pytest>=8", "ruff>=0.8"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 testpaths = ["tests"]

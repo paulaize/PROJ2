@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $DistroName = "Ubuntu"
-$WindowsInstallDirectory = Join-Path $env:LOCALAPPDATA "LYS BBB"
+$WindowsInstallDirectory = Join-Path $env:LOCALAPPDATA "LYS IRM"
 $MinimumFreeSpaceGiB = 12
 $WslInstallWasRequested = $false
 
@@ -92,7 +92,7 @@ function Install-WslIfNeeded {
         Show-Information `
             -Title "Redemarrage requis" `
             -Message ("Windows doit redemarrer pour terminer WSL2.`n`n" +
-                "Apres le redemarrage, double-cliquez a nouveau sur Setup-LYS-BBB.cmd.")
+                "Apres le redemarrage, double-cliquez a nouveau sur Setup-LYS-IRM.cmd.")
         exit 0
     }
 }
@@ -103,20 +103,20 @@ function New-LysShortcut {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($ShortcutPath)
     $powerShell = Join-Path $PSHOME "powershell.exe"
-    $launcher = Join-Path $WindowsInstallDirectory "Launch-LYS-BBB.ps1"
-    $icon = Join-Path $WindowsInstallDirectory "lys-bbb.ico"
+    $launcher = Join-Path $WindowsInstallDirectory "Launch-LYS-IRM.ps1"
+    $icon = Join-Path $WindowsInstallDirectory "lys-irm.ico"
     $shortcut.TargetPath = $powerShell
     $shortcut.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcher`""
     $shortcut.WorkingDirectory = $WindowsInstallDirectory
     $shortcut.IconLocation = "$icon,0"
-    $shortcut.Description = "LYS BBB Scientific Workflows"
+    $shortcut.Description = "LYS IRM Scientific Workflows"
     $shortcut.Save()
 }
 
 try {
     Write-Step "Controle du paquet"
     if (-not [Environment]::Is64BitOperatingSystem) {
-        throw "LYS BBB requiert Windows 64 bits."
+        throw "LYS IRM requiert Windows 64 bits."
     }
     $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     if ($architecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
@@ -150,7 +150,7 @@ try {
             Show-Information `
                 -Title "Redemarrage requis" `
                 -Message ("Windows doit redemarrer pour terminer WSL2.`n`n" +
-                    "Apres le redemarrage, double-cliquez a nouveau sur Setup-LYS-BBB.cmd.")
+                    "Apres le redemarrage, double-cliquez a nouveau sur Setup-LYS-IRM.cmd.")
             exit 0
         }
         throw "Ubuntu/WSL2 est installe mais ne peut pas demarrer."
@@ -168,7 +168,7 @@ try {
     Write-Host "Cette etape telecharge plusieurs Gio et peut durer 20 a 45 minutes."
     $skipModel = if ($SkipT1ModelDownload) { "1" } else { "0" }
     & wsl.exe --distribution $DistroName --user root --exec `
-        /bin/bash "$bundleWslPath/Install-LYS-BBB.sh" `
+        /bin/bash "$bundleWslPath/Install-LYS-IRM.sh" `
         "$bundleWslPath/app" `
         "$windowsProfileWslPath" `
         "$skipModel"
@@ -178,24 +178,36 @@ try {
 
     Write-Step "Creation de l'icone Windows"
     New-Item -ItemType Directory -Path $WindowsInstallDirectory -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-BBB.ps1") `
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-IRM.ps1") `
         -Destination $WindowsInstallDirectory -Force
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "lys-bbb.ico") `
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "lys-irm.ico") `
         -Destination $WindowsInstallDirectory -Force
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "handoff-manifest.json") `
         -Destination $WindowsInstallDirectory -Force
 
-    $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "LYS BBB.lnk"
-    New-LysShortcut -ShortcutPath $desktopShortcut
+    $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "LYS IRM.lnk"
     $programs = [Environment]::GetFolderPath("Programs")
-    New-LysShortcut -ShortcutPath (Join-Path $programs "LYS BBB.lnk")
+    foreach ($legacyName in @("MRI Tool.lnk", "LYS BBB.lnk")) {
+        Remove-Item `
+            -LiteralPath (Join-Path (
+                [Environment]::GetFolderPath("Desktop")
+            ) $legacyName) `
+            -Force `
+            -ErrorAction SilentlyContinue
+        Remove-Item `
+            -LiteralPath (Join-Path $programs $legacyName) `
+            -Force `
+            -ErrorAction SilentlyContinue
+    }
+    New-LysShortcut -ShortcutPath $desktopShortcut
+    New-LysShortcut -ShortcutPath (Join-Path $programs "LYS IRM.lnk")
 
     Write-Host ""
     Write-Host "Installation terminee." -ForegroundColor Green
-    Write-Host "Double-cliquez sur l'icone 'LYS BBB' du Bureau pour demarrer."
+    Write-Host "Double-cliquez sur l'icone 'LYS IRM' du Bureau pour demarrer."
     Show-Information `
-        -Title "LYS BBB est pret" `
-        -Message "L'installation est terminee. Utilisez l'icone LYS BBB du Bureau."
+        -Title "LYS IRM est pret" `
+        -Message "L'installation est terminee. Utilisez l'icone LYS IRM du Bureau."
     exit 0
 }
 catch {

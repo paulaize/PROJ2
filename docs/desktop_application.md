@@ -87,6 +87,19 @@ PySide6 widget → application service → scientific backend/repository
 Qt widgets collect choices and display state. They do not manipulate image arrays,
 calculate measurements, parse arbitrary console text, or write scientific records.
 
+The shell follows a small set of explicit implementation boundaries:
+
+- `MainWindow` owns navigation and user-facing action handlers;
+- `main_window_connections` owns declarative page-to-action signal wiring;
+- `BackgroundJobRegistry` owns mutually exclusive Qt worker lifecycles;
+- `StudyService` owns the open-study lifecycle and preserves the stable action API;
+- `MriInputService`, `T2InferenceService`, `AtlasMappingService`, and the review
+  services own cohesive Qt-free workflows; and
+- scientific array processing remains in `lys_bbb`, called through those services.
+
+New modality workflows should extend these boundaries instead of adding scientific
+logic or feature-specific thread slots directly to `MainWindow`.
+
 ## Study storage and safety
 
 New studies use a directory:
@@ -110,8 +123,7 @@ study-root/
 - The SQLite study should live on a reliable local or locally mounted filesystem.
 - Multi-machine concurrent editing and remote clusters are outside the MVP.
 
-Schema-v11 study roots are canonical. Single-file `.lysbbb` schema-v1 projects are frozen
-legacy inputs supported only for non-destructive inspection and migration.
+Schema-v12 directory-based study roots are canonical.
 
 ## Current application shell
 
@@ -127,14 +139,15 @@ Settings
 
 ### Launcher
 
-Create a study, open a schema-v11 study root, resume a recent study, or migrate a legacy
-`.lysbbb` file. Creation must refuse an existing target directory and leave source MRI
-untouched.
+Create a study, open a schema-v12 study root, or resume a recent study. Creation must
+refuse an existing target directory and leave source MRI untouched. Creation also records
+one immutable analysis scope: combined T1/T2, T1-only, or T2-only. Existing
+directory-based studies migrating to schema v12 retain combined behavior.
 
 ### Subjects and subject workspace
 
-The worklist is the central operational screen. Its default columns are subject, next
-action, compact T1 state, compact T2 state, and overall state. Detailed input, mask,
+The worklist is the central operational screen. Its columns are subject, next action,
+compact state for each enabled modality, and overall state. Detailed input, mask,
 registration, and result stages belong in the subject workspace rather than separate
 worklist columns. The worklist supports search, selection, direct validation of a
 selected converted MRI, subject archiving, group assignment after unblinding, versioned

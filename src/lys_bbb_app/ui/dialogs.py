@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -26,12 +25,14 @@ from PySide6.QtWidgets import (
 )
 
 from lys_bbb_app.domain.study import (
+    AnalysisScope,
     AuditEventRecord,
     CreateStudyRequest,
     CreateSubjectRequest,
+    derive_study_identifier,
 )
 from lys_bbb_app.domain.view_models import SubjectViewModel
-from lys_bbb_app.ui.widgets import secondary_button
+from lys_bbb_app.ui.widgets import secondary_button, show_inline_error
 
 
 class CreateStudyDialog(QDialog):
@@ -39,7 +40,7 @@ class CreateStudyDialog(QDialog):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Create MRI Tool study")
+        self.setWindowTitle("Create LYS IRM study")
         self.setModal(True)
         self.resize(680, 480)
 
@@ -59,10 +60,13 @@ class CreateStudyDialog(QDialog):
 
         form = QFormLayout()
         self.name = QLineEdit("Mouse MRI Study")
-        self.identifier = QLineEdit("mouse-mri-study")
+        self._root_parent = Path.home() / "Documents"
+        self._root_path_is_automatic = True
         self.root_path = QLineEdit(
-            str(Path.home() / "Documents" / "mouse-mri-study")
+            str(self._root_parent / derive_study_identifier(self.name.text()))
         )
+        self.name.textChanged.connect(self._sync_automatic_root_path)
+        self.root_path.textEdited.connect(self._mark_root_path_manual)
         browse = secondary_button("Browse…")
         browse.clicked.connect(self._browse_parent)
         root_row = QHBoxLayout()
@@ -78,10 +82,23 @@ class CreateStudyDialog(QDialog):
         self.description = QTextEdit()
         self.description.setPlaceholderText("Optional study description")
         self.description.setMaximumHeight(80)
+        self.analysis_scope = QComboBox()
+        self.analysis_scope.addItem(
+            "T1 and T2 — enhancement and lesion segmentation",
+            AnalysisScope.T1_T2,
+        )
+        self.analysis_scope.addItem(
+            "T1 only — gadolinium enhancement",
+            AnalysisScope.T1_ONLY,
+        )
+        self.analysis_scope.addItem(
+            "T2 only — lesion segmentation",
+            AnalysisScope.T2_ONLY,
+        )
         self.blinded = QCheckBox("Start with experimental groups hidden")
         self.blinded.setChecked(True)
         form.addRow("Study name", self.name)
-        form.addRow("Study identifier", self.identifier)
+        form.addRow("What will be analyzed?", self.analysis_scope)
         form.addRow("New study directory", root_row)
         form.addRow("MRI source folder", source_row)
         form.addRow("Description", self.description)
@@ -105,9 +122,10 @@ class CreateStudyDialog(QDialog):
         return CreateStudyRequest(
             root_path=Path(self.root_path.text().strip()).expanduser(),
             name=self.name.text().strip(),
-            identifier=self.identifier.text().strip(),
+            identifier=derive_study_identifier(self.name.text()),
             description=self.description.toPlainText().strip() or None,
             blinded=self.blinded.isChecked(),
+            analysis_scope=AnalysisScope(self.analysis_scope.currentData()),
             actor=actor,
         )
 
@@ -117,15 +135,9 @@ class CreateStudyDialog(QDialog):
 
     def accept(self) -> None:
         name = self.name.text().strip()
-        identifier = self.identifier.text().strip()
         root_text = self.root_path.text().strip()
-        if not name or not identifier or not root_text:
-            self._show_error("Study name, identifier, and directory are required.")
-            return
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", identifier):
-            self._show_error(
-                "The identifier may use letters, numbers, periods, underscores, and hyphens."
-            )
+        if not name or not root_text:
+            self._show_error("Study name and directory are required.")
             return
         root = Path(root_text).expanduser()
         if root.exists():
@@ -149,8 +161,9 @@ class CreateStudyDialog(QDialog):
             str(Path(self.root_path.text()).expanduser().parent),
         )
         if selected:
-            identifier = self.identifier.text().strip() or "mouse-mri-study"
-            self.root_path.setText(str(Path(selected) / identifier))
+            self._root_parent = Path(selected)
+            self._root_path_is_automatic = True
+            self._sync_automatic_root_path(self.name.text())
 
     def _browse_mri_source(self) -> None:
         selected = QFileDialog.getExistingDirectory(
@@ -162,19 +175,24 @@ class CreateStudyDialog(QDialog):
             self.mri_source.setText(selected)
 
     def _show_error(self, message: str) -> None:
-        self.error.setText(message)
-        self.error.show()
+        show_inline_error(self.error, message)
 
+    def _sync_automatic_root_path(self, name: str) -> None:
+        if self._root_path_is_automatic:
+            self.root_path.setText(
+                str(self._root_parent / derive_study_identifier(name))
+            )
 
-
-
+    def _mark_root_path_manual(self) -> None:
+        self._root_path_is_automatic = False
 class AddSubjectDialog(QDialog):
-    """Collect a persistent subject identity and expected workflows."""
+    """Collect a persistent subject identity within the study's fixed scope."""
 
     def __init__(
         self,
         *,
         blinded: bool,
+        analysis_scope: AnalysisScope = AnalysisScope.T1_T2,
         group_definitions: tuple[str, ...] = (),
         parent: QWidget | None = None,
     ) -> None:
@@ -199,16 +217,11 @@ class AddSubjectDialog(QDialog):
         self.group.addItems(group_definitions)
         self.group.setEnabled(not blinded)
         self.expected_t1 = QCheckBox("T1 enhancement")
-        self.expected_t1.setChecked(True)
+        self.expected_t1.setChecked(analysis_scope.includes_t1)
         self.expected_t2 = QCheckBox("T2 lesion")
-        self.expected_t2.setChecked(True)
-        workflows = QHBoxLayout()
-        workflows.addWidget(self.expected_t1)
-        workflows.addWidget(self.expected_t2)
-        workflows.addStretch()
+        self.expected_t2.setChecked(analysis_scope.includes_t2)
         form.addRow("Subject ID", self.subject_code)
         form.addRow("Experimental group", self.group)
-        form.addRow("Expected workflows", workflows)
         layout.addLayout(form)
 
         note = QLabel(
@@ -255,8 +268,7 @@ class AddSubjectDialog(QDialog):
         super().accept()
 
     def _show_error(self, message: str) -> None:
-        self.error.setText(message)
-        self.error.show()
+        show_inline_error(self.error, message)
 
 
 class RestoreSubjectDialog(QDialog):
@@ -411,7 +423,6 @@ class GroupAssignmentDialog(QDialog):
         subjects: tuple[SubjectViewModel, ...],
         group_definitions: tuple[str, ...] = (),
         *,
-        persistent: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -428,13 +439,8 @@ class GroupAssignmentDialog(QDialog):
         layout.addWidget(title)
 
         detail = QLabel(
-            (
-                "Subjects may remain Unassigned. Saving validates and records this mapping "
-                "before grouped CSV/Excel-compatible exports are enabled."
-                if persistent
-                else "Subjects may remain Unassigned. The persistent application validates "
-                "and audits this mapping before grouped exports are enabled."
-            )
+            "Subjects may remain Unassigned. Saving validates and records this mapping "
+            "before grouped CSV/Excel-compatible exports are enabled."
         )
         detail.setObjectName("infoBanner")
         detail.setWordWrap(True)
@@ -472,9 +478,7 @@ class GroupAssignmentDialog(QDialog):
         layout.addWidget(self.table, 1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel | QDialogButtonBox.Save)
-        buttons.button(QDialogButtonBox.Save).setText(
-            "Save assignments" if persistent else "Apply assignments (preview)"
-        )
+        buttons.button(QDialogButtonBox.Save).setText("Save assignments")
         buttons.button(QDialogButtonBox.Cancel).setProperty("kind", "secondary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)

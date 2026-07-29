@@ -327,7 +327,7 @@ def create_registration_qc(
     before_xcorr: float | None = None,
     after_xcorr: float | None = None,
 ) -> Path:
-    cache_root = Path(tempfile.gettempdir()) / "lys_bbb_mri_cache"
+    cache_root = Path(tempfile.gettempdir()) / "lys_irm_mri_cache"
     os.environ.setdefault("MPLCONFIGDIR", str(cache_root / "matplotlib"))
     os.environ.setdefault("XDG_CACHE_HOME", str(cache_root / "xdg"))
     Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)

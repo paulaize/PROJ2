@@ -6,7 +6,6 @@ import json
 import sqlite3
 from contextlib import closing
 from pathlib import Path
-from typing import Protocol
 from uuid import uuid4
 
 from lys_bbb_app.domain.scan_import import (
@@ -22,7 +21,9 @@ from lys_bbb_app.domain.scan_import import (
     SourceFormat,
 )
 from lys_bbb_app.domain.errors import StudyStateError
+from lys_bbb_app.domain.study import AnalysisScope
 from lys_bbb_app.infrastructure.database_support import (
+    StudyDatabaseContext,
     connect as _connect,
     insert_audit as _insert_audit,
     normalize_required as _normalize_required,
@@ -36,13 +37,6 @@ from lys_bbb_app.infrastructure.t1_analysis_repository import invalidate_t1_anal
 from lys_bbb_app.infrastructure.atlas_mapping_repository import (
     invalidate_atlas_for_input_change,
 )
-
-
-class StudyDatabaseContext(Protocol):
-    root_path: Path
-    database_path: Path
-
-
 def stage_scan_imports(
     repository: StudyDatabaseContext,
     assignments: tuple[ScanImportAssignment, ...],
@@ -59,6 +53,22 @@ def stage_scan_imports(
         with closing(_connect(repository.database_path)) as connection:
             with connection:
                 study = _single_study(connection)
+                scope = AnalysisScope(study["analysis_scope"])
+                incompatible = tuple(
+                    assignment
+                    for assignment in assignments
+                    if (
+                        assignment.role
+                        in {ScanRole.T1_PRE, ScanRole.T1_POST}
+                        and not scope.includes_t1
+                    )
+                    or (assignment.role is ScanRole.T2 and not scope.includes_t2)
+                )
+                if incompatible:
+                    raise StudyStateError(
+                        "One or more MRI roles do not belong to this study's "
+                        "configured analysis workflows."
+                    )
                 subjects = {
                     row["subject_code"].casefold(): row
                     for row in connection.execute(

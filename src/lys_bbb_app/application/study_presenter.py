@@ -12,7 +12,11 @@ from lys_bbb_app.domain.scan_import import (
     ScanRole,
 )
 from lys_bbb_app.domain.atlas_mapping import AtlasReviewState
-from lys_bbb_app.domain.study import LegacyProjectRecord, StudySnapshot, SubjectRecord
+from lys_bbb_app.domain.study import (
+    AnalysisScope,
+    StudySnapshot,
+    SubjectRecord,
+)
 from lys_bbb_app.domain.t1_analysis import (
     T1EnhancementResultState,
     T1RegistrationState,
@@ -43,28 +47,6 @@ from lys_bbb_app.domain.view_models import (
 NOT_STARTED = StatusValue("Not started", "neutral")
 NOT_APPLICABLE = StatusValue("Not applicable", "neutral")
 WAITING_FOR_INPUT = StatusValue("Waiting for input", "unavailable")
-
-
-def present_legacy_project(project: LegacyProjectRecord) -> StudyViewModel:
-    """Represent a real legacy project without inventing subject records."""
-
-    return StudyViewModel(
-        study_id=project.project_id,
-        name=project.name,
-        root_path=project.database_path,
-        metrics=(
-            MetricViewModel("Subjects", "0", "neutral"),
-            MetricViewModel("Ready", "0", "ready"),
-            MetricViewModel("Need review", "0", "review"),
-            MetricViewModel("Blocked", "0", "failed"),
-            MetricViewModel("Complete", "0", "approved"),
-        ),
-        workflows=(),
-        priority_actions=(),
-        subjects=(),
-        reviews=(),
-        results=(),
-    )
 
 
 def present_study(study: StudySnapshot) -> StudyViewModel:
@@ -115,7 +97,11 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         if artifact.active
         and artifact.state is T1RegistrationState.REVIEW_REQUIRED
     )
-    atlas_reviews = _present_atlas_review_items(study)
+    atlas_reviews = (
+        _present_atlas_review_items(study)
+        if study.analysis_scope is AnalysisScope.T1_T2
+        else ()
+    )
     reviews = t1_reviews + t1_registration_reviews + t2_reviews + atlas_reviews
     archived_subjects = tuple(
         _present_subject(subject, (), (), (), study)
@@ -303,6 +289,22 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 "results",
             ),
         )
+        workflows = tuple(
+            workflow
+            for workflow in workflows
+            if (
+                workflow.key == "t1"
+                and study.analysis_scope.includes_t1
+            )
+            or (
+                workflow.key == "t2"
+                and study.analysis_scope.includes_t2
+            )
+            or (
+                workflow.key == "combined"
+                and study.analysis_scope is AnalysisScope.T1_T2
+            )
+        )
         priority_actions = (
             PriorityActionViewModel(
                 (
@@ -399,6 +401,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         study_id=study.id,
         name=study.name,
         root_path=study.root_path,
+        analysis_scope=study.analysis_scope,
         blinded_review=study.is_blinded,
         group_definitions=study.group_definitions,
         archived_subjects=archived_subjects,
@@ -733,6 +736,8 @@ def _present_subject(
             else NOT_STARTED
         ),
         updated=_format_timestamp(subject.updated_at),
+        expects_t1=study.analysis_scope.includes_t1,
+        expects_t2=study.analysis_scope.includes_t2,
         metadata=tuple(metadata),
         history=tuple(history),
         mri_input_count=sum(

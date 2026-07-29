@@ -1,5 +1,5 @@
 # ruff: noqa: E402
-"""Bruker T1 FLASH conversion utilities for the LYS BBB MRI pipeline.
+"""Bruker T1 FLASH conversion utilities for the LYS IRM MRI pipeline.
 
 The quantitative output is the native-resolution coronal NIfTI. Fiji-oriented
 display copies and slab outputs are optional visualization products and should
@@ -17,7 +17,7 @@ import tempfile
 
 import numpy as np
 
-_cache_root = Path(tempfile.gettempdir()) / "lys_bbb_mri_cache"
+_cache_root = Path(tempfile.gettempdir()) / "lys_irm_mri_cache"
 os.environ.setdefault("MPLCONFIGDIR", str(_cache_root / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(_cache_root / "xdg"))
 for _cache_dir in (Path(os.environ["MPLCONFIGDIR"]), Path(os.environ["XDG_CACHE_HOME"])):

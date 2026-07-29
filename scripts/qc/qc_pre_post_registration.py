@@ -7,28 +7,22 @@ import argparse
 import csv
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 
-_cache_root = Path(tempfile.gettempdir()) / "lys_bbb_mri_cache"
+_cache_root = Path(tempfile.gettempdir()) / "lys_irm_mri_cache"
 os.environ.setdefault("MPLCONFIGDIR", str(_cache_root / "matplotlib"))
 os.environ.setdefault("XDG_CACHE_HOME", str(_cache_root / "xdg"))
 for _cache_dir in (Path(os.environ["MPLCONFIGDIR"]), Path(os.environ["XDG_CACHE_HOME"])):
     _cache_dir.mkdir(parents=True, exist_ok=True)
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-import matplotlib
+import matplotlib  # noqa: E402
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # noqa: E402
 
-from lys_bbb.flash_pair import (
+from lys_bbb.flash_pair import (  # noqa: E402
     load_float,
     montage_slices,
     register_post_to_pre,
@@ -131,7 +125,7 @@ def process_case(case_id: str,
     transform_path = case_dir / f"{case_id}_post_to_pre.tfm"
     qc_png = case_dir / f"{case_id}_registration_qc.png"
 
-    with tempfile.TemporaryDirectory(prefix="lys_bbb_regqc_") as tmp:
+    with tempfile.TemporaryDirectory(prefix="lys_irm_regqc_") as tmp:
         tmp_registered = registered_path if save_registered else Path(tmp) / f"{case_id}_post_registered_to_pre.nii.gz"
         registration_meta = register_post_to_pre(pre_path, post_path, tmp_registered, transform_path)
         _, post_registered = load_float(tmp_registered)

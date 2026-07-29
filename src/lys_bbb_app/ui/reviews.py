@@ -47,7 +47,10 @@ class ReviewsPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(14)
-        heading, _heading_layout = page_heading("Review and QC")
+        heading, _heading_layout = page_heading(
+            "Review and QC",
+            "Inspect exact artifacts and record explicit human approval.",
+        )
         layout.addWidget(heading)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -203,13 +206,30 @@ class ReviewsPage(QWidget):
         )
         if any(_review_modality(item) == "Atlas" for item in self.reviews):
             self._add_modality_button("Atlas")
+        allowed_modalities = tuple(
+            modality
+            for modality, enabled in (
+                ("T1", study.analysis_scope.includes_t1),
+                ("T2", study.analysis_scope.includes_t2),
+                (
+                    "Atlas",
+                    study.analysis_scope.includes_t1
+                    and study.analysis_scope.includes_t2
+                    and self.features.atlas_mapping,
+                ),
+            )
+            if enabled
+        )
+        for modality, button in self.modality_buttons.items():
+            button.setVisible(modality in allowed_modalities)
         default_modality = next(
             (
                 modality
                 for modality in ("Atlas", "T2", "T1")
+                if modality in allowed_modalities
                 if any(_review_modality(item) == modality for item in self.reviews)
             ),
-            "T1",
+            allowed_modalities[0],
         )
         self.modality_buttons[default_modality].setChecked(True)
         self._populate_queue(default_modality)

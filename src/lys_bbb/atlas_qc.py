@@ -365,38 +365,6 @@ def create_composite_all_slice_qc(
     )
 
 
-def validate_jacobian(jacobian_path: Path, support_mask_path: Path) -> dict[str, object]:
-    """Reject folding and report deformation percentiles without scientific thresholds."""
-
-    require_same_physical_grid(
-        inspect_nifti_geometry(jacobian_path),
-        inspect_nifti_geometry(support_mask_path),
-        names=("Jacobian", "Jacobian support mask"),
-        affine_atol=1e-4,
-    )
-    jacobian = nib.load(str(jacobian_path)).get_fdata(dtype=np.float32)
-    support = np.asanyarray(nib.load(str(support_mask_path)).dataobj) != 0
-    values = jacobian[support]
-    if not values.size or not np.isfinite(values).all():
-        raise ValueError("Jacobian support is empty or non-finite")
-    nonpositive = int(np.count_nonzero(values <= 0))
-    if nonpositive:
-        raise ValueError("Nonpositive Jacobians indicate folding")
-    percentiles = np.percentile(values, [0, 1, 5, 50, 95, 99, 100])
-    return {
-        "nonpositive_voxels": nonpositive,
-        "percentiles": {
-            key: float(value)
-            for key, value in zip(
-                ("p0", "p1", "p5", "p50", "p95", "p99", "p100"),
-                percentiles,
-                strict=True,
-            )
-        },
-        "automatic_scientific_acceptance": "not_claimed",
-    }
-
-
 def _edges(data: np.ndarray) -> np.ndarray:
     return np.sqrt(sum(ndimage.sobel(data, axis=axis) ** 2 for axis in range(3)))
 
@@ -459,7 +427,7 @@ def _write_montage(paths: list[Path], output_path: Path, *, columns: int) -> Non
 
 
 def _configure_matplotlib() -> None:
-    root = Path(tempfile.gettempdir()) / "lys_bbb_atlas_cache"
+    root = Path(tempfile.gettempdir()) / "lys_irm_atlas_cache"
     os.environ.setdefault("MPLCONFIGDIR", str(root / "matplotlib"))
     os.environ.setdefault("XDG_CACHE_HOME", str(root / "xdg"))
     Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)

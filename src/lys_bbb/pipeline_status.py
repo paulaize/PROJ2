@@ -87,24 +87,24 @@ def build_status(
         blockers.append("nnU-Net brain-mask training set is below the 8-12 corrected-mask starting target.")
 
     next_commands = [
-        "conda run -n lys-bbb python scripts/qc/build_qc_manifest.py --input-root output/all_mice --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv",
-        "conda run -n lys-bbb python scripts/masks/build_manual_mask_workflow.py",
-        "conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py --qc-manifest reports/qc/qc_manifest.csv -o derivatives/manifests/analysis_manifest.csv --summary reports/qc/analysis_manifest_summary.csv",
-        "conda run -n lys-bbb python scripts/qc/build_study_metadata.py --analysis-manifest derivatives/manifests/analysis_manifest.csv",
-        "conda run -n lys-bbb python scripts/qc/build_analysis_manifest.py --qc-manifest reports/qc/qc_manifest.csv --metadata-manifest derivatives/manifests/study_metadata.csv -o derivatives/manifests/analysis_manifest.csv --summary reports/qc/analysis_manifest_summary.csv",
-        "conda run -n lys-bbb python scripts/qc/build_project_status.py",
+        "conda run -n lys-irm python scripts/qc/build_qc_manifest.py --input-root output/all_mice --registration-summary reports/qc/registration_all_mice/registration_qc_summary.csv",
+        "conda run -n lys-irm python scripts/masks/build_manual_mask_workflow.py",
+        "conda run -n lys-irm python scripts/qc/build_analysis_manifest.py --qc-manifest reports/qc/qc_manifest.csv -o derivatives/manifests/analysis_manifest.csv --summary reports/qc/analysis_manifest_summary.csv",
+        "conda run -n lys-irm python scripts/qc/build_study_metadata.py --analysis-manifest derivatives/manifests/analysis_manifest.csv",
+        "conda run -n lys-irm python scripts/qc/build_analysis_manifest.py --qc-manifest reports/qc/qc_manifest.csv --metadata-manifest derivatives/manifests/study_metadata.csv -o derivatives/manifests/analysis_manifest.csv --summary reports/qc/analysis_manifest_summary.csv",
+        "conda run -n lys-irm python scripts/qc/build_project_status.py",
     ]
     if included:
         next_commands.append(
-            "conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py output/all_mice --roi-manifest derivatives/manifests/analysis_manifest.csv -o derivatives/flash_v1_cohort"
+            "conda run -n lys-irm python scripts/quantification/quantify_flash_cohort.py output/all_mice --roi-manifest derivatives/manifests/analysis_manifest.csv -o derivatives/flash_v1_cohort"
         )
     else:
         next_commands.append(
-            "conda run -n lys-bbb python scripts/quantification/quantify_flash_cohort.py output/all_mice --roi-manifest derivatives/manifests/analysis_manifest.csv -o derivatives/flash_v1_cohort --dry-run"
+            "conda run -n lys-irm python scripts/quantification/quantify_flash_cohort.py output/all_mice --roi-manifest derivatives/manifests/analysis_manifest.csv -o derivatives/flash_v1_cohort --dry-run"
         )
     if n_train >= 8:
         next_commands.append(
-            "conda run -n lys-bbb python scripts/masks/prepare_nnunet_brain_extraction.py --manifest derivatives/brain_seg/nnunet_manifest.csv --nnunet-raw derivatives/brain_seg/nnUNet_raw --dry-run"
+            "conda run -n lys-irm python scripts/masks/prepare_nnunet_brain_extraction.py --manifest derivatives/brain_seg/nnunet_manifest.csv --nnunet-raw derivatives/brain_seg/nnUNet_raw --dry-run"
         )
 
     return {

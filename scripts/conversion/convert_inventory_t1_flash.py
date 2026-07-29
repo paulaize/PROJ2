@@ -7,17 +7,11 @@ import argparse
 import csv
 import json
 import re
-import sys
 from pathlib import Path
 
 import brkraw
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
-
-from lys_bbb.conversion import process_scan  # noqa: E402
+from lys_bbb.conversion import process_scan
 
 
 TARGET_ROLES = {

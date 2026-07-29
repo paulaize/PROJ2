@@ -1,4 +1,4 @@
-name: lys-bbb
+name: lys-irm
 channels:
   - conda-forge
 dependencies:
