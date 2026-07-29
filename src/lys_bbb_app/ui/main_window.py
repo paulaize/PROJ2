@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QTimer, Qt
+from PySide6.QtCore import QElapsedTimer, QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -35,6 +35,12 @@ from lys_bbb_app.platform_paths import (
 from lys_bbb_app.services.recent_studies_service import RecentStudiesService
 from lys_bbb_app.services.study_service import StudyService
 from lys_bbb_app.ui.background_jobs import BackgroundJobRegistry
+from lys_bbb_app.ui.fluent import (
+    FluentIcon,
+    IndeterminateProgressRing,
+    NotificationKind,
+    show_notification,
+)
 from lys_bbb_app.ui.main_window_connections import connect_main_window_signals
 from lys_bbb_app.ui.dialogs import (
     AddSubjectDialog,
@@ -94,7 +100,9 @@ class MainWindow(QMainWindow):
         self.blinded_review = False
         self.nav_buttons: dict[str, QPushButton] = {}
         self.page_indices: dict[str, int] = {}
-        self._background_jobs = BackgroundJobRegistry()
+        self._background_jobs = BackgroundJobRegistry(
+            self._background_job_count_changed
+        )
         self._t2_target_subject_ids: tuple[str, ...] | None = None
         self._t1_target_subject_ids: tuple[str, ...] | None = None
         self._t1_brain_mask_elapsed = QElapsedTimer()
@@ -230,6 +238,11 @@ class MainWindow(QMainWindow):
         self.jobs_label = QLabel("0 jobs running")
         self.jobs_label.setObjectName("muted")
         self.jobs_label.hide()
+        self.job_progress_ring = IndeterminateProgressRing(header, start=False)
+        self.job_progress_ring.setFixedSize(22, 22)
+        self.job_progress_ring.setStrokeWidth(3)
+        self.job_progress_ring.hide()
+        layout.addWidget(self.job_progress_ring)
         layout.addWidget(self.jobs_label)
         return header
 
@@ -271,14 +284,16 @@ class MainWindow(QMainWindow):
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
-        for key, label in (
-            ("overview", "Overview"),
-            ("subjects", "Subjects"),
-            ("reviews", "Reviews"),
-            ("results", "Results && exports"),
-            ("settings", "Settings"),
+        for key, label, icon in (
+            ("overview", "Overview", FluentIcon.HOME),
+            ("subjects", "Subjects", FluentIcon.PEOPLE),
+            ("reviews", "Reviews", FluentIcon.ACCEPT),
+            ("results", "Results && exports", FluentIcon.DOCUMENT),
+            ("settings", "Settings", FluentIcon.SETTING),
         ):
             button = QPushButton(label)
+            button.setIcon(icon.icon())
+            button.setIconSize(QSize(17, 17))
             button.setProperty("kind", "nav")
             button.setCheckable(True)
             button.setObjectName(f"nav_{key}")
@@ -312,9 +327,10 @@ class MainWindow(QMainWindow):
         if mri_source is not None:
             self._discover_and_review_mri(mri_source)
         else:
-            self.statusBar().showMessage(
-                "Study created. Choose Import MRI folder to discover subjects and scans.",
-                9000,
+            self._notify(
+                "Study created",
+                "Choose Import MRI folder to discover subjects and scans.",
+                kind="success",
             )
 
     def open_project(self) -> None:
@@ -335,9 +351,10 @@ class MainWindow(QMainWindow):
             return False
         self._record_recent(study)
         self._set_study(present_study(study))
-        self.statusBar().showMessage(
-            f"Study reopened with {len(study.subjects)} persisted subjects.",
-            8000,
+        self._notify(
+            "Study opened",
+            f"Reopened with {len(study.subjects)} persisted subject(s).",
+            kind="success",
         )
         return True
 
@@ -643,15 +660,16 @@ class MainWindow(QMainWindow):
                 self.workspace_page.inputs_panel
             )
         if validation_failed:
-            self.statusBar().showMessage(
-                "Input validation found a problem. Review the affected scan card.",
-                10000,
+            self._notify(
+                "Validation needs attention",
+                "Review the affected scan card before continuing.",
+                kind="warning",
             )
         else:
-            self.statusBar().showMessage(
-                "Input validation saved. Ready workflows can now advance to their "
-                "artifact step.",
-                9000,
+            self._notify(
+                "Inputs validated",
+                "Ready workflows can now advance to their artifact step.",
+                kind="success",
             )
 
     def _input_validation_failed(self, error: str) -> None:
@@ -781,9 +799,10 @@ class MainWindow(QMainWindow):
         self._set_study(present_study(snapshot), page_key="reviews")
         if targets:
             self.reviews_page.focus_subject(targets[0])
-        self.statusBar().showMessage(
-            "T1 brain-mask draft created. Human review is required.",
-            12000,
+        self._notify(
+            "T1 draft ready",
+            "The brain-mask draft was created. Human review is required.",
+            kind="warning",
         )
 
     def _t1_brain_mask_failed(self, error: str) -> None:
@@ -893,9 +912,10 @@ class MainWindow(QMainWindow):
         self._set_study(present_study(snapshot), page_key="reviews")
         if targets:
             self.reviews_page.focus_subject(targets[0])
-        self.statusBar().showMessage(
-            "T1 registration completed. Inspect and approve the registration QC.",
-            12000,
+        self._notify(
+            "T1 registration ready",
+            "Inspect and approve the exact registration QC before calculating a result.",
+            kind="warning",
         )
 
     def _t1_registration_failed(self, error: str) -> None:
@@ -1048,9 +1068,10 @@ class MainWindow(QMainWindow):
             self.workspace_page.tabs.setCurrentWidget(
                 self.workspace_page.t1_analysis_panel
             )
-        self.statusBar().showMessage(
-            "Provisional T1 enhancement calculated and saved with exact dependencies.",
-            12000,
+        self._notify(
+            "Provisional T1 result saved",
+            "Enhancement was calculated and saved with its exact dependencies.",
+            kind="info",
         )
 
     def _t1_enhancement_failed(self, error: str) -> None:
@@ -1313,9 +1334,10 @@ class MainWindow(QMainWindow):
         subject_id = self._atlas_mapping_subject_id
         if subject_id is not None:
             self._refresh_atlas_mapping(subject_id)
-        self.statusBar().showMessage(
-            "Atlas stage completed as DRAFT. Inspect the required QC before approval.",
-            12000,
+        self._notify(
+            "Atlas draft ready",
+            "Inspect the required QC before approving this atlas stage.",
+            kind="warning",
         )
 
     def _atlas_mapping_failed(self, error: str) -> None:
@@ -1563,10 +1585,10 @@ class MainWindow(QMainWindow):
         self._set_study(present_study(snapshot), page_key="reviews")
         if targets:
             self.reviews_page.focus_subject(targets[0])
-        self.statusBar().showMessage(
-            f"T2 inference created {len(targets)} draft lesion mask(s). "
-            "Human review is required.",
-            12000,
+        self._notify(
+            "T2 draft ready",
+            f"Created {len(targets)} draft lesion mask(s). Human review is required.",
+            kind="warning",
         )
 
     def _t2_inference_failed(self, error: str) -> None:
@@ -1944,9 +1966,10 @@ class MainWindow(QMainWindow):
         except StudyStateError as exc:
             self._show_error("The approved T2 results could not be exported.", exc)
             return
-        self.statusBar().showMessage(
-            f"Exported {exported.row_count} approved T2 result(s) to {exported.path}.",
-            12000,
+        self._notify(
+            "Export complete",
+            f"Saved {exported.row_count} approved T2 result(s) to {exported.path}.",
+            kind="success",
         )
 
     def bulk_flip_subjects(self, subject_ids: tuple[str, ...]) -> None:
@@ -2130,23 +2153,24 @@ class MainWindow(QMainWindow):
         self._set_study(present_study(snapshot), page_key="subjects")
         self._set_job_status()
         if failed:
-            self.statusBar().showMessage(
-                f"{self._scan_operation_name} finished with {failed} conversion "
-                "failure(s). Open a subject "
-                "to inspect the recorded error.",
-                12000,
+            self._notify(
+                f"{self._scan_operation_name} needs attention",
+                f"Finished with {failed} conversion failure(s). Open a subject to "
+                "inspect the recorded error.",
+                kind="warning",
             )
         elif self._scan_operation_name == "MRI batch flip":
-            self.statusBar().showMessage(
-                "MRI batch flip finished. New versioned inputs and provenance were saved; "
-                "previous versions were retained.",
-                10000,
+            self._notify(
+                "MRI batch flip complete",
+                "New versioned inputs and provenance were saved; previous versions "
+                "were retained.",
+                kind="success",
             )
         else:
-            self.statusBar().showMessage(
-                "MRI import finished. Converted NIfTI inputs and provenance were saved "
-                "inside the study.",
-                10000,
+            self._notify(
+                "MRI import complete",
+                "Converted NIfTI inputs and provenance were saved inside the study.",
+                kind="success",
             )
 
     def _scan_import_failed(self, error: str) -> None:
@@ -2226,11 +2250,36 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _show_status_message(self, message: str) -> None:
-        self.statusBar().showMessage(message, 9000)
+        self._notify("Action unavailable", message, kind="warning")
 
     def _set_job_status(self, text: str | None = None) -> None:
         self.jobs_label.setVisible(text is not None)
         self.jobs_label.setText(text or "")
+
+    def _background_job_count_changed(self, active_count: int) -> None:
+        running = active_count > 0
+        self.job_progress_ring.setVisible(running)
+        if running:
+            self.job_progress_ring.start()
+        else:
+            self.job_progress_ring.stop()
+
+    def _notify(
+        self,
+        title: str,
+        content: str,
+        *,
+        kind: NotificationKind = "info",
+    ) -> None:
+        duration = 7500 if kind == "warning" else 6000
+        self.statusBar().showMessage(content, duration)
+        show_notification(
+            self,
+            title=title,
+            content=content,
+            kind=kind,
+            duration=duration,
+        )
 
     def _reviewer_identity(self) -> str:
         reviewer = self.settings_page.reviewer.text().strip()

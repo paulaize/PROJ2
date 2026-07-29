@@ -116,6 +116,7 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
             BUNDLE_ROOT + "app/packaging/windows/environment-wsl.yml"
         ).decode().casefold()
         assert "antspyx==0.6.3" in environment
+        assert "pyside6-fluent-widgets==1.11.2" in environment
         assert "scipy=1.15.2" in environment
         assert "\n  - ants=" not in environment
         installer = archive.read(BUNDLE_ROOT + "Install-LYS-IRM.sh").decode()
@@ -172,6 +173,7 @@ def test_native_antspyx_bundle_is_windows_only_and_pinned(
         )
         environment = archive.read(environment_path).decode().casefold()
         assert "\n  - ants=" not in environment
+        assert "pyside6-fluent-widgets==1.11.2" in environment
         assert "scipy=1.15.2" in environment
         assert "\n  - statsmodels" in environment
         assert "\n  - scikit-learn" in environment

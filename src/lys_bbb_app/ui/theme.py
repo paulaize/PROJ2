@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
+from lys_bbb_app.ui.fluent import configure_fluent_theme
+
 
 APP_STYLE = """
 QMainWindow, QWidget#appRoot, QStackedWidget#rootStack {
@@ -330,3 +332,4 @@ QToolTip { background: #082a4d; color: white; border: 0; padding: 5px; }
 def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
     app.setStyleSheet(APP_STYLE)
+    configure_fluent_theme()

@@ -8,10 +8,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +18,7 @@ from lys_bbb_app.domain.atlas_mapping import AtlasMappingState
 from lys_bbb_app.domain.view_models import SubjectViewModel
 from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.ui.atlas_mapping import AtlasMappingPanel
+from lys_bbb_app.ui.fluent import FluentTabWidget, primary_button
 from lys_bbb_app.ui.layout_helpers import clear_layout
 from lys_bbb_app.ui.subject_inputs import SubjectInputsPanel
 from lys_bbb_app.ui.t1_analysis import T1AnalysisPanel
@@ -126,7 +125,7 @@ class SubjectWorkspacePage(QScrollArea):
         next_action_copy.addWidget(self.next_action_title)
         next_action_copy.addWidget(self.next_action_detail)
         next_action_layout.addLayout(next_action_copy, 1)
-        self.next_action_button = QPushButton()
+        self.next_action_button = primary_button("")
         self.next_action_button.clicked.connect(self._perform_next_action)
         next_action_layout.addWidget(self.next_action_button)
         self.layout.addWidget(self.next_action_card)
@@ -164,7 +163,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.metadata_value_labels: list[ElidedLabel] = []
         self.layout.addWidget(self.technical_details)
 
-        self.tabs = QTabWidget()
+        self.tabs = FluentTabWidget()
         self.inputs_panel = SubjectInputsPanel()
         self.inputs_panel.open_input_requested.connect(
             self.input_mri_open_requested.emit
@@ -246,13 +245,24 @@ class SubjectWorkspacePage(QScrollArea):
                 self.atlas_result_calculate_requested.emit
             )
         self.history_list = QListWidget()
-        self.tabs.addTab(self.inputs_panel, "Inputs")
-        self.tabs.addTab(self.t1_brain_mask_panel, "T1 Brain Mask")
-        self.tabs.addTab(self.t1_analysis_panel, "T1 Registration + Result")
-        self.tabs.addTab(self.t2_panel, "T2 Lesion")
+        self._inputs_tab = self.tabs.addTab(self.inputs_panel, "Inputs")
+        self._t1_brain_mask_tab = self.tabs.addTab(
+            self.t1_brain_mask_panel,
+            "T1 Brain Mask",
+        )
+        self._t1_analysis_tab = self.tabs.addTab(
+            self.t1_analysis_panel,
+            "T1 Registration + Result",
+        )
+        self._t2_tab = self.tabs.addTab(self.t2_panel, "T2 Lesion")
         if self.atlas_mapping_panel is not None:
-            self.tabs.addTab(self.atlas_mapping_panel, "Atlas Mapping")
-        self.tabs.addTab(self.history_list, "History")
+            self._atlas_mapping_tab = self.tabs.addTab(
+                self.atlas_mapping_panel,
+                "Atlas Mapping",
+            )
+        else:
+            self._atlas_mapping_tab = None
+        self._history_tab = self.tabs.addTab(self.history_list, "History")
         self.tabs.setMinimumHeight(390)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.layout.addWidget(self.tabs, 1)
@@ -277,20 +287,20 @@ class SubjectWorkspacePage(QScrollArea):
         clear_layout(self.t2_status_layout)
         self.t2_status_layout.addWidget(StatusBadge(subject.t2_workflow_status))
         self.tabs.setTabVisible(
-            self.tabs.indexOf(self.t1_brain_mask_panel),
+            self._t1_brain_mask_tab,
             subject.expects_t1,
         )
         self.tabs.setTabVisible(
-            self.tabs.indexOf(self.t1_analysis_panel),
+            self._t1_analysis_tab,
             subject.expects_t1,
         )
         self.tabs.setTabVisible(
-            self.tabs.indexOf(self.t2_panel),
+            self._t2_tab,
             subject.expects_t2,
         )
-        if self.atlas_mapping_panel is not None:
+        if self._atlas_mapping_tab is not None:
             self.tabs.setTabVisible(
-                self.tabs.indexOf(self.atlas_mapping_panel),
+                self._atlas_mapping_tab,
                 subject.expects_t1 and subject.expects_t2,
             )
         if not self.tabs.isTabVisible(self.tabs.currentIndex()):

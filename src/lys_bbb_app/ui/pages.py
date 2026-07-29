@@ -7,7 +7,6 @@ from pathlib import Path
 from PySide6.QtCore import QModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -37,6 +36,11 @@ from lys_bbb_app.platform_paths import default_itksnap_editor_path
 from lys_bbb_app.ui.layout_helpers import (
     clear_layout as _clear_layout,
     page_heading as _page_heading,
+)
+from lys_bbb_app.ui.fluent import (
+    FluentComboBox,
+    FluentIcon,
+    primary_button,
 )
 from lys_bbb_app.ui.widgets import (
     EmptyState,
@@ -88,11 +92,14 @@ class StudyLauncherPage(QWidget):
         hero_layout.addLayout(hero_text, 1)
 
         actions = QVBoxLayout()
-        create = QPushButton("Create study…")
+        create = primary_button("Create study…", FluentIcon.ADD)
         create.setObjectName("createProjectButton")
         create.setMinimumWidth(190)
         create.clicked.connect(self.create_requested)
-        open_button = secondary_button("Open existing study…")
+        open_button = secondary_button(
+            "Open existing study…",
+            FluentIcon.FOLDER,
+        )
         open_button.setObjectName("openProjectButton")
         open_button.clicked.connect(self.open_requested)
         actions.addWidget(create)
@@ -313,7 +320,7 @@ class SubjectsPage(QWidget):
         history.clicked.connect(self.audit_history_requested)
         add_subject = secondary_button("Add subject")
         add_subject.clicked.connect(self.add_subject_requested)
-        import_mri = QPushButton("Import MRI folder…")
+        import_mri = primary_button("Import MRI folder…", FluentIcon.FOLDER_ADD)
         import_mri.clicked.connect(self.import_mri_requested)
         self.run_t2 = secondary_button("Run T2 segmentation…")
         self.run_t2.clicked.connect(self.t2_inference_requested.emit)
@@ -334,9 +341,9 @@ class SubjectsPage(QWidget):
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search subject ID…")
         self.search.setClearButtonEnabled(True)
-        self.group_filter = QComboBox()
+        self.group_filter = FluentComboBox()
         self.group_filter.addItem("All groups")
-        self.state_filter = QComboBox()
+        self.state_filter = FluentComboBox()
         self.state_filter.addItems(
             [
                 "All states",
@@ -389,7 +396,10 @@ class SubjectsPage(QWidget):
         self.open_mri = secondary_button("Open MRI in ITK-SNAP")
         self.open_mri.setEnabled(False)
         self.open_mri.clicked.connect(self._open_selected_mri)
-        self.validate_selected = QPushButton("Validate selected conversion")
+        self.validate_selected = primary_button(
+            "Validate selected conversion",
+            FluentIcon.ACCEPT,
+        )
         self.validate_selected.setEnabled(False)
         self.validate_selected.clicked.connect(self._validate_selected)
         self.flip_subjects = secondary_button("Create flipped versions…")
@@ -624,7 +634,10 @@ class ResultsPage(QScrollArea):
         export_title = QLabel("Exports")
         export_title.setObjectName("cardTitle")
         export_layout.addWidget(export_title)
-        self.approved_csv = QPushButton("Export approved T2 results CSV…")
+        self.approved_csv = primary_button(
+            "Export approved T2 results CSV…",
+            FluentIcon.DOWNLOAD,
+        )
         self.approved_csv.setToolTip(
             "Exports approved T2 lesion results and preserves missing values."
         )

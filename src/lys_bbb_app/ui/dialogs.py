@@ -82,6 +82,8 @@ class CreateStudyDialog(QDialog):
         self.description = QTextEdit()
         self.description.setPlaceholderText("Optional study description")
         self.description.setMaximumHeight(80)
+        # Keep the native selector here because the selected AnalysisScope is
+        # stored as Qt user data and is part of the persisted study contract.
         self.analysis_scope = QComboBox()
         self.analysis_scope.addItem(
             "T1 and T2 — enhancement and lesion segmentation",

@@ -29,3 +29,4 @@ dependencies:
       - gdown>=5,<6
       - imageio>=2.22
       - monai==1.4.0
+      - PySide6-Fluent-Widgets==1.11.2

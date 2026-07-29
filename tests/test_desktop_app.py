@@ -14,15 +14,24 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QThread, Qt  # noqa: E402
 from PySide6.QtGui import QIcon, QPixmap  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
+    QComboBox,
     QDialog,
     QFileDialog,
     QLabel,
     QMessageBox,
     QPushButton,
+)
+from qfluentwidgets import (  # noqa: E402
+    ComboBox as FluentComboBox,
+    InfoBar,
+    IndeterminateProgressRing,
+    PrimaryPushButton,
+    PushButton,
+    TabWidget,
 )
 
 from lys_bbb.scan_discovery import discover_mri_source  # noqa: E402
@@ -216,6 +225,53 @@ def test_shell_has_specific_scientific_identity_and_plain_navigation(
     assert subject_actions["Import MRI folder…"] is None
     assert subject_actions["Add subject"] == "secondary"
     assert subject_actions["Run T2 segmentation…"] == "secondary"
+    window.close()
+
+
+def test_restrained_fluent_controls_preserve_scientific_workflows(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(
+        recent_studies=RecentStudiesService(tmp_path / "preferences" / "recent.json")
+    )
+    window.show()
+    qt_app.processEvents()
+
+    assert isinstance(
+        window.launcher_page.findChild(QPushButton, "createProjectButton"),
+        PrimaryPushButton,
+    )
+    assert isinstance(
+        window.launcher_page.findChild(QPushButton, "openProjectButton"),
+        PushButton,
+    )
+    assert isinstance(window.subjects_page.group_filter, FluentComboBox)
+    assert isinstance(window.subjects_page.state_filter, FluentComboBox)
+    assert isinstance(window.workspace_page.tabs, TabWidget)
+    assert not window.workspace_page.tabs.tabsClosable()
+    assert window.workspace_page.tabs.tabBar.addButton.isHidden()
+    assert isinstance(window.job_progress_ring, IndeterminateProgressRing)
+    assert all(not button.icon().isNull() for button in window.nav_buttons.values())
+
+    # Study scope is persisted as Qt user data, so this contract intentionally
+    # remains on QComboBox rather than the presentation-only Fluent selectors.
+    dialog = CreateStudyDialog(window)
+    assert type(dialog.analysis_scope) is QComboBox
+    assert dialog.analysis_scope.findData(AnalysisScope.T2_ONLY) >= 0
+    dialog.close()
+
+    window._notify("Import complete", "Three MRI scans were imported.")
+    qt_app.processEvents()
+    assert window.findChildren(InfoBar)
+
+    thread = QThread(window)
+    window._background_jobs.register("test-progress", thread)
+    qt_app.processEvents()
+    assert not window.job_progress_ring.isHidden()
+    window._background_jobs.clear("test-progress")
+    qt_app.processEvents()
+    assert window.job_progress_ring.isHidden()
     window.close()
 
 

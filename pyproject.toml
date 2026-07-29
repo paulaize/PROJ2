@@ -21,7 +21,11 @@ lys-irm-t1-mask-setup = "lys_bbb.t1_brain_mask_setup_cli:main"
 [project.optional-dependencies]
 conversion = ["brkraw==0.5.7"]
 brain-refinement = ["scikit-image>=0.23,<1"]
-desktop = ["PySide6>=6.7,<7", "brkraw==0.5.7"]
+desktop = [
+  "PySide6>=6.7,<7",
+  "PySide6-Fluent-Widgets==1.11.2",
+  "brkraw==0.5.7",
+]
 t2-inference = ["torch>=2.2"]
 t1-inference = [
   "acvl-utils==0.2.1",

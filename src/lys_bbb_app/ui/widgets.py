@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
+    QIcon,
     QPainter,
     QPen,
 )
@@ -15,7 +16,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -24,6 +24,11 @@ from lys_bbb_app.domain.view_models import (
     MetricViewModel,
     StatusValue,
     WorkflowSummaryViewModel,
+)
+from lys_bbb_app.ui.fluent import (
+    FluentIcon,
+    TransparentTogglePushButton,
+    secondary_button as _fluent_secondary_button,
 )
 
 
@@ -38,10 +43,11 @@ STATUS_COLOURS = {
     "neutral": ("#edf0f2", "#52616a", "#75828a"),
 }
 
-def secondary_button(text: str) -> QPushButton:
-    button = QPushButton(text)
-    button.setProperty("kind", "secondary")
-    return button
+def secondary_button(
+    text: str,
+    icon: FluentIcon | QIcon | None = None,
+) -> QPushButton:
+    return _fluent_secondary_button(text, icon)
 
 
 def show_inline_error(label: QLabel, message: str) -> None:
@@ -66,13 +72,16 @@ class CollapsibleSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self.toggle = QToolButton()
+        self.toggle = TransparentTogglePushButton()
         self.toggle.setText(title)
+        self.toggle.setIcon(
+            FluentIcon.CHEVRON_DOWN_MED
+            if expanded
+            else FluentIcon.CHEVRON_RIGHT_MED
+        )
+        self.toggle.setIconSize(QSize(14, 14))
         self.toggle.setCheckable(True)
         self.toggle.setChecked(expanded)
-        self.toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
-        self.toggle.setProperty("kind", "disclosure")
         self.toggle.toggled.connect(self._set_expanded)
         layout.addWidget(self.toggle, alignment=Qt.AlignLeft)
 
@@ -91,7 +100,11 @@ class CollapsibleSection(QWidget):
         self.toggle.setChecked(expanded)
 
     def _set_expanded(self, expanded: bool) -> None:
-        self.toggle.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self.toggle.setIcon(
+            FluentIcon.CHEVRON_DOWN_MED
+            if expanded
+            else FluentIcon.CHEVRON_RIGHT_MED
+        )
         self.content.setVisible(expanded)
 
 
