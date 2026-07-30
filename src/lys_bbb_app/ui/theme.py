@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 from lys_bbb_app.ui.fluent import configure_fluent_theme
@@ -11,7 +14,6 @@ APP_STYLE = """
 QMainWindow, QWidget#appRoot, QStackedWidget#rootStack {
     background: #f2f5f7;
     color: #13283f;
-    font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
     font-size: 14px;
 }
 QWidget#launcherPage { background: #f3f6f8; }
@@ -329,7 +331,26 @@ QToolTip { background: #082a4d; color: white; border: 0; padding: 5px; }
 """
 
 
+def _application_font() -> QFont:
+    """Return a concrete installed UI font instead of a missing alias."""
+
+    available = set(QFontDatabase.families())
+    if sys.platform == "darwin":
+        preferred = ("Avenir Next", "Helvetica Neue", "Arial")
+    elif sys.platform == "win32":
+        preferred = ("Segoe UI", "Arial")
+    else:
+        preferred = ("Noto Sans", "DejaVu Sans", "Liberation Sans")
+
+    family = next((name for name in preferred if name in available), None)
+    if family is None:
+        return QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+    return QFont(family)
+
+
 def apply_theme(app: QApplication) -> None:
     app.setStyle("Fusion")
+    system_font = _application_font()
+    app.setFont(system_font)
     app.setStyleSheet(APP_STYLE)
-    configure_fluent_theme()
+    configure_fluent_theme(system_font.families())

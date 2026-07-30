@@ -19,6 +19,7 @@ from qfluentwidgets import (
     TransparentTogglePushButton,
     setTheme,
     setThemeColor,
+    setFontFamilies,
 )
 
 
@@ -44,9 +45,13 @@ class FluentTabWidget(_FluentTabWidget):
         return not self.tabBar.items[index].isHidden()
 
 
-def configure_fluent_theme() -> None:
+def configure_fluent_theme(font_families: list[str] | None = None) -> None:
     """Keep Fluent controls aligned with the existing light LYS IRM palette."""
 
+    if font_families:
+        # QFluentWidgets otherwise requests Segoe UI on every platform.  Using
+        # Qt's native application font avoids missing-font alias work on macOS.
+        setFontFamilies(font_families, save=False)
     setTheme(Theme.LIGHT)
     setThemeColor(QColor("#168b96"))
 

@@ -8,6 +8,9 @@ REFINEMENT_NOTEBOOK = Path("notebooks/brain_extraction_rs2_refinement_colab.ipyn
 ALL_MICE_NOTEBOOK = Path(
     "notebooks/brain_extraction_rs2_m_seam_all_mice_colab.ipynb"
 )
+T2_MANUAL_NOTEBOOK = Path(
+    "notebooks/brain_extraction_rs2_m_seam_t2_manual_v1_colab.ipynb"
+)
 
 
 def test_colab_notebook_is_clean_valid_json_with_compilable_code() -> None:
@@ -169,3 +172,36 @@ def test_all_mice_rs2_notebook_is_clean_pinned_and_lightweight() -> None:
     assert "Path('/content/t1_brain_masks_all_mice_itksnap_handoff')" in source
     assert "shutil.copytree(RESULTS / 'inputs'" not in source
     assert "approval_status': 'none; all outputs require human review'" in source
+
+
+def test_t2_manual_colab_notebook_is_clean_compilable_exact_archive_workflow() -> None:
+    notebook = json.loads(T2_MANUAL_NOTEBOOK.read_text())
+    assert notebook["nbformat"] == 4
+    assert len(notebook["cells"]) == 12
+    assert all(cell.get("id") for cell in notebook["cells"])
+    for index, cell in enumerate(notebook["cells"]):
+        if cell["cell_type"] == "code":
+            assert cell["execution_count"] is None
+            assert cell["outputs"] == []
+            compile("".join(cell["source"]), f"t2-notebook-cell-{index}", "exec")
+
+    source = "\n".join(
+        "".join(cell["source"]) for cell in notebook["cells"]
+    )
+    assert "EXPECTED_CASE_COUNT = 258" in source
+    assert (
+        "a1ea6a999858db4f13498fdd9113f71c38d36300b59bfb9988f90f5b7b113701"
+        in source
+    )
+    assert "EXPECTED_ARCHIVE_SHA256" in source
+    assert "image_data.ndim != 4 or image_data.shape[-1] != 1" in source
+    assert "image_data[..., 0]" in source
+    assert "scan_brain_rs2_m_seam.nii.gz" in source
+    assert "source_spatial_shape_ok" in source
+    assert "RS2_USE_TTA = True" in source
+    assert "RUN_ALTERNATIVE_REFINEMENTS = False" in source
+    assert "RUN_RANDOM_WALKER = False" in source
+    assert "t2_manual_v1_rs2_m_seam_handoff" in source
+    assert "root_dir=HANDOFF.parent" in source
+    assert "base_dir=HANDOFF.name" in source
+    assert "not validated; T1-selected thresholds transferred unchanged" in source

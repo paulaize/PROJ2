@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
             ("settings", "Settings", FluentIcon.SETTING),
         ):
             button = QPushButton(label)
-            button.setIcon(icon.icon())
+            button.setIcon(icon.icon(color="#d2dee7"))
             button.setIconSize(QSize(17, 17))
             button.setProperty("kind", "nav")
             button.setCheckable(True)
