@@ -30,13 +30,8 @@ class RecentStudiesStore:
         self.maximum = maximum
 
     def list(self) -> tuple[RecentStudy, ...]:
-        source = self.path
-        if not source.is_file() and self.legacy_path is not None:
-            source = self.legacy_path
-        if not source.is_file():
-            return ()
         try:
-            payload = json.loads(source.read_text())
+            payload = self._read_payload()
             records = payload.get("recent_studies", [])
             return tuple(
                 RecentStudy(
@@ -49,6 +44,22 @@ class RecentStudiesStore:
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
             return ()
 
+    def reviewer_identity(self) -> str | None:
+        try:
+            value = self._read_payload().get("reviewer_identity")
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    def set_reviewer_identity(self, reviewer: str | None) -> None:
+        payload = self._read_payload()
+        normalized = reviewer.strip() if reviewer is not None else ""
+        payload["reviewer_identity"] = normalized or None
+        self._write_payload(payload)
+
     def record(self, study: StudySnapshot) -> None:
         now = datetime.now(timezone.utc).isoformat(timespec="seconds")
         current = [
@@ -60,14 +71,24 @@ class RecentStudiesStore:
             RecentStudy(name=study.name, path=str(study.root_path), last_opened=now),
             *current,
         ][: self.maximum]
+        payload = self._read_payload()
+        payload["recent_studies"] = [asdict(entry) for entry in entries]
+        self._write_payload(payload)
+
+    def _read_payload(self) -> dict:
+        source = self.path
+        if not source.is_file() and self.legacy_path is not None:
+            source = self.legacy_path
+        if not source.is_file():
+            return {}
+        payload = json.loads(source.read_text())
+        return payload if isinstance(payload, dict) else {}
+
+    def _write_payload(self, payload: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(self.path.suffix + ".tmp")
         temporary.write_text(
-            json.dumps(
-                {"recent_studies": [asdict(entry) for entry in entries]},
-                indent=2,
-                sort_keys=True,
-            )
+            json.dumps(payload, indent=2, sort_keys=True)
             + "\n"
         )
         temporary.replace(self.path)

@@ -112,28 +112,47 @@ def t2_model_choices() -> tuple[T2ModelChoice, ...]:
     return (
         T2ModelChoice(
             id="lys-v3-standard3d-nnunet-fold1",
-            label="Standard model — LYS v3 nnU-Net fold 1",
-            description=(
-                "Default. Standard 3-D nnU-Net; preliminary threshold 0.20."
-            ),
+            label="Standard model",
+            description="Default model.",
             path=nnunet_root,
             default=True,
         ),
         T2ModelChoice(
             id="lys-v1-small-ratlesnetv2",
-            label="Small model — legacy RatLesNetV2",
-            description="Legacy five-fold model with a smaller packaged footprint.",
+            label="Small model",
+            description="Model with a smaller packaged footprint.",
             path=small,
         ),
         T2ModelChoice(
             id="lys-v3-standard3d-nnunet-folds0-1",
-            label="Larger model — LYS v3 folds 0+1",
-            description=(
-                "Non-default standard nnU-Net ensemble of packaged folds 0 and 1."
-            ),
+            label="Larger model",
+            description="Larger optional model.",
             path=nnunet_root / "variants" / "folds_0_1",
         ),
     )
+
+
+def t2_model_display_label(model_id: str) -> str:
+    """Return a non-technical model name for user-facing UI copy."""
+
+    normalized = model_id.casefold()
+    if normalized == "lys-v3-standard3d-nnunet-folds0-1":
+        return "Larger model"
+    if normalized == "lys-v3-standard3d-nnunet-fold1":
+        return "Standard model"
+    if normalized == "lys-v1-small-ratlesnetv2" or normalized.startswith(
+        "ratlesnetv2-"
+    ):
+        return "Small model"
+    return "T2 lesion model"
+
+
+def t2_model_choice_id_for_release(model_id: str) -> str:
+    """Map persisted release IDs back to their deliberate Settings choice."""
+
+    if t2_model_display_label(model_id) == "Small model":
+        return "lys-v1-small-ratlesnetv2"
+    return model_id
 
 
 def t2_model_choice(model_id: str) -> T2ModelChoice:

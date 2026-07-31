@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import calendar
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QModelIndex, Qt, Signal
@@ -34,6 +36,7 @@ from lys_bbb_app.ui.models import (
 )
 from lys_bbb_app.platform_paths import (
     default_itksnap_editor_path,
+    t2_model_choice_id_for_release,
     t2_model_choices,
 )
 from lys_bbb_app.ui.layout_helpers import (
@@ -53,6 +56,17 @@ from lys_bbb_app.ui.widgets import (
 )
 
 
+def _format_recent_timestamp(value: str) -> str:
+    try:
+        opened = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    if opened.tzinfo is not None:
+        opened = opened.astimezone()
+    month = calendar.month_name[opened.month]
+    return f"{opened.day} {month} {opened.year} - {opened:%H:%M}"
+
+
 class StudyLauncherPage(QWidget):
     create_requested = Signal()
     open_requested = Signal()
@@ -68,11 +82,7 @@ class StudyLauncherPage(QWidget):
         brand = QHBoxLayout()
         wordmark = QLabel("LYS IRM")
         wordmark.setObjectName("launcherWordmark")
-        subtitle = QLabel("PRECLINICAL MRI WORKBENCH")
-        subtitle.setObjectName("launcherCaption")
         brand.addWidget(wordmark)
-        brand.addSpacing(10)
-        brand.addWidget(subtitle)
         brand.addStretch()
         outer.addLayout(brand)
 
@@ -81,17 +91,9 @@ class StudyLauncherPage(QWidget):
         hero_layout = QHBoxLayout(hero)
         hero_layout.setContentsMargins(30, 28, 30, 28)
         hero_text = QVBoxLayout()
-        title = QLabel("Reviewable mouse MRI workflows, organised by subject")
+        title = QLabel("Start analysis by selecting a study:")
         title.setObjectName("pageTitle")
-        intro = QLabel(
-            "Run T1 enhancement and T2 lesion workflows while keeping every artifact, "
-            "approval, and measurement connected to exact scientific provenance."
-        )
-        intro.setObjectName("muted")
-        intro.setWordWrap(True)
-        intro.setMaximumWidth(720)
         hero_text.addWidget(title)
-        hero_text.addWidget(intro)
         hero_layout.addLayout(hero_text, 1)
 
         actions = QVBoxLayout()
@@ -119,14 +121,6 @@ class StudyLauncherPage(QWidget):
         outer.addLayout(self.recent_layout)
         self.set_recent_studies(())
         outer.addStretch()
-
-        note = QLabel(
-            "Studies use a versioned local directory. Source images remain read-only "
-            "and may stay on mounted hard drives."
-        )
-        note.setObjectName("infoBanner")
-        note.setWordWrap(True)
-        outer.addWidget(note)
 
     def set_recent_studies(self, studies: tuple[RecentStudy, ...]) -> None:
         _clear_layout(self.recent_layout)
@@ -166,7 +160,7 @@ class StudyLauncherPage(QWidget):
         detail = QLabel(study.path)
         detail.setObjectName("muted")
         detail.setWordWrap(True)
-        opened = QLabel(f"Last opened: {study.last_opened}")
+        opened = QLabel(_format_recent_timestamp(study.last_opened))
         opened.setObjectName("metadata")
         button = secondary_button("Open study")
         button.clicked.connect(
@@ -198,7 +192,6 @@ class OverviewPage(QScrollArea):
 
         heading, _heading_layout = _page_heading(
             "Overview",
-            "Study readiness, workflow state, and the next decisions requiring attention.",
         )
         self.layout.addWidget(heading)
 
@@ -312,7 +305,6 @@ class SubjectsPage(QWidget):
         layout.setSpacing(16)
         heading, _heading_layout = _page_heading(
             "Subjects",
-            "Operational worklist for imported MRI and review-gated analysis.",
         )
         layout.addWidget(heading)
 
@@ -572,7 +564,6 @@ class ResultsPage(QScrollArea):
 
         heading, _heading_layout = _page_heading(
             "Results and exports",
-            "Subject measurements with state, method context, and approval-aware export.",
         )
         layout.addWidget(heading)
 
@@ -785,13 +776,6 @@ class SettingsPage(QScrollArea):
         mri_layout.addWidget(self.mri_input_folder, 1)
         mri_layout.addWidget(browse)
         input_form.addRow("MRI source root", self.mri_input_row)
-        input_note = QLabel(
-            "The source folder stays read-only. Imported scans are copied into the study "
-            "as versioned NIfTI files."
-        )
-        input_note.setObjectName("muted")
-        input_note.setWordWrap(True)
-        input_form.addRow(input_note)
         layout.addWidget(inputs)
 
         models = QGroupBox("T2 lesion-segmentation model")
@@ -801,30 +785,19 @@ class SettingsPage(QScrollArea):
             self.t2_model.addItem(choice.label, userData=choice.id)
         self.t2_model.setCurrentIndex(0)
         self.t2_model.currentIndexChanged.connect(self._emit_t2_model_changed)
-        model_form.addRow("Default model", self.t2_model)
-        model_note = QLabel(
-            "LYS v3 fold 1 is the application default. The small legacy model and "
-            "the deliberately packaged fold-0+1 ensemble remain optional. Every "
-            "prediction is a draft mask requiring human review."
-        )
-        model_note.setObjectName("muted")
-        model_note.setWordWrap(True)
-        model_form.addRow(model_note)
+        model_form.addRow("Selected model", self.t2_model)
         layout.addWidget(models)
 
         standard = QGroupBox("Standard settings")
         form = QFormLayout(standard)
-        self.reviewer = QLineEdit("Paul-Andréas")
+        self.reviewer = QLineEdit()
+        self.reviewer.setPlaceholderText("Enter reviewer name")
         self.external_editor = QLineEdit(default_itksnap_editor_path())
         self.external_editor.setPlaceholderText(
             "Leave blank to find ITK-SNAP automatically"
         )
         form.addRow("Reviewer display name", self.reviewer)
         form.addRow("External editor", self.external_editor)
-        session_note = QLabel("These values apply only to the current session.")
-        session_note.setObjectName("muted")
-        session_note.setWordWrap(True)
-        form.addRow(session_note)
         layout.addWidget(standard)
         layout.addStretch()
 
@@ -834,7 +807,9 @@ class SettingsPage(QScrollArea):
             self.t2_model_changed.emit(str(model_id))
 
     def set_t2_model_choice(self, model_id: str | None) -> None:
-        selected_id = model_id or t2_model_choices()[0].id
+        selected_id = t2_model_choice_id_for_release(
+            model_id or t2_model_choices()[0].id
+        )
         self.t2_model.blockSignals(True)
         for index in range(self.t2_model.count()):
             if self.t2_model.itemData(index) == selected_id:

@@ -19,3 +19,9 @@ class RecentStudiesService:
 
     def record(self, study: StudySnapshot) -> None:
         self._store.record(study)
+
+    def reviewer_identity(self) -> str | None:
+        return self._store.reviewer_identity()
+
+    def set_reviewer_identity(self, reviewer: str | None) -> None:
+        self._store.set_reviewer_identity(reviewer)

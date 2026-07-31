@@ -69,7 +69,6 @@ class ReviewsPage(QWidget):
         layout.setSpacing(14)
         heading, _heading_layout = page_heading(
             "Review and QC",
-            "Inspect exact artifacts and record explicit human approval.",
         )
         layout.addWidget(heading)
         layout.addWidget(self._build_modality_tabs())

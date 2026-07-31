@@ -32,6 +32,7 @@ from lys_bbb_app.domain.study import (
     derive_study_identifier,
 )
 from lys_bbb_app.domain.view_models import SubjectViewModel
+from lys_bbb_app.ui.fluent import FluentComboBox
 from lys_bbb_app.ui.widgets import secondary_button, show_inline_error
 
 
@@ -47,12 +48,11 @@ class CreateStudyDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(14)
-        title = QLabel("Create a persistent study")
+        title = QLabel("Create a study")
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
         detail = QLabel(
-            "The application creates project.sqlite, project.json, and managed output "
-            "folders. Source MRI data can remain on an external hard drive."
+            "The application does not modify original data"
         )
         detail.setObjectName("infoBanner")
         detail.setWordWrap(True)
@@ -82,20 +82,18 @@ class CreateStudyDialog(QDialog):
         self.description = QTextEdit()
         self.description.setPlaceholderText("Optional study description")
         self.description.setMaximumHeight(80)
-        # Keep the native selector here because the selected AnalysisScope is
-        # stored as Qt user data and is part of the persisted study contract.
-        self.analysis_scope = QComboBox()
+        self.analysis_scope = FluentComboBox()
         self.analysis_scope.addItem(
             "T1 and T2 — enhancement and lesion segmentation",
-            AnalysisScope.T1_T2,
+            userData=AnalysisScope.T1_T2,
         )
         self.analysis_scope.addItem(
             "T1 only — gadolinium enhancement",
-            AnalysisScope.T1_ONLY,
+            userData=AnalysisScope.T1_ONLY,
         )
         self.analysis_scope.addItem(
             "T2 only — lesion segmentation",
-            AnalysisScope.T2_ONLY,
+            userData=AnalysisScope.T2_ONLY,
         )
         self.blinded = QCheckBox("Start with experimental groups hidden")
         self.blinded.setChecked(True)

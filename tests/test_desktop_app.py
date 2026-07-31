@@ -18,7 +18,6 @@ from PySide6.QtCore import QThread, Qt  # noqa: E402
 from PySide6.QtGui import QIcon, QPixmap  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
-    QComboBox,
     QDialog,
     QFileDialog,
     QLabel,
@@ -41,6 +40,7 @@ from lys_bbb_app.domain.study import (  # noqa: E402
     AnalysisScope,
     CreateStudyRequest,
     CreateSubjectRequest,
+    RecentStudy,
 )
 from lys_bbb_app.domain.view_models import (  # noqa: E402
     ReviewItemViewModel,
@@ -228,6 +228,63 @@ def test_shell_has_specific_scientific_identity_and_plain_navigation(
     window.close()
 
 
+def test_launcher_and_workspace_omit_requested_supporting_copy(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    window = MainWindow(
+        recent_studies=RecentStudiesService(tmp_path / "preferences" / "recent.json")
+    )
+    window.launcher_page.set_recent_studies(
+        (
+            RecentStudy(
+                name="Study",
+                path=str(tmp_path / "study"),
+                last_opened="2026-07-31T14:05:00",
+            ),
+        )
+    )
+    qt_app.processEvents()
+
+    labels = {label.text() for label in window.findChildren(QLabel)}
+    assert "Start analysis by selecting a study:" in labels
+    assert "31 July 2026 - 14:05" in labels
+    for removed in (
+        "SCIENTIFIC MRI",
+        "PRECLINICAL MRI WORKBENCH",
+        "Reviewable mouse MRI workflows, organised by subject",
+        "Run T1 enhancement and T2 lesion workflows while keeping every artifact, "
+        "approval, and measurement connected to exact scientific provenance.",
+        "Studies use a versioned local directory. Source images remain read-only "
+        "and may stay on mounted hard drives.",
+        "Study readiness, workflow state, and the next decisions requiring attention.",
+        "Operational worklist for imported MRI and review-gated analysis.",
+        "Inspect exact artifacts and record explicit human approval.",
+        "Subject measurements with state, method context, and approval-aware export.",
+    ):
+        assert removed not in labels
+
+    window.close()
+
+
+def test_reviewer_name_starts_blank_and_is_remembered_after_manual_entry(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "preferences" / "recent.json"
+    window = MainWindow(recent_studies=RecentStudiesService(path))
+
+    assert window.settings_page.reviewer.text() == ""
+
+    window.settings_page.reviewer.setText("Reviewer A")
+    window.settings_page.reviewer.editingFinished.emit()
+    window.close()
+
+    reopened = MainWindow(recent_studies=RecentStudiesService(path))
+    assert reopened.settings_page.reviewer.text() == "Reviewer A"
+    reopened.close()
+
+
 def test_restrained_fluent_controls_preserve_scientific_workflows(
     qt_app: QApplication,
     tmp_path: Path,
@@ -248,17 +305,34 @@ def test_restrained_fluent_controls_preserve_scientific_workflows(
     )
     assert isinstance(window.subjects_page.group_filter, FluentComboBox)
     assert isinstance(window.subjects_page.state_filter, FluentComboBox)
+    assert [
+        window.settings_page.t2_model.itemText(index)
+        for index in range(window.settings_page.t2_model.count())
+    ] == ["Standard model", "Small model", "Larger model"]
+    settings_labels = {
+        label.text() for label in window.settings_page.findChildren(QLabel)
+    }
+    for removed in (
+        "LYS v3 fold 1 is the application default. The small legacy model and "
+        "the deliberately packaged fold-0+1 ensemble remain optional. Every "
+        "prediction is a draft mask requiring human review.",
+        "The source folder stays read-only. Imported scans are copied into the study "
+        "as versioned NIfTI files.",
+        "These values apply only to the current session.",
+    ):
+        assert removed not in settings_labels
     assert isinstance(window.workspace_page.tabs, TabWidget)
     assert not window.workspace_page.tabs.tabsClosable()
     assert window.workspace_page.tabs.tabBar.addButton.isHidden()
     assert isinstance(window.job_progress_ring, IndeterminateProgressRing)
     assert all(not button.icon().isNull() for button in window.nav_buttons.values())
 
-    # Study scope is persisted as Qt user data, so this contract intentionally
-    # remains on QComboBox rather than the presentation-only Fluent selectors.
     dialog = CreateStudyDialog(window)
-    assert type(dialog.analysis_scope) is QComboBox
+    assert isinstance(dialog.analysis_scope, FluentComboBox)
     assert dialog.analysis_scope.findData(AnalysisScope.T2_ONLY) >= 0
+    dialog_labels = {label.text() for label in dialog.findChildren(QLabel)}
+    assert "Create a study" in dialog_labels
+    assert "The application does not modify original data" in dialog_labels
     dialog.close()
 
     window._notify("Import complete", "Three MRI scans were imported.")

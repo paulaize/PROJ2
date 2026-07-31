@@ -468,6 +468,22 @@ def test_recent_studies_round_trip_without_touching_study_state(tmp_path: Path) 
     assert Path(recent[0].path) == repository.root_path
 
 
+def test_reviewer_identity_is_null_until_explicitly_saved_on_machine(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "preferences" / "recent.json"
+    store = RecentStudiesStore(path)
+
+    assert store.reviewer_identity() is None
+
+    store.set_reviewer_identity("  Reviewer A  ")
+    assert RecentStudiesStore(path).reviewer_identity() == "Reviewer A"
+
+    store.set_reviewer_identity(None)
+    assert RecentStudiesStore(path).reviewer_identity() is None
+    assert json.loads(path.read_text())["reviewer_identity"] is None
+
+
 def test_recent_studies_reads_historical_brand_location_until_new_store_exists(
     tmp_path: Path,
 ) -> None:

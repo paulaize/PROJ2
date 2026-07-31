@@ -128,6 +128,12 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1180, 760)
         self._build_actions()
         self._build_ui()
+        self.settings_page.reviewer.setText(
+            self.recent_studies.reviewer_identity() or ""
+        )
+        self.settings_page.reviewer.editingFinished.connect(
+            self._save_reviewer_identity
+        )
         self.statusBar().showMessage(
             self.features.runtime_notice or "Choose or create a study."
         )
@@ -270,10 +276,7 @@ class MainWindow(QMainWindow):
         brand_text.setSpacing(0)
         wordmark = QLabel("LYS IRM")
         wordmark.setObjectName("appWordmark")
-        brand_caption = QLabel("SCIENTIFIC MRI")
-        brand_caption.setObjectName("brandCaption")
         brand_text.addWidget(wordmark)
-        brand_text.addWidget(brand_caption)
         brand.addLayout(brand_text)
         layout.addLayout(brand)
         layout.addSpacing(18)
@@ -2454,6 +2457,15 @@ class MainWindow(QMainWindow):
     def _reviewer_identity(self) -> str:
         reviewer = self.settings_page.reviewer.text().strip()
         return reviewer or "Local researcher"
+
+    def _save_reviewer_identity(self) -> None:
+        reviewer = self.settings_page.reviewer.text().strip()
+        try:
+            self.recent_studies.set_reviewer_identity(reviewer or None)
+        except OSError:
+            self._show_status_message(
+                "The reviewer name could not be saved on this machine."
+            )
 
     def _background_job_running(self) -> bool:
         return self._background_jobs.any_running

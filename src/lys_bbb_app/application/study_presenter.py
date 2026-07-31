@@ -42,6 +42,7 @@ from lys_bbb_app.domain.view_models import (
     T2LesionArtifactViewModel,
     WorkflowSummaryViewModel,
 )
+from lys_bbb_app.platform_paths import t2_model_display_label
 
 
 NOT_STARTED = StatusValue("Not started", "neutral")
@@ -329,9 +330,9 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                 PriorityActionViewModel(
                     f"{t2_eligible} subjects are ready for T2 lesion inference",
                     (
-                        f"Frozen release: {active_release.version}"
+                        f"Model: {t2_model_display_label(active_release.id)}"
                         if active_release is not None
-                        else "The packaged LYS v3 fold-1 model will be selected"
+                        else "Standard model will be selected"
                     ),
                     "subjects",
                 ),
@@ -438,7 +439,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
         t1_input_folder=study.t1_input_folder,
         t2_input_folder=study.t2_input_folder,
         active_t2_release_label=(
-            f"{active_release.name} · {active_release.version}"
+            t2_model_display_label(active_release.id)
             if active_release is not None
             else None
         ),
@@ -758,7 +759,7 @@ def _present_subject(
         can_run_t2_inference=can_run_t2,
         t2_inference_blocked_reason=blocked_reason,
         t2_release_label=(
-            f"{active_release.name} · {active_release.version}"
+            t2_model_display_label(active_release.id)
             if active_release is not None
             else None
         ),
@@ -940,7 +941,8 @@ def _present_t2_review_item(
         automatic_qc=(
             f"Provisional volume {artifact.provisional_volume_mm3:.3f} mm³ · "
             f"{artifact.lesion_voxel_count:,} lesion voxels · threshold "
-            f"{artifact.threshold:.6g} · {presented.release_label}"
+            f"{artifact.threshold:.6g} · "
+            f"{t2_model_display_label(artifact.model_release_id)}"
         ),
         status=presented.state,
         slice_count=slice_count,

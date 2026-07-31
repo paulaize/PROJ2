@@ -30,7 +30,11 @@ from lys_bbb_app.infrastructure.study_database import STUDY_SCHEMA_VERSION, Stud
 from lys_bbb_app.services.study_service import StudyService
 
 
-def _build_service_with_draft(tmp_path: Path) -> tuple[StudyService, str, str, Path]:
+def _build_service_with_draft(
+    tmp_path: Path,
+    *,
+    source_affine: np.ndarray | None = None,
+) -> tuple[StudyService, str, str, Path]:
     release_root = tmp_path / "release"
     release_root.mkdir()
     release = FrozenT2ModelRelease(
@@ -68,6 +72,7 @@ def _build_service_with_draft(tmp_path: Path) -> tuple[StudyService, str, str, P
         cases = []
         for case_id, scan_path in case_scans.items():
             reference = nib.load(scan_path)
+            spacing = tuple(float(value) for value in reference.header.get_zooms()[:3])
             mask = np.zeros(reference.shape, dtype=np.uint8)
             mask[1:3, 1:3, 1] = 1
             probability = mask.astype(np.float32) * 0.8
@@ -87,9 +92,9 @@ def _build_service_with_draft(tmp_path: Path) -> tuple[StudyService, str, str, P
                     probability_sha256=sha256_file(probability_path),
                     mask_sha256=sha256_file(mask_path),
                     lesion_voxel_count=4,
-                    lesion_volume_mm3=4 * 0.07 * 0.07 * 0.5,
+                    lesion_volume_mm3=4 * float(np.prod(spacing)),
                     shape=tuple(int(value) for value in reference.shape),
-                    spacing_mm=(0.07, 0.07, 0.5),
+                    spacing_mm=spacing,
                     axis_codes=tuple(nib.aff2axcodes(reference.affine)),
                 )
             )
@@ -134,7 +139,11 @@ def _build_service_with_draft(tmp_path: Path) -> tuple[StudyService, str, str, P
     )
     source = tmp_path / "raw" / "Mouse-01_t2w.nii.gz"
     source.parent.mkdir()
-    affine = np.diag([0.07, 0.07, 0.5, 1.0])
+    affine = (
+        np.diag([0.07, 0.07, 0.5, 1.0])
+        if source_affine is None
+        else source_affine
+    )
     nib.save(nib.Nifti1Image(np.ones((5, 6, 4), dtype=np.float32), affine), source)
     imported = service.import_confirmed_scans(
         (
@@ -169,6 +178,10 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
     tmp_path: Path,
 ) -> None:
     service, subject_id, artifact_id, _reference = _build_service_with_draft(tmp_path)
+    draft_view = present_study(service.current_study)
+    assert draft_view.active_t2_release_label == "Small model"
+    assert draft_view.subject(subject_id).t2_release_label == "Small model"
+    assert draft_view.reviews[0].automatic_qc.endswith("Small model")
     service.update_subject_longitudinal_identifiers(
         subject_id,
         "C23S2",
@@ -226,6 +239,25 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
     with ZipFile(excel_destination) as workbook:
         assert "Summary" in workbook.read("xl/workbook.xml").decode()
         assert "Per-slice lesions" not in workbook.read("xl/workbook.xml").decode()
+        summary_strings = workbook.read("xl/sharedStrings.xml").decode()
+        summary_xml = workbook.read("xl/worksheets/sheet1.xml").decode()
+    for excluded in (
+        "unit",
+        "method_version",
+        "approved_mask_artifact_id",
+        "approved_mask_sha256",
+        "source_scan_input_id",
+        "model_release_id",
+        "reviewer",
+        "approved_at",
+        "warnings",
+        "result_version",
+        "result_state",
+        "Approved T2 lesion results",
+        "Approved results only. Draft masks and provisional values are excluded.",
+    ):
+        assert f">{excluded}<" not in summary_strings
+    assert summary_xml.count("<row") == 2
 
     detailed_destination = approved.root_path / "exports" / "approved-t2-detailed.xlsx"
     detailed_export = service.export_approved_t2_results_excel(
@@ -240,10 +272,28 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
         strings = workbook.read("xl/sharedStrings.xml").decode()
         slice_xml = workbook.read("xl/worksheets/sheet2.xml").decode()
     assert "Per-slice lesions" in workbook_xml
+    assert "Data dictionary" not in workbook_xml
     assert "lesion_area_mm2" in strings
-    assert "slice_position_mm" in strings
     assert ">group<" not in strings
-    assert slice_xml.count("<row") == 7
+    assert ">unit<" not in strings
+    assert ">approved_mask_artifact_id<" not in strings
+    assert ">approved_mask_sha256<" not in strings
+    assert ">source_scan_input_id<" not in strings
+    for excluded in (
+        "storage_index",
+        "slice_axis",
+        "slice_axis_code",
+        "slice_position_mm",
+        "slice_center_x_mm",
+        "slice_center_y_mm",
+        "slice_center_z_mm",
+        "volume_difference_mm3",
+        "Per-slice approved lesion measurements",
+        "One row per native T2 storage slice, including zero-lesion slices. Slice "
+        "volume totals reconcile with the Summary sheet.",
+    ):
+        assert f">{excluded}<" not in strings
+    assert slice_xml.count("<row") == 5
     with pytest.raises(StudyStateError, match="will not be overwritten"):
         service.export_approved_t2_results_excel(
             detailed_destination,
@@ -266,6 +316,43 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
     reopened = service.open_study(approved.root_path)
     assert reopened.review_for_artifact(artifact_id).reviewer == "Reviewer A"
     assert reopened.active_t2_result_for_subject(subject_id).source_artifact_id == artifact_id
+
+
+def test_detailed_excel_uses_approved_native_spacing_for_sheared_affine(
+    tmp_path: Path,
+) -> None:
+    affine = np.array(
+        (
+            (0.07, 0.01, 0.0, 0.0),
+            (0.0, np.sqrt(0.07**2 - 0.01**2), 0.0, 0.0),
+            (0.0, 0.0, 0.5, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+    )
+    service, subject_id, artifact_id, reference_path = _build_service_with_draft(
+        tmp_path,
+        source_affine=affine,
+    )
+    reference = nib.load(reference_path)
+    spacing_volume = float(np.prod(reference.header.get_zooms()[:3]))
+    affine_volume = float(abs(np.linalg.det(reference.affine[:3, :3])))
+    assert not np.isclose(spacing_volume, affine_volume, rtol=0, atol=1e-9)
+
+    approved = service.approve_t2_mask(
+        subject_id,
+        artifact_id,
+        reviewer="Reviewer A",
+    )
+    destination = approved.root_path / "exports" / "approved-t2-detailed.xlsx"
+
+    exported = service.export_approved_t2_results_excel(
+        destination,
+        detailed=True,
+        actor="Reviewer A",
+    )
+
+    assert exported.slice_row_count == reference.shape[2]
+    assert destination.is_file()
 
 
 def test_persistent_t2_draft_is_presented_in_general_review_queue(
