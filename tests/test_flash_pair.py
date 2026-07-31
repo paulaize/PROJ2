@@ -103,10 +103,10 @@ def test_typed_enhancement_contract_consumes_registered_image_without_registrati
     ).method_spec_sha256
 
 
-def test_registration_method_spec_is_stable_and_parameter_sensitive():
+def test_registration_method_spec_is_stable_and_rejects_method_drift():
     default = T1RegistrationConfig()
     same = T1RegistrationConfig()
-    changed = T1RegistrationConfig(iterations=151)
 
     assert default.method_spec_sha256 == same.method_spec_sha256
-    assert default.method_spec_sha256 != changed.method_spec_sha256
+    with pytest.raises(ValueError, match="requires iterations"):
+        T1RegistrationConfig(iterations=(100, 40))

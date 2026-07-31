@@ -13,18 +13,16 @@ Subject
 │   native T2 ── frozen release ──> draft mask ── human approval
 │                                  └─────────────> native lesion volume
 │
-├── Major-region Atlas Mapping
-│   AIDAmri MRI/Allen ── approved atlas→pre transform ──> native pre-Gd T1
-│   native pre-Gd T1 ── approved rigid transform ───────> original native T2
-│   untouched native lesion + approved major labels ───> regional overlap
+├── Cross-modal registration (development, review required)
+│   native pre-Gd T1 ── selected rigid transform ───────> original native T2
 │
 └── Combined MRI Results
     approved/provisional values + method version + explicit missingness
 ```
 
 Native pre-Gd T1 is the T1 reference. Native T2 is the lesion-volume reference. T2-to-T1
-registration is not a dependency of the MVP lesion volume. Post→pre T1 is not a
-dependency of atlas mapping. The only atlas composition is atlas→pre-T1→native-T2.
+registration is not a dependency of the MVP lesion volume. Atlas registration and
+mapping are deferred and unavailable in the application.
 
 ## Repository ownership
 
@@ -104,19 +102,17 @@ Each scientific artifact/result should record:
 
 ## Canonical and transitional state
 
-Schema-v12 `StudyRepository` state is canonical for new desktop studies. It owns studies,
+Schema-v13 `StudyRepository` state is canonical for new desktop studies. It owns studies,
 subjects, input versions, validation, T2 model releases/jobs/artifacts/results, T1
 brain-mask releases/jobs/artifacts/approvals, T1 registration methods/jobs/artifacts/
 approvals, provisional enhancement methods/jobs/results, blinding/groups, and audit
-events, plus feature-specific atlas releases, major-region schemes, atlas/T2 mappings,
-composites, reviews, and results. The T1 and atlas tables are feature-specific because
-their approval and dependency
-contracts differ from the T2 ensemble and measured result. Presenters merge reviewable
-feature state into the same application presentation layer.
+events. Historical atlas tables remain readable for compatibility, but atlas state and
+actions are not product-exposed.
 
 The study record also owns its immutable analysis scope. Services reject incompatible
 subject expectations and MRI roles, while presenters use the same persisted value to
-remove irrelevant modality UI. Schema-v11 studies migrate with combined T1/T2 scope.
+remove irrelevant modality UI. Schema-v12 makes the display-only T2 support-mask
+dependency optional for the selected unmasked T1→T2 method.
 
 CSV manifests in the repository-development workflow remain scientific-validation
 handoffs. Desktop T1 processing uses canonical study state through services. The
@@ -129,7 +125,7 @@ validation, `T1BrainMaskReviewService` for managed correction/approval, and a fe
 repository for frozen releases, durable runs, immutable mask versions, and approvals.
 Automatic mask volume is QC metadata only; it is not a T1 analysis result.
 
-`lys_bbb.t1_registration` owns the Qt-free frozen rigid-registration contract and emits
+`lys_bbb.t1_registration` owns the Qt-free selected ANTsPyx rigid-registration contract and emits
 the registered post image, transform, QC, checksums, and method identity. The app stores
 that immutable bundle and requires approval of the exact checksummed files.
 `lys_bbb.t1_enhancement` accepts the approved registered post directly and cannot
@@ -138,12 +134,10 @@ argument parser is retained only as a compatibility adapter for CLI and cohort c
 Its outputs remain explicitly `PROVISIONAL` and are invalidated when the source input,
 mask, registration, or active method changes.
 
-`lys_bbb.atlas_release`, `atlas_registration`, `t1_t2_registration`, `atlas_mapping`,
-and `atlas_qc` own the Qt-free atlas slice. `AtlasMappingService` is the application
-orchestrator; it does not reuse the post→pre table or turn `StudyService` into a generic
-workflow engine. The app stores every candidate separately and binds reviews to exact
-hashes. The major-region scheme approval is study-wide; transform/composite approvals
-are subject-specific and appear in the existing Reviews queue.
+`lys_bbb.t1_t2_registration` owns the selected unmasked native pre-T1→partial-T2 rigid
+method and leaves the native T2 unchanged. Its durable artifact boundary currently
+shares historical persistence code with the disabled atlas slice. The active feature
+profile never constructs the atlas tab, connects atlas actions, or shows atlas reviews.
 
 ## Storage
 

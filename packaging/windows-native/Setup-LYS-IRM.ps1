@@ -146,7 +146,7 @@ function Test-ModelRelease {
         $validation = (
             "import sys; from pathlib import Path; " +
             "from lys_bbb.t2_model_release import " +
-            "validate_frozen_t2_model_release as validate; " +
+            "validate_t2_model_release as validate; " +
             "validate(Path(sys.argv[1]))"
         )
     }
@@ -423,26 +423,45 @@ try {
         }
     }
 
-    $t2ModelDirectory = Join-Path $modelInstallRoot "ratlesnetv2-lys-v1"
-    $bundledT2Model = Join-Path $bundledModelRoot "ratlesnetv2-lys-v1"
-    if (Test-Path -LiteralPath $bundledT2Model -PathType Container) {
-        Write-Step "Installation du modele de lesion T2 inclus et verifie"
+    $bundledT2Standard = Join-Path $bundledModelRoot "lys_v3_standard3d_nnunet"
+    if (Test-Path -LiteralPath $bundledT2Standard -PathType Container) {
+        Write-Step "Installation du modele T2 LYS v3 fold 1 et de l'ensemble fold 0+1"
         Install-BundledModelRelease `
             -Python $python `
-            -Source $bundledT2Model `
-            -Destination $t2ModelDirectory `
+            -Source $bundledT2Standard `
+            -Destination (
+                Join-Path $modelInstallRoot "lys_v3_standard3d_nnunet"
+            ) `
             -Kind "T2" `
             -IdentityFiles @(
-                "bundle_manifest.json",
-                "frozen_spec.json",
-                "selected_threshold.json"
+                "model_metadata.json",
+                "SHA256SUMS",
+                "dataset.json",
+                "plans.json"
             ) | Out-Null
     }
     else {
         Write-Warning (
-            "Aucun modele de lesion T2 n'est inclus dans ce paquet. " +
-            "Il devra etre selectionne manuellement."
+            "Le modele T2 LYS v3 fold 1 par defaut n'est pas inclus."
         )
+    }
+
+    $bundledT2Small = Join-Path $bundledModelRoot "lys_v1_small_ratlesnetv2"
+    if (Test-Path -LiteralPath $bundledT2Small -PathType Container) {
+        Write-Step "Installation du petit modele T2 historique"
+        Install-BundledModelRelease `
+            -Python $python `
+            -Source $bundledT2Small `
+            -Destination (
+                Join-Path $modelInstallRoot "lys_v1_small_ratlesnetv2"
+            ) `
+            -Kind "T2" `
+            -IdentityFiles @(
+                "bundle_manifest.json",
+                "frozen_spec.json",
+                "selected_threshold.json",
+                "SHA256SUMS"
+            ) | Out-Null
     }
 
     if (-not $SkipITKSnapInstall -and -not (Find-ITKSnap)) {

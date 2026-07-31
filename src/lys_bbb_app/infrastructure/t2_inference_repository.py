@@ -83,7 +83,7 @@ def register_t2_model_release(
                         release.name,
                         release.version,
                         str(release.root_path),
-                        "RatLesNetV2",
+                        str(release.metadata.get("architecture", "unknown")),
                         release.threshold,
                         json.dumps(release.expected_spacing_mm),
                         json.dumps(release.model_sha256),

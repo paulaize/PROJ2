@@ -25,17 +25,20 @@ Build only from a clean committed snapshot:
 ```bash
 conda run -n lys-irm python scripts/packaging/build_windows_handoff.py \
   --target native \
-  --t1-model-release "/path/to/rs2net-m-seam-v1" \
-  --t2-model-release "/path/to/LYS_v1_RatLesNetV2_inference"
+  --t1-model-release "/path/to/rs2net-m-seam-v1"
 ```
 
 The output is
 `dist/LYS-IRM-Windows-Native-<version>-<commit>.zip`. Its manifest records the exact
 source snapshot, complete feature profile, runtime, models, and payload checksums.
+The default fold-1 nnU-Net, optional fold-0+1 ensemble, and legacy small T2 model are
+always taken from `resources/models`; the build does not accept Downloads or Kaggle as
+their implicit source.
 
 Setup accepts only the CPython 3.11 Windows x86-64 ANTsPyx wheel named
 `antspyx-0.6.3-cp311-cp311-win_amd64.whl` with its checked-in SHA-256. Both model
-releases are validated before packaging and again during installation.
+releases and all packaged T2 SHA-256 entries are validated before packaging and again
+during installation.
 
 ## Colleague installation
 

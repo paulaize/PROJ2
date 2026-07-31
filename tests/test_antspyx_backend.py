@@ -115,7 +115,6 @@ def test_real_antspyx_compiled_t1_to_t2_registration_bridge(
     pre_t1 = _write_nifti(tmp_path / "pre_t1.nii.gz", image_data, affine)
     t1_mask = _write_nifti(tmp_path / "t1_mask.nii.gz", mask_data, affine)
     native_t2 = _write_nifti(tmp_path / "native_t2.nii.gz", image_data, affine)
-    t2_support = _write_nifti(tmp_path / "t2_support.nii.gz", mask_data, affine)
     tools = antspyx_executables()
     n4_output = tmp_path / "pre_t1_n4.nii.gz"
     n4_execution = antspyx_command_runner(
@@ -142,7 +141,6 @@ def test_real_antspyx_compiled_t1_to_t2_registration_bridge(
     assert n4_output.is_file()
 
     config = T1ToT2Config(
-        iterations=(4, 2),
         runtime_engine=tools.engine,
         runtime_version=tools.version,
     )
@@ -153,10 +151,10 @@ def test_real_antspyx_compiled_t1_to_t2_registration_bridge(
             pre_t1_path=pre_t1,
             approved_t1_brain_mask_path=t1_mask,
             native_t2_path=native_t2,
-            t2_registration_support_mask_path=t2_support,
+            t2_registration_support_mask_path=None,
             output_directory=tmp_path / "registration",
-            pre_t1_identity="subject=synthetic;session=test;input=pre",
-            t2_identity="subject=synthetic;session=test;input=t2",
+            pre_t1_identity="study_subject_id=synthetic",
+            t2_identity="study_subject_id=synthetic",
             config=config,
         ),
         runner=antspyx_subprocess_command_runner,

@@ -139,7 +139,7 @@ Settings
 
 ### Launcher
 
-Create a study, open a schema-v12 study root, or resume a recent study. Creation must
+Create a study, open a schema-v13 study root, or resume a recent study. Creation must
 refuse an existing target directory and leave source MRI untouched. Creation also records
 one immutable analysis scope: combined T1/T2, T1-only, or T2-only. Existing
 directory-based studies migrating to schema v12 retain combined behavior.
@@ -243,20 +243,17 @@ checksums and dependencies. The subject workspace runs both jobs off the GUI thr
 registration review is also available through the general Reviews queue, and the
 provisional result appears in the subject and Results views.
 
-### Major-region atlas mapping
+### Native pre-T1 to native partial-T2 registration
 
-```text
-checksummed AIDAmri release + proposed scheme
-→ rigid/affine atlas→pre candidates → exact candidate approval
-→ rigid pre→T2 with reviewed support mask → approval on every T2 slice
-→ direct native-T2 major labels → composite approval
-→ native-lesion major-region overlap and ±0.5 mm AP stress test
-```
+The selected development method maps explicit database-matched native pre-Gd T1 into
+the unchanged native partial-T2 grid with unmasked ANTsPyx rigid registration. It
+propagates the corrected T1 mask for QC only and renders every original T2 slice.
+Transforms and complete checksummed provenance remain durable. Results say
+`DRAFT_REVIEW_REQUIRED` and require human QC. This independent operation is shown in
+the subject's `T1 Registration + Result` tab.
 
-The subject workspace exposes five sequential cards and no arbitrary ANTsPyx tuning. The
-general Reviews queue remains the primary approval route. Draft outputs say `DRAFT` or
-`PROVISIONAL`; optimizer success never approves an artifact. Detailed Allen labels do
-not appear in UI results. See `atlas_mapping.md` for the scientific and resource contract.
+Atlas registration/mapping is deferred. The app does not show an atlas tab, atlas
+reviews, or atlas actions, and no atlas method can be initiated by a user.
 
 ## State and provenance requirements
 
@@ -289,7 +286,7 @@ presence alone never proves success.
 
 - T2 model training, tuning, or checkpoint selection.
 - Embedded mask painting or an ITK-SNAP replacement.
-- Detailed Allen-region outputs, Waxholm comparison, or atlas parameter search.
+- Any atlas registration, mapping, or regional output.
 - T2-to-T1 quantitative dependency.
 - Arbitrary workflow builders, plugins, or scientific parameter editors.
 - Inferential statistics without a pre-approved plan.
@@ -300,7 +297,7 @@ presence alone never proves success.
 
 1. Smoke-test the completed T2 review-to-export slice on a real unseen case.
 2. Finish T1 mask and exact-registration review, then provisional enhancement.
-3. Run the connected major-region atlas slice on one explicitly matched real case.
+3. Validate the selected T1→partial-T2 method with independent landmarks.
 4. Connect combined results and reproducibility exports.
 5. Package the application for non-developer users.
 

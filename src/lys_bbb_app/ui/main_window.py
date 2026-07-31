@@ -31,6 +31,7 @@ from lys_bbb_app.platform_paths import (
     default_t1_brain_mask_release_path,
     default_t2_model_release_path,
     default_t2_model_release_suggestion,
+    t2_model_choice,
 )
 from lys_bbb_app.services.recent_studies_service import RecentStudiesService
 from lys_bbb_app.services.study_service import StudyService
@@ -304,7 +305,7 @@ class MainWindow(QMainWindow):
             self.nav_buttons[key] = button
             layout.addWidget(button)
         layout.addStretch()
-        self.sidebar_foot = QLabel("T1 · T2 · ATLAS")
+        self.sidebar_foot = QLabel("T1 · T2")
         self.sidebar_foot.setObjectName("sidebarFoot")
         self.sidebar_foot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.sidebar_foot)
@@ -362,7 +363,7 @@ class MainWindow(QMainWindow):
         self.current_study = study
         self.study_name_label.setText(study.name)
         self.sidebar_foot.setText(
-            "T1 · T2 · ATLAS"
+            "T1 · T2"
             if study.analysis_scope.includes_t1
             and study.analysis_scope.includes_t2
             else "T1 ENHANCEMENT"
@@ -389,6 +390,7 @@ class MainWindow(QMainWindow):
             mri_path=study.mri_input_folder,
             enabled=True,
         )
+        self.settings_page.set_t2_model_choice(study.active_t2_release_id)
         self.set_blinded_review(study.blinded_review)
         self.close_study_action.setEnabled(True)
         self.root_stack.setCurrentIndex(1)
@@ -411,15 +413,14 @@ class MainWindow(QMainWindow):
             return
         self.workspace_page.set_subject(subject)
         if (
-            self.features.atlas_mapping
-            and self.current_study.analysis_scope.includes_t1
+            self.current_study.analysis_scope.includes_t1
             and self.current_study.analysis_scope.includes_t2
         ):
             try:
-                atlas_state = self.study_service.atlas_mapping.state(subject_id)
+                registration_state = self.study_service.atlas_mapping.state(subject_id)
             except StudyStateError:
-                atlas_state = None
-            self.workspace_page.set_atlas_mapping_state(atlas_state)
+                registration_state = None
+            self.workspace_page.set_atlas_mapping_state(registration_state)
         self.show_page("workspace")
         self.statusBar().showMessage(f"Opened subject {subject.label}.", 4000)
 
@@ -430,7 +431,7 @@ class MainWindow(QMainWindow):
             else ""
         )
         self.open_subject(subject_id)
-        if workflow_key == "t1_registration":
+        if workflow_key in {"t1_registration", "t1_to_t2_registration"}:
             self.workspace_page.tabs.setCurrentWidget(
                 self.workspace_page.t1_analysis_panel
             )
@@ -1250,9 +1251,11 @@ class MainWindow(QMainWindow):
         self._refresh_atlas_mapping(subject_id, return_page=return_page)
 
     def start_atlas_mapping_stage(self, subject_id: str, action: str) -> None:
+        if action != "t1_to_t2" and not self.features.atlas_mapping:
+            return
         if self.study_service.current_study is None:
             self._show_status_message(
-                "Open a study before running atlas mapping."
+                "Open a study before running MRI registration."
             )
             return
         if self._background_job_running():
@@ -1318,36 +1321,58 @@ class MainWindow(QMainWindow):
         thread.stage_failed.connect(self._atlas_mapping_failed)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._clear_atlas_mapping_thread)
-        self._background_jobs.register("atlas_mapping", thread)
+        job_key = "t1_to_t2_registration" if action == "t1_to_t2" else "atlas_mapping"
+        self._background_jobs.register(job_key, thread)
         self._atlas_mapping_subject_id = subject_id
         self._atlas_mapping_action = action
-        self._set_job_status("Atlas mapping running")
+        self._set_job_status(
+            "T1→T2 registration running"
+            if action == "t1_to_t2"
+            else "Atlas mapping running"
+        )
         thread.start()
 
     def _show_atlas_mapping_progress(
         self, current: int, total: int, message: str
     ) -> None:
-        self._set_job_status(f"Atlas mapping {current}/{total}")
+        self._set_job_status(
+            f"T1→T2 registration {current}/{total}"
+            if self._atlas_mapping_action == "t1_to_t2"
+            else f"Atlas mapping {current}/{total}"
+        )
         self.statusBar().showMessage(message)
 
     def _atlas_mapping_completed(self, _state) -> None:
         subject_id = self._atlas_mapping_subject_id
         if subject_id is not None:
             self._refresh_atlas_mapping(subject_id)
-        self._notify(
-            "Atlas draft ready",
-            "Inspect the required QC before approving this atlas stage.",
-            kind="warning",
-        )
+        if self._atlas_mapping_action == "t1_to_t2":
+            self._notify(
+                "T1→T2 registration draft ready",
+                "Inspect every original-T2 QC slice before human approval.",
+                kind="warning",
+            )
+        else:
+            self._notify(
+                "Atlas draft ready",
+                "Inspect the required QC before approving this atlas stage.",
+                kind="warning",
+            )
 
     def _atlas_mapping_failed(self, error: str) -> None:
         subject_id = self._atlas_mapping_subject_id
         if subject_id is not None:
             self._refresh_atlas_mapping(subject_id)
-        self._show_error("The atlas-mapping stage did not complete.", StudyStateError(error))
+        self._show_error(
+            "The T1→T2 registration did not complete."
+            if self._atlas_mapping_action == "t1_to_t2"
+            else "The atlas-mapping stage did not complete.",
+            StudyStateError(error),
+        )
 
     def _clear_atlas_mapping_thread(self) -> None:
         self._background_jobs.clear("atlas_mapping")
+        self._background_jobs.clear("t1_to_t2_registration")
         self._atlas_mapping_subject_id = None
         self._atlas_mapping_action = None
         self._set_job_status()
@@ -1468,6 +1493,8 @@ class MainWindow(QMainWindow):
         self.open_subject(subject_id)
         self.workspace_page.tabs.setCurrentWidget(
             self.workspace_page.atlas_mapping_panel
+            if self.workspace_page.atlas_mapping_panel is not None
+            else self.workspace_page.t1_analysis_panel
         )
 
     def select_t2_model_release(self) -> bool:
@@ -1479,7 +1506,7 @@ class MainWindow(QMainWindow):
         suggested = default_t2_model_release_suggestion()
         selected = QFileDialog.getExistingDirectory(
             self,
-            "Select frozen RatLesNetV2 release folder",
+            "Select packaged T2 model folder",
             str(suggested if suggested.is_dir() else Path.home() / "Downloads"),
         )
         if not selected:
@@ -1497,10 +1524,32 @@ class MainWindow(QMainWindow):
             return False
         self._set_study(present_study(snapshot), page_key="subjects")
         self.statusBar().showMessage(
-            "The five-model RatLesNetV2 release passed checksum and contract validation.",
+            "The T2 model passed checkpoint, checksum, and inference-contract validation.",
             10000,
         )
         return True
+
+    def _handle_t2_model_choice(self, model_id: str) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a study before changing the T2 segmentation model."
+            )
+            return
+        try:
+            choice = t2_model_choice(model_id)
+        except KeyError as exc:
+            self._show_error("The T2 model choice is unknown.", StudyStateError(str(exc)))
+            return
+        if not choice.path.is_dir():
+            self._show_error(
+                "The selected T2 model is unavailable.",
+                StudyStateError(f"Packaged model resources not found: {choice.path}"),
+            )
+            self.settings_page.set_t2_model_choice(
+                self.current_study.active_t2_release_id
+            )
+            return
+        self._register_t2_model_release(choice.path)
 
     def run_t2_inference_for_study(
         self,
@@ -1542,7 +1591,7 @@ class MainWindow(QMainWindow):
         confirmation = QMessageBox.question(
             self,
             "Run T2 lesion segmentation?",
-            f"Run the frozen five-model ensemble for "
+            f"Run {self.current_study.active_t2_release_label} for "
             f"{readiness.eligible_count} eligible subject(s)?\n\n"
             f"{blocked} subject(s) will be skipped because a current draft already "
             "awaits review, or T2 is missing, unvalidated, not applicable, or "
@@ -1658,7 +1707,7 @@ class MainWindow(QMainWindow):
                 subject_id, artifact_id, return_page=return_page
             )
             return
-        if workflow_key == "atlas_t1_to_t2":
+        if workflow_key == "t1_to_t2_registration":
             self.approve_atlas_t1_to_t2(
                 subject_id, artifact_id, return_page=return_page
             )

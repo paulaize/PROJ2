@@ -308,6 +308,11 @@ class AtlasMappingService:
         exclude_current_lesion: bool = False,
         progress: ProgressCallback | None = None,
     ) -> AtlasMappingState:
+        if exclude_current_lesion:
+            raise StudyStateError(
+                "The selected T1-to-T2 method is unmasked; lesion exclusion is not "
+                "available. A lesion mask may only be displayed in QC."
+            )
         repository = self._study_repository()
         snapshot = repository.snapshot()
         pre = self._validated_input(snapshot, subject_id, ScanRole.T1_PRE)
@@ -315,15 +320,12 @@ class AtlasMappingService:
         t1_mask = self._approved_t1_mask(snapshot, subject_id)
         state = self.state(subject_id)
         support = state.t2_support_mask
-        if support is None or support.state is not AtlasReviewState.APPROVED:
-            raise StudyStateError(
-                "Import, inspect, and approve a T2 registration-support mask first."
-            )
+        if support is not None and support.state is not AtlasReviewState.APPROVED:
+            support = None
         lesion = self._current_t2_lesion(snapshot, subject_id)
         if pre.output_path is None or t2.output_path is None:
             raise StudyStateError("The managed T1/T2 inputs are unavailable.")
         config = T1ToT2Config(
-            exclude_lesion_from_metric=exclude_current_lesion,
             runtime_engine=self._runtime_engine,
             runtime_version=self._runtime_version,
         )
@@ -339,7 +341,7 @@ class AtlasMappingService:
         )
         self._feature_repository().start_job("t1_to_t2", job_id, total=1)
         output_dir = (
-            repository.root_path / "outputs" / "atlas_mapping" / "t1_to_t2" / job_id
+            repository.root_path / "outputs" / "mri_registration" / "t1_to_t2" / job_id
         )
 
         def report(current: int, total: int, stage: str) -> None:
@@ -356,16 +358,12 @@ class AtlasMappingService:
                     pre_t1_path=pre.output_path,
                     approved_t1_brain_mask_path=t1_mask.mask_path,
                     native_t2_path=t2.output_path,
-                    t2_registration_support_mask_path=support.mask_path,
-                    pre_t1_identity=(
-                        f"subject={subject_id};session={pre.session_id};input={pre.id}"
+                    t2_registration_support_mask_path=(
+                        support.mask_path if support is not None else None
                     ),
-                    t2_identity=(
-                        f"subject={subject_id};session={t2.session_id};input={t2.id}"
-                    ),
-                    lesion_exclusion_mask_path=(
-                        lesion.mask_path if exclude_current_lesion and lesion else None
-                    ),
+                    pre_t1_identity=f"study_subject_id={subject_id}",
+                    t2_identity=f"study_subject_id={subject_id}",
+                    lesion_display_mask_path=lesion.mask_path if lesion else None,
                     output_directory=output_dir,
                     config=config,
                 ),
@@ -375,7 +373,9 @@ class AtlasMappingService:
                 native_t2_path=t2.output_path,
                 transformed_t1_path=output.transformed_t1_path,
                 transformed_t1_brain_mask_path=output.transformed_t1_brain_mask_path,
-                t2_registration_support_mask_path=support.mask_path,
+                t2_registration_support_mask_path=(
+                    support.mask_path if support is not None else None
+                ),
                 native_lesion_mask_path=lesion.mask_path if lesion else None,
                 output_directory=output_dir / "qc",
                 transform_summary=output.affine_metrics,
@@ -387,10 +387,8 @@ class AtlasMappingService:
                 source_pre_scan_input_id=pre.id,
                 source_t2_scan_input_id=t2.id,
                 source_t1_mask_artifact_id=t1_mask.id,
-                source_t2_support_mask_id=support.id,
-                lesion_exclusion_artifact_id=(
-                    lesion.id if exclude_current_lesion and lesion else None
-                ),
+                source_t2_support_mask_id=support.id if support is not None else None,
+                lesion_exclusion_artifact_id=None,
                 output=output,
                 qc_montage_path=qc.montage_path,
                 qc_manifest_path=qc.manifest_path,

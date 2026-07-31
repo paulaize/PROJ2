@@ -2,69 +2,81 @@
 
 ## Ownership
 
-`~/Documents/LYS_PROJ1` owns RatLesNetV2 model development, training, model/threshold
-selection, validation, and frozen releases. `LYS_PROJ2` owns release validation,
-inference execution, study artifacts, human review, approved native-space volume, and
-exports.
+Upstream training owns model development, calibration, and validation. `LYS_PROJ2`
+owns the immutable inference resources, release validation, model selection, inference
+execution, study artifacts, human review, approved native-space volume, and exports.
 
-The application never trains, tunes, chooses, or silently updates a T2 model and never
-imports Python from the live sibling checkout.
+The application never trains, tunes, or silently updates a T2 model. Windows builds
+copy only checksummed resources from `resources/models`; inference never depends on
+Downloads, Kaggle, or a live training checkout.
 
 The approved native lesion artifact can be consumed by atlas mapping, but it remains on
 the original T2 grid and is never a whole-brain registration mask. Changing it always
 invalidates regional overlap; it also invalidates pre-T1→T2 and the composite only when
 that exact lesion checksum was explicitly used for cost-function exclusion.
 
-## Current frozen release
+## Packaged model choices
 
-Development workstation location:
+Settings expose three deliberate choices:
+
+- **Standard model — LYS v3 nnU-Net fold 1**: visible and internal default;
+- **Small model — legacy RatLesNetV2**: retained inference-only five-fold release;
+- **Larger model — LYS v3 folds 0+1**: non-default standard nnU-Net
+  mean-logit fold ensemble,
+  available because both best checkpoints are deliberately packaged.
+
+The nnU-Net resource family is self-contained:
 
 ```text
-~/Downloads/LYS_v1_RatLesNetV2_mac_inference/
-├── bundle_manifest.json
-├── frozen_spec.json
-├── selected_threshold.json
-├── models/fold_0.model ... fold_4.model
-└── RatLesNetv2/
-    ├── LICENSE
-    ├── UPSTREAM_GIT_COMMIT.txt
-    └── lib/
+resources/models/lys_v3_standard3d_nnunet/
+├── dataset.json
+├── plans.json
+├── fold_0/checkpoint_best.pth
+├── fold_1/checkpoint_best.pth
+├── model_metadata.json
+├── variants/folds_0_1/model_metadata.json
+├── NNUNET_LICENSE.txt
+└── SHA256SUMS
 ```
 
-Before every run, the application checks:
+Fold 0 exists only to support the explicit larger-model option. No latest/final
+checkpoints, logs, plots, debug files, validation predictions, training data, or masks
+are packaged. The legacy small model is likewise copied as a minimal inference-only
+resource under `resources/models/lys_v1_small_ratlesnetv2`.
 
-- RatLesNetV2 architecture and upstream revision;
-- exactly folds 0–4 and every model SHA-256;
-- OOF-validation threshold selection and `locked_test_used=false`;
-- threshold 0.40;
-- unweighted mean lesion probability;
+Before every run, the application validates all packaged SHA-256 entries and checks the
+selected contract. For LYS v3 this includes:
+
+- nnU-Net v2.8.1;
+- `Dataset701_LYSDevelopmentV1`;
+- `nnUNetTrainer_250epochs`, `nnUNetPlans`, and `3d_fullres`;
+- standard `PlainConvUNet`;
+- fold 1 alone for the default or folds 0+1 for the optional ensemble;
+- `checkpoint_best.pth`;
+- lesion probability threshold 0.20;
 - `postprocessing=none`;
-- frozen specification and runtime-file hashes.
+- draft-mask and human-review requirements.
 
-The release remains external and read-only. Weights, training code, calibration, and
-cross-validation are not copied into this repository or into a study.
+Threshold 0.20 is preliminary. It was calibrated from pooled partial OOF probabilities
+for 81 unique held-out MRIs (41 fold 0 and 40 fold 1), not from fold-1-only
+predictions. The complete metrics and fold-1 interruption/checkpoint provenance are in
+`model_metadata.json`.
 
 ## Inference contract
 
 An eligible subject has an active, validated native T2 NIfTI with spacing
-0.07 × 0.07 × 0.5 mm. The adapter:
-
-1. adds only the required singleton modality dimension;
-2. performs no spatial resampling or reorientation;
-3. applies the frozen RatLesNetV2 normalization;
-4. loads all five checksummed models;
-5. averages their lesion-probability maps;
-6. applies threshold 0.40;
-7. performs no connected-component or other postprocessing; and
-8. validates output shape and affine against the native input.
+0.07 × 0.07 × 0.5 mm. The LYS v3 adapter uses nnU-Net v2.8.1's inspected
+`nnUNetPredictor` API, exports native-shape class probabilities, saves lesion channel
+1, applies threshold 0.20 directly, performs no connected-component or other
+postprocessing, and validates output shape and affine against the native input.
 
 Job outputs:
 
 ```text
 outputs/t2_lesion/jobs/<job-id>/
 ├── cases/<subject-id>/
-│   ├── ensemble_probability.nii.gz
-│   ├── ensemble_mask.nii.gz
+│   ├── lesion_probability.nii.gz
+│   ├── draft_lesion_mask.nii.gz
 │   └── qc_preview.png
 ├── inference_manifest.csv
 └── inference_summary.json
@@ -73,8 +85,8 @@ outputs/t2_lesion/jobs/<job-id>/
 SQLite records release, job, source input, hashes, device, provisional voxel count and
 volume, and artifact version. File presence alone never proves success.
 
-The supplied unseen smoke case matched the previous MPS mask voxel-for-voxel: 7,339
-voxels and identical affine. Maximum CPU/MPS probability difference was 1.73 × 10⁻⁶.
+The legacy small-model adapter retains its frozen normalization, probability
+ensembling, threshold 0.40, and native-grid output contract.
 
 ## Connected review-to-result workflow
 

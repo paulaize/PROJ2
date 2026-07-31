@@ -26,7 +26,9 @@ class AppFeatures:
 
 FULL_FEATURES = AppFeatures(
     profile=FULL_FEATURE_PROFILE,
-    atlas_mapping=True,
+    # Atlas mapping is deliberately not product-exposed. No currently tested
+    # atlas method has sufficient validated regional accuracy.
+    atlas_mapping=False,
 )
 
 

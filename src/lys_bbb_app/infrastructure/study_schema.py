@@ -13,7 +13,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 12:
+    if schema_version != 13:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -1094,6 +1094,68 @@ def migrate_schema(
                 """
             )
         version = 12
+        connection.execute(
+            "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 12:
+        # The selected unmasked pre-T1→T2 method does not require a T2 mask.
+        # Rebuild the historical table so existing studies can persist that
+        # optional display-only dependency without fabricating an artifact.
+        connection.execute("PRAGMA foreign_keys = OFF")
+        connection.execute("PRAGMA legacy_alter_table = ON")
+        connection.executescript(
+            """
+            ALTER TABLE t1_to_t2_artifacts RENAME TO t1_to_t2_artifacts_v12;
+            CREATE TABLE t1_to_t2_artifacts (
+                id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+                subject_id TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+                active INTEGER NOT NULL CHECK (active IN (0, 1)),
+                state TEXT NOT NULL CHECK (
+                    state IN ('DRAFT_REVIEW_REQUIRED', 'APPROVED', 'OUTDATED')
+                ),
+                transform_path TEXT NOT NULL,
+                transform_sha256 TEXT NOT NULL,
+                transformed_t1_path TEXT NOT NULL,
+                transformed_t1_sha256 TEXT NOT NULL,
+                transformed_t1_mask_path TEXT NOT NULL,
+                transformed_t1_mask_sha256 TEXT NOT NULL,
+                qc_montage_path TEXT NOT NULL,
+                qc_montage_sha256 TEXT NOT NULL,
+                qc_manifest_path TEXT NOT NULL,
+                qc_manifest_sha256 TEXT NOT NULL,
+                qc_slice_paths_json TEXT NOT NULL,
+                metadata_path TEXT NOT NULL,
+                metadata_sha256 TEXT NOT NULL,
+                source_pre_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                source_t2_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
+                source_t1_mask_artifact_id TEXT NOT NULL
+                    REFERENCES t1_brain_mask_artifacts(id),
+                source_t2_support_mask_id TEXT
+                    REFERENCES t2_registration_support_masks(id),
+                lesion_exclusion_artifact_id TEXT REFERENCES artifacts(id),
+                lesion_exclusion_sha256 TEXT,
+                method_id TEXT NOT NULL REFERENCES t1_to_t2_methods(id),
+                job_id TEXT NOT NULL REFERENCES t1_to_t2_jobs(id),
+                created_at TEXT NOT NULL,
+                created_by TEXT NOT NULL
+            );
+            INSERT INTO t1_to_t2_artifacts SELECT * FROM t1_to_t2_artifacts_v12;
+            DROP TABLE t1_to_t2_artifacts_v12;
+            CREATE UNIQUE INDEX idx_t1_to_t2_active
+                ON t1_to_t2_artifacts(subject_id) WHERE active = 1;
+            """
+        )
+        connection.execute("PRAGMA legacy_alter_table = OFF")
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise ValueError(
+                f"Schema-v13 T1-to-T2 migration produced foreign-key errors: {violations}"
+            )
+        connection.execute("PRAGMA foreign_keys = ON")
+        version = 13
         connection.execute(
             "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

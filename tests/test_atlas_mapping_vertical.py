@@ -408,40 +408,28 @@ def test_fake_atlas_and_t1_t2_registration_are_review_candidates(
 
     t2_data = np.ones((20, 18, 18), dtype=np.float32)
     t2 = _write_nifti(tmp_path / "t2.nii.gz", t2_data)
-    t2_support = _write_nifti(
-        tmp_path / "t2_support.nii.gz", np.ones(t2_data.shape, dtype=np.uint8)
-    )
-    with pytest.raises(ValueError, match="registration-support mask"):
-        run_t1_to_t2_registration(
-            T1ToT2Request(
-                case_id="case-1",
-                pre_t1_path=pre,
-                approved_t1_brain_mask_path=pre_mask,
-                native_t2_path=t2,
-                t2_registration_support_mask_path=None,
-                output_directory=tmp_path / "blocked_t1_t2",
-                pre_t1_identity="subject=case-1;session=D1;input=pre",
-                t2_identity="subject=case-1;session=D1;input=t2",
-            ),
-            runner=runner,
-            executables=fake_tools,
-        )
     t1_t2_output = run_t1_to_t2_registration(
         T1ToT2Request(
             case_id="case-1",
             pre_t1_path=pre,
             approved_t1_brain_mask_path=pre_mask,
             native_t2_path=t2,
-            t2_registration_support_mask_path=t2_support,
+            t2_registration_support_mask_path=None,
             output_directory=tmp_path / "t1_t2_job",
-            pre_t1_identity="subject=case-1;session=D1;input=pre",
-            t2_identity="subject=case-1;session=D1;input=t2",
+            pre_t1_identity="study_subject_id=case-1",
+            t2_identity="study_subject_id=case-1",
         ),
         runner=runner,
         executables=fake_tools,
     )
     assert t1_t2_output.affine_metrics["determinant"] == pytest.approx(1.0)
     assert t1_t2_output.transformed_t1_brain_mask_path.is_file()
+    registration_command = next(
+        command
+        for command in reversed(runner.commands)
+        if Path(command[0]).name == "antsRegistration"
+    )
+    assert "--masks" not in registration_command
 
 
 def test_all_eighteen_t2_slices_are_present_in_both_qc_sets(

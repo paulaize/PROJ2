@@ -29,7 +29,8 @@ from lys_bbb.registration_runtime import ANTSPYX_ENGINE, ANTSPYX_VERSION
 
 
 T1_TO_T2_ANTSPYX_METHOD_VERSION = (
-    "native_pre_t1_to_partial_t2_antspyx_0_6_3_rigid_v1"
+    "native_pre_t1_to_partial_t2_antspyx_0_6_3_"
+    "rigid_unmasked_sensitivity_v1"
 )
 
 
@@ -46,18 +47,29 @@ class T1ToT2Config:
     convergence_window: int = 10
     gradient_step: float = 0.1
     initialization: str = "geometry"
-    allow_unmasked_fixed: bool = False
-    exclude_lesion_from_metric: bool = False
     runtime_engine: str = ANTSPYX_ENGINE
     runtime_version: str = ANTSPYX_VERSION
 
     def __post_init__(self) -> None:
-        if self.shrink_factors != (2, 1):
-            raise ValueError("Partial-T2 registration uses the recorded 2x1 pyramid")
-        if len(self.smoothing_sigmas_mm) != 2 or len(self.iterations) != 2:
-            raise ValueError("T1-to-T2 pyramid settings must align")
-        if self.initialization not in {"geometry", "centre_of_mass"}:
-            raise ValueError("Unsupported T1-to-T2 initialization")
+        expected = {
+            "histogram_bins": 32,
+            "sampling_strategy": "Regular",
+            "sampling_percentage": 0.5,
+            "random_seed": 42,
+            "shrink_factors": (2, 1),
+            "smoothing_sigmas_mm": (0.2, 0.0),
+            "iterations": (100, 40),
+            "convergence_threshold": 1e-6,
+            "convergence_window": 10,
+            "gradient_step": 0.1,
+            "initialization": "geometry",
+        }
+        observed = asdict(self)
+        for name, value in expected.items():
+            if observed[name] != value:
+                raise ValueError(
+                    f"{T1_TO_T2_ANTSPYX_METHOD_VERSION} requires {name}={value!r}"
+                )
         _require_supported_runtime(self.runtime_engine, self.runtime_version)
 
     def method_spec(self) -> dict[str, object]:
@@ -70,9 +82,16 @@ class T1ToT2Config:
             "engine_version": self.runtime_version,
             "fixed": "original native T2",
             "moving": "original native pre-Gd T1",
-            "transform": "rigid",
+            "transform": "rigid, six degrees of freedom",
+            "initializer": "geometry centres",
             "metric": "Mattes mutual information",
-            "scientific_status": "PROVISIONAL_METHOD_REQUIRES_ALL_SLICE_REVIEW",
+            "metric_masks": "none; corrected T1 mask is propagated for QC only",
+            "interpolation": (
+                "Linear once for scalar T1; GenericLabel once for the QC mask; "
+                "unchanged native T2 reference grid"
+            ),
+            "winsorize_quantiles": [0.005, 0.995],
+            "scientific_status": "DRAFT_REVIEW_REQUIRED",
             "config": config,
         }
 
@@ -98,7 +117,7 @@ class T1ToT2Request:
     output_directory: Path
     pre_t1_identity: str | None = None
     t2_identity: str | None = None
-    lesion_exclusion_mask_path: Path | None = None
+    lesion_display_mask_path: Path | None = None
     config: T1ToT2Config = T1ToT2Config()
 
 
@@ -135,7 +154,6 @@ def run_t1_to_t2_registration(
     output = request.output_directory.resolve()
     if output.exists():
         raise FileExistsError(f"Refusing to overwrite T1-to-T2 job: {output}")
-    output.mkdir(parents=True)
     if runner is None or executables is None:
         from lys_bbb.antspyx_backend import (
             antspyx_executables,
@@ -155,6 +173,10 @@ def run_t1_to_t2_registration(
             "Explicit pre-T1 and T2 subject/session identities are required; "
             "the pairing cannot be inferred from filenames or image content."
         )
+    if request.pre_t1_identity != request.t2_identity:
+        raise ValueError(
+            "Explicit pre-T1 and T2 identities differ; refusing cross-animal registration"
+        )
 
     t1_geometry = inspect_nifti_geometry(request.pre_t1_path)
     t1_mask_geometry = inspect_nifti_geometry(request.approved_t1_brain_mask_path)
@@ -167,55 +189,39 @@ def run_t1_to_t2_registration(
     )
     _require_binary_nonempty(request.approved_t1_brain_mask_path, "T1 brain mask")
 
-    fixed_mask = request.t2_registration_support_mask_path
-    if fixed_mask is None and not request.config.allow_unmasked_fixed:
-        raise ValueError(
-            "A reviewed T2 registration-support mask is required. The lesion mask "
-            "cannot substitute for a whole-brain support mask."
-        )
-    if fixed_mask is not None:
+    display_support_mask = request.t2_registration_support_mask_path
+    if display_support_mask is not None:
         require_same_physical_grid(
             t2_geometry,
-            inspect_nifti_geometry(fixed_mask),
-            names=("native T2", "T2 registration-support mask"),
+            inspect_nifti_geometry(display_support_mask),
+            names=("native T2", "display-only T2 support mask"),
             affine_atol=1e-4,
         )
-        _require_binary_nonempty(fixed_mask, "T2 registration-support mask")
+        _require_binary_nonempty(display_support_mask, "display-only T2 support mask")
+    lesion_path = request.lesion_display_mask_path
+    if lesion_path is not None:
+        require_same_physical_grid(
+            t2_geometry,
+            inspect_nifti_geometry(lesion_path),
+            names=("native T2", "display-only lesion mask"),
+            affine_atol=1e-4,
+        )
+        _require_binary(lesion_path, "display-only lesion mask")
 
     input_sha256 = {
         "pre_t1": sha256_file(request.pre_t1_path),
         "approved_t1_brain_mask": sha256_file(request.approved_t1_brain_mask_path),
         "native_t2": sha256_file(request.native_t2_path),
     }
-    if fixed_mask is not None:
-        input_sha256["t2_registration_support_mask"] = sha256_file(fixed_mask)
+    if display_support_mask is not None:
+        input_sha256["display_only_t2_support_mask"] = sha256_file(
+            display_support_mask
+        )
+    if lesion_path is not None:
+        input_sha256["display_only_lesion_mask"] = sha256_file(lesion_path)
 
-    cost_mask_path: Path | None = fixed_mask
-    if request.config.exclude_lesion_from_metric:
-        lesion_path = request.lesion_exclusion_mask_path
-        if lesion_path is None:
-            raise ValueError("Lesion exclusion was enabled without a lesion artifact")
-        require_same_physical_grid(
-            t2_geometry,
-            inspect_nifti_geometry(lesion_path),
-            names=("native T2", "lesion exclusion mask"),
-            affine_atol=1e-4,
-        )
-        _require_binary(lesion_path, "lesion exclusion mask")
-        input_sha256["lesion_exclusion_mask"] = sha256_file(lesion_path)
-        if fixed_mask is None:
-            raise ValueError("Lesion exclusion requires a T2 registration-support mask")
-        support_image = nib.load(str(fixed_mask))
-        support = np.asanyarray(support_image.dataobj) != 0
-        lesion = np.asanyarray(nib.load(str(lesion_path)).dataobj) != 0
-        cost = support & ~lesion
-        if not cost.any():
-            raise ValueError("Lesion exclusion removed the complete T2 metric support")
-        cost_mask_path = output / "t2_cost_mask_support_minus_lesion.nii.gz"
-        nib.save(
-            nib.Nifti1Image(cost.astype(np.uint8), support_image.affine),
-            str(cost_mask_path),
-        )
+    output.mkdir(parents=True)
+    cost_mask_path: Path | None = None
 
     prefix = output / "rigid_"
     transformed_t1 = output / "pre_t1_rigid_in_native_t2.nii.gz"
@@ -252,13 +258,6 @@ def run_t1_to_t2_registration(
         "--smoothing-sigmas",
         f"{_x(request.config.smoothing_sigmas_mm)}mm",
     ]
-    if cost_mask_path is not None:
-        args.extend(
-            (
-                "--masks",
-                f"[{cost_mask_path},{request.approved_t1_brain_mask_path}]",
-            )
-        )
     args.extend(
         (
             "--random-seed",
@@ -336,6 +335,17 @@ def run_t1_to_t2_registration(
     ):
         if sha256_file(path) != input_sha256[name]:
             raise ValueError(f"{name} changed during T1-to-T2 registration")
+    if (
+        display_support_mask is not None
+        and sha256_file(display_support_mask)
+        != input_sha256["display_only_t2_support_mask"]
+    ):
+        raise ValueError("display_only_t2_support_mask changed during registration")
+    if (
+        lesion_path is not None
+        and sha256_file(lesion_path) != input_sha256["display_only_lesion_mask"]
+    ):
+        raise ValueError("display_only_lesion_mask changed during registration")
     metadata = {
         "case_id": request.case_id,
         "method_spec": request.config.method_spec(),
@@ -347,24 +357,35 @@ def run_t1_to_t2_registration(
         "explicit_input_identity": {
             "pre_t1": request.pre_t1_identity,
             "t2": request.t2_identity,
-            "pairing_identity_explicit": (
-                request.pre_t1_identity is not None and request.t2_identity is not None
-            ),
+            "pairing_identity_explicit": True,
+            "matched": True,
         },
         "native_pre_t1_geometry": asdict(t1_geometry),
         "approved_t1_brain_mask_geometry": asdict(t1_mask_geometry),
         "native_t2_geometry": asdict(t2_geometry),
+        "transformed_t1_geometry": asdict(
+            inspect_nifti_geometry(transformed_t1)
+        ),
+        "transformed_t1_brain_mask_geometry": asdict(
+            inspect_nifti_geometry(transformed_t1_mask)
+        ),
         "t2_registration_support_mask_geometry": (
-            asdict(inspect_nifti_geometry(fixed_mask))
-            if fixed_mask is not None
+            asdict(inspect_nifti_geometry(display_support_mask))
+            if display_support_mask is not None
             else None
         ),
         "conceptual_image_warp_direction": "native pre-T1 to native T2",
         "actual_point_mapping_convention": "fixed T2 points to moving pre-T1 points",
         "invertible": True,
-        "lesion_used_in_metric": request.config.exclude_lesion_from_metric,
+        "registration_metric_masks_used": False,
+        "corrected_t1_mask_role": "propagated_for_qc_only",
+        "lesion_role": "display_only" if lesion_path is not None else None,
         "native_t2_resampled": False,
         "transformed_t1_brain_mask_sha256": sha256_file(transformed_t1_mask),
+        "transform_sha256": sha256_file(transform),
+        "transformed_t1_sha256": sha256_file(transformed_t1),
+        "registration_command_sha256": sha256_file(command_record),
+        "mask_apply_command_sha256": sha256_file(mask_record),
         "human_review_required": True,
         "affine_metrics": metrics,
     }
@@ -383,9 +404,7 @@ def run_t1_to_t2_registration(
         command_record_path=command_record,
         command_record_sha256=sha256_file(command_record),
         cost_mask_path=cost_mask_path,
-        cost_mask_sha256=(
-            sha256_file(cost_mask_path) if cost_mask_path is not None else None
-        ),
+        cost_mask_sha256=None,
         affine_metrics=metrics,
         method_version=request.config.method_version,
         method_spec_sha256=request.config.method_spec_sha256,

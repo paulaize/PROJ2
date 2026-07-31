@@ -6,8 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from lys_bbb.t2_inference import run_frozen_t2_ensemble
-from lys_bbb.t2_model_release import validate_frozen_t2_model_release
+from lys_bbb.t2_inference import run_t2_model_inference
+from lys_bbb.t2_model_release import validate_t2_model_release
 
 
 def main() -> int:
@@ -21,8 +21,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     scans = {path.parent.name: path for path in sorted(args.input.rglob("scan.nii.gz"))}
-    release = validate_frozen_t2_model_release(args.release)
-    output = run_frozen_t2_ensemble(
+    release = validate_t2_model_release(args.release)
+    output = run_t2_model_inference(
         release,
         scans,
         work_root=args.work,

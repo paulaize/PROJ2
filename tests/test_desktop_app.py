@@ -114,7 +114,7 @@ def test_launcher_uses_the_lys_logo_without_a_platform_override(
     assert application_icon_path({"LYS_IRM_ICON": str(override)}) == override
 
 
-def test_full_profile_uses_antspyx_and_exposes_atlas_entry_points(
+def test_full_profile_uses_antspyx_and_hides_unvalidated_atlas_entry_points(
     qt_app: QApplication,
     tmp_path: Path,
 ) -> None:
@@ -152,9 +152,9 @@ def test_full_profile_uses_antspyx_and_exposes_atlas_entry_points(
     qt_app.processEvents()
 
     assert window.windowTitle() == "LYS IRM"
-    assert window.workspace_page.atlas_mapping_panel is not None
-    assert set(window.reviews_page.modality_buttons) == {"T1", "T2", "Atlas"}
-    assert window.reviews_page.reviews == (atlas_review, t1_review)
+    assert window.workspace_page.atlas_mapping_panel is None
+    assert set(window.reviews_page.modality_buttons) == {"T1", "T2"}
+    assert window.reviews_page.reviews == (t1_review,)
     window.close()
 
 
@@ -602,14 +602,10 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.workspace_page.next_action_title.text() == "Add MRI inputs"
     assert window.workspace_page.next_action_button.text() == "Add MRI inputs"
     assert not window.workspace_page.technical_details.is_expanded
-    assert window.workspace_page.tabs.count() == 6
-    assert window.workspace_page.tabs.tabText(4) == "Atlas Mapping"
-    atlas_panel = window.workspace_page.atlas_mapping_panel
-    assert atlas_panel.configure_resource.isEnabled()
-    assert not atlas_panel.run_atlas.isEnabled()
-    assert not atlas_panel.run_t1_t2.isEnabled()
-    assert not atlas_panel.create_composite.isEnabled()
-    assert not atlas_panel.calculate_result.isEnabled()
+    assert window.workspace_page.tabs.count() == 5
+    assert window.workspace_page.atlas_mapping_panel is None
+    assert not window.workspace_page.t1_analysis_panel.t1_to_t2_card.isHidden()
+    assert not window.workspace_page.t1_analysis_panel.run_t1_to_t2.isEnabled()
     assert window.subjects_page.model.columnCount() == 5
     assert window.subjects_page.group_filter.isHidden()
 

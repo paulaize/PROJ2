@@ -81,6 +81,12 @@ def test_create_study_root_writes_manifest_database_and_managed_directories(
             "t1_enhancement_jobs",
             "t1_enhancement_results",
         } <= tables
+        t1_t2_columns = {
+            row[1]: row for row in connection.execute(
+                "PRAGMA table_info(t1_to_t2_artifacts)"
+            )
+        }
+        assert t1_t2_columns["source_t2_support_mask_id"][3] == 0
 
 
 def test_study_creation_never_reuses_an_existing_directory(tmp_path: Path) -> None:
@@ -136,6 +142,35 @@ def test_schema_nine_study_migrates_to_t1_analysis_contract(tmp_path: Path) -> N
             "t1_enhancement_methods",
             "t1_enhancement_results",
         } <= tables
+
+
+def test_schema_twelve_study_migrates_optional_t2_display_mask(
+    tmp_path: Path,
+) -> None:
+    repository = _create_study(tmp_path)
+    snapshot = repository.snapshot()
+    with sqlite3.connect(snapshot.database_path) as connection:
+        connection.execute(
+            "DELETE FROM schema_migrations WHERE version = ?",
+            (STUDY_SCHEMA_VERSION,),
+        )
+        connection.execute("PRAGMA user_version = 12")
+    manifest_path = snapshot.root_path / STUDY_MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 12
+    manifest_path.write_text(json.dumps(manifest))
+
+    migrated = StudyRepository.open(snapshot.root_path).snapshot()
+
+    assert migrated.schema_version == STUDY_SCHEMA_VERSION
+    with sqlite3.connect(migrated.database_path) as connection:
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        columns = {
+            row[1]: row for row in connection.execute(
+                "PRAGMA table_info(t1_to_t2_artifacts)"
+            )
+        }
+        assert columns["source_t2_support_mask_id"][3] == 0
 
 
 def test_subjects_reopen_with_expected_workflows_and_no_invented_group(

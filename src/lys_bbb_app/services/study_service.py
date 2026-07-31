@@ -41,11 +41,11 @@ from lys_bbb.t1_brain_mask_release import (
 from lys_bbb.t2_inference import (
     T2InferenceOutput,
     create_t2_qc_preview,
-    run_frozen_t2_ensemble,
+    run_t2_model_inference,
 )
 from lys_bbb.t2_model_release import (
     FrozenT2ModelRelease,
-    validate_frozen_t2_model_release,
+    validate_t2_model_release,
 )
 from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source
@@ -129,8 +129,8 @@ class StudyService:
         scan_converter: ScanConverter = convert_scan_assignment,
         input_validator: InputValidator = validate_managed_nifti,
         viewer_launcher: ViewerLauncher = launch_itksnap,
-        t2_release_validator: T2ReleaseValidator = validate_frozen_t2_model_release,
-        t2_inference_runner: T2InferenceRunner = run_frozen_t2_ensemble,
+        t2_release_validator: T2ReleaseValidator = validate_t2_model_release,
+        t2_inference_runner: T2InferenceRunner = run_t2_model_inference,
         t2_qc_builder: T2QCBuilder = create_t2_qc_preview,
         t1_release_validator: T1ReleaseValidator = validate_t1_brain_mask_release,
         t1_brain_mask_runner: T1BrainMaskRunner = run_local_t1_brain_mask,
@@ -629,8 +629,10 @@ class StudyService:
                     post_t1_path=post.output_path,
                     brain_mask_path=mask.mask_path,
                     registered_post_path=case_root / "post_registered_to_pre.nii.gz",
-                    transform_path=case_root / "post_to_pre.tfm",
+                    transform_path=case_root / "post_to_pre_ants_0GenericAffine.mat",
                     qc_preview_path=case_root / "registration_qc.png",
+                    pre_t1_identity=f"study_subject_id={subject_id}",
+                    post_t1_identity=f"study_subject_id={subject_id}",
                     config=config,
                 )
                 output = self._t1_registration_runner(request)

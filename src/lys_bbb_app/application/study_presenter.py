@@ -331,7 +331,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
                     (
                         f"Frozen release: {active_release.version}"
                         if active_release is not None
-                        else "Select the frozen LYS v1 release before starting"
+                        else "The packaged LYS v3 fold-1 model will be selected"
                     ),
                     "subjects",
                 ),
@@ -442,6 +442,7 @@ def present_study(study: StudySnapshot) -> StudyViewModel:
             if active_release is not None
             else None
         ),
+        active_t2_release_id=active_release.id if active_release is not None else None,
         t2_eligible_subject_count=t2_eligible,
         t2_running_job_count=t2_running_jobs,
         active_t1_brain_mask_release_label=(
@@ -916,7 +917,7 @@ def _present_t2_review_item(
         artifact_name=(
             f"ITK-SNAP corrected lesion mask · v{artifact.version}"
             if corrected
-            else f"RatLesNetV2 draft lesion mask · v{artifact.version}"
+            else f"Automatic draft lesion mask · v{artifact.version}"
         ),
         reason=(
             "The human-corrected mask requires explicit approval before measurement."
@@ -1020,7 +1021,7 @@ def _present_atlas_review_items(study: StudySnapshot) -> tuple[ReviewItemViewMod
                 ReviewItemViewModel(
                     subject_id=subject.id,
                     subject_label=subject.subject_code,
-                    category="Atlas mapping",
+                    category="MRI registrations",
                     artifact_name="Pre-T1→native T2 rigid registration",
                     reason="Inspect every original T2 slice before approval.",
                     automatic_qc=f"{len(t1_t2.qc_slice_paths)} original T2 slices rendered.",
@@ -1029,7 +1030,7 @@ def _present_atlas_review_items(study: StudySnapshot) -> tuple[ReviewItemViewMod
                     qc_preview_path=t1_t2.qc_montage_path,
                     qc_slice_paths=t1_t2.qc_slice_paths,
                     slice_count=len(t1_t2.qc_slice_paths),
-                    workflow_key="atlas_t1_to_t2",
+                    workflow_key="t1_to_t2_registration",
                     approve_label="Approve exact rigid registration",
                     can_manual_edit=False,
                 )
@@ -1277,7 +1278,7 @@ def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactView
         origin_label=(
             "ITK-SNAP correction"
             if artifact.origin == "CORRECTED"
-            else "RatLesNetV2 automatic draft"
+            else "Automatic T2 lesion draft"
         ),
         can_correct=artifact.active
         and artifact.state
@@ -1390,7 +1391,7 @@ def _t2_blocked_reason(
     if not spacing_compatible:
         return "This release expects 0.07 × 0.07 × 0.5 mm T2 voxel spacing."
     if not release_available:
-        return "Select and validate the frozen LYS v1 RatLesNetV2 release."
+        return "Select and validate a packaged T2 lesion model."
     return None
 
 

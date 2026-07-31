@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the T4x2 Kaggle notebook that trains only the all-data T1 model."""
+"""Build the T4x2 Kaggle notebook for the currently corrected T1 labels."""
 
 from __future__ import annotations
 
@@ -47,9 +47,10 @@ def build_notebook() -> dict:
         """
 # LYS pre-Gd T1 brain masking — direct `fold_all` standard 3-D nnU-Net
 
-This Kaggle notebook trains one official standard `PlainConvUNet` on all
-approved pre-Gd T1 brain masks. It runs only `fold_all` for 250 epochs and is
-configured for Kaggle T4×2 distributed training.
+This Kaggle notebook trains one official standard `PlainConvUNet` on all 20
+currently corrected pre-Gd T1 brain masks (10 animal groups). It runs only
+`fold_all` for 250 epochs and is configured for Kaggle T4×2 distributed
+training.
 
 This direct-training route creates a deployment model but no held-out or
 out-of-fold performance estimate. It cannot justify a tuned probability
@@ -79,6 +80,12 @@ the latest completed epoch.
     ).replace(
         "DEPLOY_DISABLE_TTA = True",
         "DEPLOY_DISABLE_TTA = True\nPROBABILITY_THRESHOLD = 0.5",
+    ).replace(
+        "EXPECTED_APPROVED_CASES = 34",
+        "EXPECTED_APPROVED_CASES = 20",
+    ).replace(
+        "EXPECTED_ANIMAL_GROUPS = 17",
+        "EXPECTED_ANIMAL_GROUPS = 10",
     )
     set_source(cells["configuration"], configuration)
 

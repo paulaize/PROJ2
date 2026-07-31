@@ -8,7 +8,7 @@ env PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 ```
 
 The tests cover scientific geometry and gates, the RS2 notebook build, canonical
-schema-v12 studies and directory-format migrations, MRI import/conversion, T1
+schema-v13 studies and directory-format migrations, MRI import/conversion, T1
 release/generation/correction/approval persistence, T1 registration and provisional
 enhancement dependencies, T2 release/inference persistence, immutable approval,
 approved results/CSV, and connected offscreen desktop behavior.

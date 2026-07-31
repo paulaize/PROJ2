@@ -32,7 +32,10 @@ from lys_bbb_app.ui.models import (
     SubjectFilterProxyModel,
     SubjectTableModel,
 )
-from lys_bbb_app.platform_paths import default_itksnap_editor_path
+from lys_bbb_app.platform_paths import (
+    default_itksnap_editor_path,
+    t2_model_choices,
+)
 from lys_bbb_app.ui.layout_helpers import (
     clear_layout as _clear_layout,
     page_heading as _page_heading,
@@ -690,6 +693,7 @@ class ResultsPage(QScrollArea):
 class SettingsPage(QScrollArea):
     blinding_changed = Signal(bool)
     input_folder_requested = Signal(str)
+    t2_model_changed = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -750,6 +754,24 @@ class SettingsPage(QScrollArea):
         input_form.addRow(input_note)
         layout.addWidget(inputs)
 
+        models = QGroupBox("T2 lesion-segmentation model")
+        model_form = QFormLayout(models)
+        self.t2_model = FluentComboBox()
+        for choice in t2_model_choices():
+            self.t2_model.addItem(choice.label, userData=choice.id)
+        self.t2_model.setCurrentIndex(0)
+        self.t2_model.currentIndexChanged.connect(self._emit_t2_model_changed)
+        model_form.addRow("Default model", self.t2_model)
+        model_note = QLabel(
+            "LYS v3 fold 1 is the application default. The small legacy model and "
+            "the deliberately packaged fold-0+1 ensemble remain optional. Every "
+            "prediction is a draft mask requiring human review."
+        )
+        model_note.setObjectName("muted")
+        model_note.setWordWrap(True)
+        model_form.addRow(model_note)
+        layout.addWidget(models)
+
         standard = QGroupBox("Standard settings")
         form = QFormLayout(standard)
         self.reviewer = QLineEdit("Paul-Andréas")
@@ -765,6 +787,22 @@ class SettingsPage(QScrollArea):
         form.addRow(session_note)
         layout.addWidget(standard)
         layout.addStretch()
+
+    def _emit_t2_model_changed(self, _index: int) -> None:
+        model_id = self.t2_model.currentData()
+        if model_id:
+            self.t2_model_changed.emit(str(model_id))
+
+    def set_t2_model_choice(self, model_id: str | None) -> None:
+        selected_id = model_id or t2_model_choices()[0].id
+        self.t2_model.blockSignals(True)
+        for index in range(self.t2_model.count()):
+            if self.t2_model.itemData(index) == selected_id:
+                self.t2_model.setCurrentIndex(index)
+                break
+        else:
+            self.t2_model.setCurrentIndex(0)
+        self.t2_model.blockSignals(False)
 
     def set_study_state(self, *, blinded: bool) -> None:
         self.blinded_review.blockSignals(True)

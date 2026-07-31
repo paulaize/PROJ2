@@ -453,7 +453,7 @@ def _review_workflow_label(review: ReviewItemViewModel) -> str:
         return "T2 support mask"
     if review.workflow_key == "atlas_to_t1":
         return "Atlas → pre-T1"
-    if review.workflow_key == "atlas_t1_to_t2":
+    if review.workflow_key == "t1_to_t2_registration":
         return "Pre-T1 → T2"
     if review.workflow_key == "atlas_composite":
         return "Major labels on T2"

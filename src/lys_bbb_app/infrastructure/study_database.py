@@ -123,7 +123,7 @@ from lys_bbb_app.infrastructure.t2_review_repository import (
 from lys_bbb.t2_review import T2MaskMeasurement
 
 
-STUDY_SCHEMA_VERSION = 12
+STUDY_SCHEMA_VERSION = 13
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-irm-study"
 STUDY_DATABASE_NAME = "project.sqlite"

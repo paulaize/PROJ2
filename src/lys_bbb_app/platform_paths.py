@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -70,9 +71,76 @@ def default_t1_brain_mask_release_path() -> Path:
 
 
 def default_t2_model_release_path() -> Path:
-    """Return the expected location of the bundled frozen T2 model release."""
+    """Return the visible and internal default: LYS v3 nnU-Net fold 1."""
 
-    return _model_release_path("ratlesnetv2-lys-v1")
+    return t2_model_choice("lys-v3-standard3d-nnunet-fold1").path
+
+
+@dataclass(frozen=True, slots=True)
+class T2ModelChoice:
+    id: str
+    label: str
+    description: str
+    path: Path
+    default: bool = False
+
+
+def _checked_in_model_path(directory_name: str) -> Path:
+    return (
+        Path(__file__).resolve().parents[2]
+        / "resources"
+        / "models"
+        / directory_name
+    )
+
+
+def _installed_or_checked_in_model_path(directory_name: str) -> Path:
+    installed = _model_release_path(directory_name)
+    checked_in = _checked_in_model_path(directory_name)
+    return installed if installed.is_dir() else checked_in
+
+
+def t2_model_choices() -> tuple[T2ModelChoice, ...]:
+    """Return all deliberate settings choices with fold 1 first and default."""
+
+    nnunet_root = _installed_or_checked_in_model_path(
+        "lys_v3_standard3d_nnunet"
+    )
+    small = _installed_or_checked_in_model_path("lys_v1_small_ratlesnetv2")
+    if not small.is_dir():
+        small = _model_release_path("ratlesnetv2-lys-v1")
+    return (
+        T2ModelChoice(
+            id="lys-v3-standard3d-nnunet-fold1",
+            label="Standard model — LYS v3 nnU-Net fold 1",
+            description=(
+                "Default. Standard 3-D nnU-Net; preliminary threshold 0.20."
+            ),
+            path=nnunet_root,
+            default=True,
+        ),
+        T2ModelChoice(
+            id="lys-v1-small-ratlesnetv2",
+            label="Small model — legacy RatLesNetV2",
+            description="Legacy five-fold model with a smaller packaged footprint.",
+            path=small,
+        ),
+        T2ModelChoice(
+            id="lys-v3-standard3d-nnunet-folds0-1",
+            label="Larger model — LYS v3 folds 0+1",
+            description=(
+                "Non-default standard nnU-Net ensemble of packaged folds 0 and 1."
+            ),
+            path=nnunet_root / "variants" / "folds_0_1",
+        ),
+    )
+
+
+def t2_model_choice(model_id: str) -> T2ModelChoice:
+    try:
+        return next(choice for choice in t2_model_choices() if choice.id == model_id)
+    except StopIteration as exc:
+        raise KeyError(f"Unknown T2 model choice: {model_id}") from exc
 
 
 def default_itksnap_editor_path() -> str:
@@ -112,6 +180,7 @@ def default_t2_model_release_suggestion() -> Path:
     downloads = Path.home() / "Downloads"
     candidates = (
         default_t2_model_release_path(),
+        _installed_or_checked_in_model_path("lys_v1_small_ratlesnetv2"),
         downloads / "LYS_v1_RatLesNetV2_inference",
         downloads / "LYS_v1_RatLesNetV2_windows_inference",
         downloads / "LYS_v1_RatLesNetV2_mac_inference",

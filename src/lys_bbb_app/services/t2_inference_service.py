@@ -1,4 +1,4 @@
-"""Frozen T2 model registration, readiness, and inference orchestration."""
+"""Packaged T2 model registration, readiness, and inference orchestration."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class T2InferenceService:
         *,
         actor: str,
     ) -> StudySnapshot:
-        """Validate and activate one immutable LYS_PROJ1 inference release."""
+        """Validate and activate one immutable packaged inference release."""
 
         repository = self._repository()
         try:
@@ -108,7 +108,7 @@ class T2InferenceService:
         release_record = snapshot.active_t2_model_release
         if release_record is None:
             raise StudyStateError(
-                "Select and validate the frozen LYS v1 RatLesNetV2 release first."
+                "Select and validate a packaged T2 lesion model first."
             )
         release = self._validated_release(release_record)
         readiness = self.readiness(subject_ids)
@@ -181,7 +181,7 @@ class T2InferenceService:
                             "shape": list(case.shape),
                             "spacing_mm": list(case.spacing_mm),
                             "axis_codes": list(case.axis_codes),
-                            "ensemble": "unweighted_mean_lesion_probability",
+                            "model_folds": list(release.folds),
                             "postprocessing": "none",
                             "native_affine_preserved": True,
                             "predictions_are_drafts": True,

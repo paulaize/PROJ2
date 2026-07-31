@@ -91,7 +91,7 @@ and writes derived files under the chosen study root; it does not overwrite sour
 | Frozen T2 release and review handoff | [T2 lesion integration](docs/t2_lesion_integration.md) |
 | Current T1 mask decision and review rules | [T1 brain extraction](docs/brain_extraction.md) |
 | Meaning and limitations of T1 measurements | [Enhancement quantification](docs/enhancement_quantification.md) |
-| AIDAmri atlas mapping, approvals, and remaining validation | [Atlas mapping](docs/atlas_mapping.md) |
+| Deferred atlas research history (not available in the app) | [Atlas mapping](docs/atlas_mapping.md) |
 | Native Windows ANTsPyx colleague distribution | [Windows handoff](docs/windows_native_handoff.md) |
 | Commands and developer workflow | [Development guide](docs/development.md) |
 

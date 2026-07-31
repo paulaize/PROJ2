@@ -1,22 +1,22 @@
 # Current project state
 
-Last audited: 2026-07-29. This document contains current facts and the immediate
+Last audited: 2026-07-30. This document contains current facts and the immediate
 milestone only. Historical plans belong in Git history.
 
 ## Executive summary
 
 The repository is technically coherent and should not be replaced or split now. The
 current branch is a consolidation candidate for `main`: it has a sensible internal
-boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v12 studies, real MRI
+boundary between `lys_bbb` and `lys_bbb_app`, persistent schema-v13 studies, real MRI
 import, frozen-model T1/T2 draft generation, immutable review, approved T1 brain masks,
 durable T1 registration/provisional-enhancement state, and approved T2 results.
 
 The T2 reviewed-result workflow and the persistent T1 path from brain-mask generation
 through reviewed registration and provisional enhancement are connected to the desktop.
 The product remains incomplete because the T1 slice still needs a real-case smoke test
-and the enhancement method has not passed signal-preservation validation. The atlas
-vertical slice is software-complete for synthetic execution but has not run on a real
-case because the exact app subject/session pairing is not yet confirmed.
+and the enhancement method has not passed signal-preservation validation. Atlas
+registration/mapping is explicitly deferred and is not exposed anywhere in the app
+because no currently tested atlas method has sufficient validated regional accuracy.
 
 At this checkpoint, Ruff and the complete test suite pass locally. GitHub Actions runs
 the same style check and offscreen suite on pushes and pull requests.
@@ -32,7 +32,7 @@ T2 input → validation → inference → draft/corrected mask → human approva
 
 ### Desktop and study state
 
-- Create, open, and reopen schema-v12 study roots; schema-v2 through v11 roots migrate
+- Create, open, and reopen schema-v13 study roots; schema-v2 through v12 roots migrate
   non-destructively when opened.
 - Choose an immutable combined T1/T2, T1-only, or T2-only analysis scope at creation;
   irrelevant import roles, worklist columns, review queues, and subject tabs stay hidden.
@@ -66,10 +66,9 @@ also populate the general T1 Reviews queue. Cohort charts and QC/reproducibility
 are not implemented. The application contains no sample-data mode or placeholder
 scientific actions.
 
-When atlas review items exist, the same general Reviews queue adds an Atlas filter. The
-subject workspace has one focused Atlas Mapping tab with sequential resource/scheme,
-atlas→pre-T1, pre-T1→T2, native-T2 composite, and regional-result cards. Registration
-and propagation run outside the GUI thread; no ANTsPyx tuning controls are exposed.
+Historical atlas backend and persistence code remains in the repository, but the active
+feature profile filters atlas reviews and does not construct, connect, or display an
+Atlas Mapping tab. Users cannot initiate atlas registration or mapping.
 
 ### T2 lesion workflow
 
@@ -224,54 +223,40 @@ Implemented acceptance criteria:
    returned output checksums and durable job paths are verified before database commit.
 10. Focused tests cover approval-to-result execution, no-registration enhancement,
     invalidation, migration, presentation, reopening, and the connected desktop sequence.
+11. The selected production method is
+    `antspyx_0_6_3_unmasked_regular_25pct_mattes_rigid_v1`: fixed native pre-Gd T1,
+    moving native post-Gd T1, geometry-centre initialization, six-degree-of-freedom
+    rigid, 50-bin Mattes MI with regular 25% sampling, seed 42, one ITK thread, and one
+    linear interpolation into the unchanged pre-T1 grid. The corrected pre-T1 mask is
+    QC-only. Every output remains `DRAFT_REVIEW_REQUIRED`.
 
 This path is ready for a real-case desktop smoke test, not scientific cohort
 interpretation. The existing legacy cohort/CLI code remains an exploratory compatibility
 path and is not an approval route.
 
-## Implemented software milestone: major-region atlas mapping
+## Selected native pre-T1 to partial-T2 development registration
 
-The application now implements the provisional, review-gated graph:
+The Qt-free backend and durable application artifact workflow use only
+`native_pre_t1_to_partial_t2_antspyx_0_6_3_rigid_unmasked_sensitivity_v1`.
+Original native partial T2 is fixed and original native pre-Gd T1 is moving. The method
+uses geometry-centre rigid initialization, 32-bin Mattes MI, regular 50% sampling,
+seed 42, a physical 2×1 pyramid, and no metric masks. Scalar T1 is linearly interpolated
+once into the unchanged T2 grid; the corrected T1 mask is propagated once with
+`GenericLabel` for QC only. A lesion mask is optional and display-only. QC renders every
+original T2 slice. Explicit equal database/manifest identities are mandatory.
 
-```text
-AIDAmri MRI/Allen → native pre-Gd T1 → original native T2
-                                      + untouched native lesion
-                                      → major-region overlap and ±0.5 mm AP stress test
-```
-
-- ANTsPyx 0.6.3 is the pinned registration runtime on macOS and native Windows. The
-  process-isolated adapter sends reviewed argument arrays to allow-listed bundled
-  compiled entry points. Runtime method versions and hashes record this canonical
-  engine; every operation records identity, version, full arguments, logs, return code,
-  runtime, and hashes.
-- Atlas→pre-T1 uses cropped/N4 processed copies, the exact approved RS2/M-seam mask,
-  mutual information, a provisional physical 4×2×1 pyramid, and separate rigid/affine
-  candidates. SyN remains disabled.
-- Pre-T1→T2 is rigid-only with mutual information and requires a separately reviewed
-  whole-brain T2 registration-support mask. The lesion is never substituted for it.
-- Source labels are collapsed before propagation. The proposed 98-row
-  `major_regions_v1` contract yields 28 hemisphere-specific major IDs and remains
-  `DRAFT_REVIEW_REQUIRED` until Paul approves its exact checksum.
-- Major labels are propagated directly from the source atlas grid to native T2 in one
-  interpolation. The native lesion is never resampled.
-- All original T2 slices are rendered for registration and composite QC. Approved
-  overlap reports mapped/unmapped/outside-support voxels, boundary proximity, and a
-  physical anterior/posterior ±0.5 mm sensitivity stress test.
-- Schema-v12 stores feature-specific immutable releases, methods, jobs, artifacts,
-  reviews, results, and invalidation. Closing/reopening reconstructs the same state.
-
-Synthetic tests cover resource/grid/label gates, non-commuting transform order, direct
-propagation, native-lesion immutability, approvals, invalidation, all-slice QC, UI
-actions, and reopening. Native ANTsPyx tests additionally cover N4, rigid transform
-generation, intensity/label application, output geometry, provenance, and direct
-transform order. See `atlas_mapping.md` for the audit and real-case blockers.
+Transforms, command records/logs, hashes, geometry, runtime, method specification, and
+all-slice QC are durable artifacts. Outputs remain `DRAFT_REVIEW_REQUIRED` and require
+human QC; the method is an operational development selection, not an independently
+landmark-validated method. The operation and its original-slice QC are available in the
+subject's `T1 Registration + Result` tab. This registration does not enable atlas mapping.
 
 ## Still explicitly frozen
 
 - Additional application pages or placeholder UI features.
 - More responsive-layout polishing.
-- Detailed Allen nuclei/layers/tract outputs, Waxholm comparison, and cohort atlas export.
-- SyN activation until affine landmark review demonstrates a need.
+- All atlas registration, mapping, regions, and atlas-facing UI.
+- Affine, deformable, masked, N4, or other registration candidates.
 - New modalities or models.
 - General-purpose plugin/job/workflow frameworks.
 - New schema revisions without a concrete vertical-workflow requirement.
@@ -279,14 +264,7 @@ transform order. See `atlas_mapping.md` for the audit and real-case blockers.
 
 ## What follows
 
-First provide the exact matching identity for the atlas pilot: LYS_PROJ2 subject,
-timepoint/session, and approved pre-T1 artifact. Then import and review a T2
-registration-support mask and run one real subject through rigid/affine atlas→pre,
-rigid pre→T2, direct native-T2 composition, all-slice QC, and major-region sensitivity.
-Run the same approved-input validation set through ANTsPyx on macOS and Windows before
-accepting cross-platform scientific parity.
-
-The independent T1 enhancement smoke test also remains:
+The independent T1 enhancement smoke test remains:
 
 ```text
 approved pre-Gd brain mask → run exact post-to-pre registration

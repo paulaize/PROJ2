@@ -85,6 +85,15 @@ def connect_main_window_signals(window: Any) -> None:
     window.workspace_page.t1_enhancement_run_requested.connect(
         window.run_t1_enhancement_for_subject
     )
+    window.workspace_page.t1_to_t2_run_requested.connect(
+        lambda subject_id: window.start_atlas_mapping_stage(
+            subject_id,
+            "t1_to_t2",
+        )
+    )
+    window.workspace_page.t1_to_t2_approve_requested.connect(
+        window.approve_atlas_t1_to_t2
+    )
 
     if window.features.atlas_mapping:
         _connect_atlas_signals(window)
@@ -110,6 +119,7 @@ def connect_main_window_signals(window: Any) -> None:
     )
     window.settings_page.blinding_changed.connect(window._handle_blinding_toggle)
     window.settings_page.input_folder_requested.connect(window.select_input_folder)
+    window.settings_page.t2_model_changed.connect(window._handle_t2_model_choice)
 
 
 def _connect_atlas_signals(window: Any) -> None:
@@ -136,15 +146,6 @@ def _connect_atlas_signals(window: Any) -> None:
     )
     window.workspace_page.atlas_to_t1_approve_requested.connect(
         window.approve_atlas_to_t1
-    )
-    window.workspace_page.t1_to_t2_run_requested.connect(
-        lambda subject_id: window.start_atlas_mapping_stage(
-            subject_id,
-            "t1_to_t2",
-        )
-    )
-    window.workspace_page.t1_to_t2_approve_requested.connect(
-        window.approve_atlas_t1_to_t2
     )
     window.workspace_page.atlas_composite_create_requested.connect(
         lambda subject_id: window.start_atlas_mapping_stage(

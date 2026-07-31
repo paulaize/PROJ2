@@ -235,7 +235,7 @@ def create_atlas_schema(connection: sqlite3.Connection) -> None:
             source_pre_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
             source_t2_scan_input_id TEXT NOT NULL REFERENCES scan_inputs(id),
             source_t1_mask_artifact_id TEXT NOT NULL REFERENCES t1_brain_mask_artifacts(id),
-            source_t2_support_mask_id TEXT NOT NULL
+            source_t2_support_mask_id TEXT
                 REFERENCES t2_registration_support_masks(id),
             lesion_exclusion_artifact_id TEXT REFERENCES artifacts(id),
             lesion_exclusion_sha256 TEXT,
@@ -837,7 +837,7 @@ class AtlasMappingRepository:
         source_pre_scan_input_id: str,
         source_t2_scan_input_id: str,
         source_t1_mask_artifact_id: str,
-        source_t2_support_mask_id: str,
+        source_t2_support_mask_id: str | None,
         lesion_exclusion_artifact_id: str | None,
         output: T1ToT2Output,
         qc_montage_path: Path,

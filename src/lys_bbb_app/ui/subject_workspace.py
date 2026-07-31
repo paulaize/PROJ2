@@ -196,6 +196,12 @@ class SubjectWorkspacePage(QScrollArea):
         self.t1_analysis_panel.run_enhancement_requested.connect(
             self.t1_enhancement_run_requested.emit
         )
+        self.t1_analysis_panel.run_t1_to_t2_requested.connect(
+            self.t1_to_t2_run_requested.emit
+        )
+        self.t1_analysis_panel.approve_t1_to_t2_requested.connect(
+            self.t1_to_t2_approve_requested.emit
+        )
         self.t2_panel = T2LesionPanel()
         self.t2_panel.select_release_requested.connect(self.t2_release_requested.emit)
         self.t2_panel.run_subject_requested.connect(self.t2_run_subject_requested.emit)
@@ -274,6 +280,7 @@ class SubjectWorkspacePage(QScrollArea):
         self._refresh_subject_subtitle()
         self.inputs_panel.set_subject(subject)
         self.t1_brain_mask_panel.set_subject(subject)
+        self.t1_analysis_panel.set_t1_to_t2_state(None)
         self.t1_analysis_panel.set_subject(subject)
         self.t2_panel.set_subject(subject)
         if self.atlas_mapping_panel is not None:
@@ -331,6 +338,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.history_list.addItems(subject.history or ("No history recorded.",))
 
     def set_atlas_mapping_state(self, state: AtlasMappingState | None) -> None:
+        self.t1_analysis_panel.set_t1_to_t2_state(state)
         if self.current_subject is not None and self.atlas_mapping_panel is not None:
             self.atlas_mapping_panel.set_subject(self.current_subject, state)
 

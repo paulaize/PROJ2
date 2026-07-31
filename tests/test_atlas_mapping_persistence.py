@@ -432,7 +432,7 @@ def test_completed_t1_t2_and_composite_bind_all_outputs_and_reopen(
         source_pre_scan_input_id="pre-input",
         source_t2_scan_input_id="t2-input",
         source_t1_mask_artifact_id="t1-mask",
-        source_t2_support_mask_id="support",
+        source_t2_support_mask_id=None,
         lesion_exclusion_artifact_id=None,
         output=output,
         qc_montage_path=montage,
@@ -543,6 +543,7 @@ def test_completed_t1_t2_and_composite_bind_all_outputs_and_reopen(
     )
     assert state.t1_to_t2 is not None
     assert state.t1_to_t2.state is AtlasReviewState.APPROVED
+    assert state.t1_to_t2.source_t2_support_mask_id is None
     assert state.t1_to_t2.metadata_sha256 == sha256_file(metadata)
     assert state.composite is not None
     assert state.composite.state is AtlasReviewState.APPROVED

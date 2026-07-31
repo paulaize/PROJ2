@@ -18,7 +18,10 @@ from pathlib import Path, PurePosixPath
 PAYLOAD_ROOT_FILES = ("pyproject.toml", "README.md")
 PAYLOAD_PREFIXES = ("src/",)
 T1_MODEL_BUNDLE_DIRECTORY = PurePosixPath("models/rs2net-m-seam-v1")
-T2_MODEL_BUNDLE_DIRECTORY = PurePosixPath("models/ratlesnetv2-lys-v1")
+T2_RESOURCE_DIRECTORIES = (
+    "lys_v3_standard3d_nnunet",
+    "lys_v1_small_ratlesnetv2",
+)
 IGNORED_MODEL_FILE_NAMES = (".DS_Store",)
 IGNORED_MODEL_DIRECTORY_NAMES = ("__pycache__",)
 
@@ -186,36 +189,51 @@ def _bundle_t1_model_release(
     }
 
 
-def _bundle_t2_model_release(
+def _bundle_checked_in_t2_resources(
     entries: dict[PurePosixPath, bytes],
     *,
     source: Path,
     bundle_root: PurePosixPath,
-    release_root: Path,
 ) -> dict[str, object]:
-    sys.path.insert(0, str(source / "src"))
-    from lys_bbb.t2_model_release import validate_frozen_t2_model_release
+    """Bundle deliberate T2 choices from resources/models, the source of truth."""
 
-    release = validate_frozen_t2_model_release(release_root)
-    files = _all_release_files(release.root_path)
-    _add_release_files(
-        entries,
-        bundle_root=bundle_root,
-        bundle_directory=T2_MODEL_BUNDLE_DIRECTORY,
-        release_root=release.root_path,
-        files=files,
+    sys.path.insert(0, str(source / "src"))
+    from lys_bbb.t2_model_release import validate_t2_model_release
+
+    resource_models = source / "resources" / "models"
+    standard_root = resource_models / "lys_v3_standard3d_nnunet"
+    choice_paths = (
+        standard_root,
+        standard_root / "variants" / "folds_0_1",
+        resource_models / "lys_v1_small_ratlesnetv2",
     )
+    choices = [validate_t2_model_release(path) for path in choice_paths]
+    file_count = 0
+    for directory_name in T2_RESOURCE_DIRECTORIES:
+        release_root = resource_models / directory_name
+        files = _all_release_files(release_root)
+        _add_release_files(
+            entries,
+            bundle_root=bundle_root,
+            bundle_directory=PurePosixPath("models") / directory_name,
+            release_root=release_root,
+            files=files,
+        )
+        file_count += len(files)
     return {
-        "id": release.id,
-        "version": release.version,
         "delivery": "bundled",
-        "bundle_path": str(T2_MODEL_BUNDLE_DIRECTORY),
-        "install_path": (
-            r"%LOCALAPPDATA%\LYS IRM\models\ratlesnetv2-lys-v1"
-        ),
-        "manifest_sha256": release.manifest_sha256,
-        "model_sha256": list(release.model_sha256),
-        "file_count": len(files),
+        "source": "resources/models",
+        "default_id": choices[0].id,
+        "choices": [
+            {
+                "id": choice.id,
+                "name": choice.name,
+                "folds": list(choice.folds),
+                "model_sha256": list(choice.model_sha256),
+            }
+            for choice in choices
+        ],
+        "file_count": file_count,
     }
 
 
@@ -232,7 +250,7 @@ def build_bundle(
     allow_dirty: bool = False,
     target_name: str = "native",
     t1_model_release: Path | None = None,
-    t2_model_release: Path | None = None,
+    bundle_checked_in_t2_models: bool = False,
 ) -> Path:
     source = source.resolve()
     output_directory = output_directory.resolve()
@@ -275,12 +293,13 @@ def build_bundle(
             bundle_root=target.bundle_root,
             release_root=t1_model_release.expanduser().resolve(),
         )
-    if t2_model_release is not None:
-        bundled_models["t2_lesion_segmentation"] = _bundle_t2_model_release(
-            entries,
-            source=source,
-            bundle_root=target.bundle_root,
-            release_root=t2_model_release.expanduser().resolve(),
+    if bundle_checked_in_t2_models:
+        bundled_models["t2_lesion_segmentation"] = (
+            _bundle_checked_in_t2_resources(
+                entries,
+                source=source,
+                bundle_root=target.bundle_root,
+            )
         )
 
     tracked_hashes = {
@@ -353,11 +372,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="validated RS2-Net/M-seam release to include in the archive",
     )
     parser.add_argument(
-        "--t2-model-release",
-        type=Path,
-        help="validated frozen RatLesNetV2 release to include in the archive",
-    )
-    parser.add_argument(
         "--without-bundled-models",
         action="store_true",
         help="explicitly create a native test archive without local model releases",
@@ -368,18 +382,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     native_target = args.target == "native"
-    if (
-        native_target
-        and args.t1_model_release is None
-        and args.t2_model_release is None
-        and not args.without_bundled_models
-    ):
-        print(
-            "error: native bundles require model release arguments; "
-            "use --without-bundled-models only for packaging tests",
-            file=sys.stderr,
-        )
-        return 1
     try:
         output = build_bundle(
             args.source,
@@ -387,7 +389,10 @@ def main(argv: list[str] | None = None) -> int:
             allow_dirty=args.allow_dirty,
             target_name=args.target,
             t1_model_release=args.t1_model_release,
-            t2_model_release=args.t2_model_release,
+            bundle_checked_in_t2_models=(
+                native_target
+                and not args.without_bundled_models
+            ),
         )
     except (OSError, KeyError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)

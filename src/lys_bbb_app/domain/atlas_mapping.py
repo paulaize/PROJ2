@@ -134,7 +134,7 @@ class T1ToT2ArtifactRecord:
     source_pre_scan_input_id: str
     source_t2_scan_input_id: str
     source_t1_mask_artifact_id: str
-    source_t2_support_mask_id: str
+    source_t2_support_mask_id: str | None
     lesion_exclusion_artifact_id: str | None
     lesion_exclusion_sha256: str | None
     method_id: str

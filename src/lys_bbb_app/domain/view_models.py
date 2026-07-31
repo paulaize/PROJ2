@@ -308,6 +308,7 @@ class StudyViewModel:
     t1_input_folder: Path | None = None
     t2_input_folder: Path | None = None
     active_t2_release_label: str | None = None
+    active_t2_release_id: str | None = None
     t2_eligible_subject_count: int = 0
     t2_running_job_count: int = 0
     active_t1_brain_mask_release_label: str | None = None
