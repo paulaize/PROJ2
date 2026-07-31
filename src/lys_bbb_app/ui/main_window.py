@@ -566,6 +566,35 @@ class MainWindow(QMainWindow):
             9000,
         )
 
+    def update_subject_longitudinal_identifiers(
+        self,
+        subject_id: str,
+        animal_identifier: str,
+        time_identifier: str,
+        *,
+        return_page: str = "subjects",
+    ) -> None:
+        """Persist user-editable animal/time labels used for longitudinal grouping."""
+
+        try:
+            snapshot = self.study_service.update_subject_longitudinal_identifiers(
+                subject_id,
+                animal_identifier,
+                time_identifier,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The subject identifiers could not be saved.", exc)
+            if self.current_study is not None:
+                self._set_study(self.current_study, page_key=return_page)
+                if return_page == "workspace":
+                    self.open_subject(subject_id)
+            return
+        self._set_study(present_study(snapshot), page_key=return_page)
+        if return_page == "workspace":
+            self.open_subject(subject_id)
+        self.statusBar().showMessage("Animal and time identifiers were saved.", 6000)
+
     def open_subject_mri_in_itksnap(self, subject_id: str) -> None:
         if self.current_study is None:
             return
@@ -1945,6 +1974,53 @@ class MainWindow(QMainWindow):
         self._set_study(present_study(snapshot), page_key="reviews")
         self.reviews_page.focus_subject(subject_id)
 
+    def apply_review_t2_probability_threshold(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        threshold: float,
+    ) -> None:
+        """Apply one explicitly reviewed probability cutoff to one animal."""
+
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a study before applying a case-specific T2 threshold."
+            )
+            return
+        if self._review_workflow_key(artifact_id) != "t2_lesion":
+            self._show_status_message(
+                "Case-specific probability thresholds are available only for "
+                "T2 lesion reviews."
+            )
+            return
+        confirmation = QMessageBox.question(
+            self,
+            "Apply case-specific T2 threshold?",
+            f"Create a new draft lesion mask for this animal using probability "
+            f"threshold {threshold:.8g}?\n\nThis does not change the model default "
+            "or any other animal. The new mask will require explicit human review.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            snapshot = self.study_service.apply_t2_probability_threshold(
+                subject_id,
+                artifact_id,
+                threshold,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The case-specific T2 threshold could not be applied.", exc)
+            return
+        self._set_study(present_study(snapshot), page_key="reviews")
+        self.reviews_page.focus_subject(subject_id)
+        self.statusBar().showMessage(
+            "The case-specific threshold created a new mask version that awaits review.",
+            12000,
+        )
+
     def approve_t2_mask(
         self,
         subject_id: str,
@@ -2018,6 +2094,51 @@ class MainWindow(QMainWindow):
         self._notify(
             "Export complete",
             f"Saved {exported.row_count} approved T2 result(s) to {exported.path}.",
+            kind="success",
+        )
+
+    def export_approved_t2_results_excel(self, detailed: bool = False) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            self._show_status_message(
+                "Open a study with approved T2 results to create this export."
+            )
+            return
+        root = self.current_study.root_path
+        filename = (
+            "approved_t2_lesion_results_detailed.xlsx"
+            if detailed
+            else "approved_t2_lesion_results.xlsx"
+        )
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Export detailed approved T2 results"
+            if detailed
+            else "Export approved T2 lesion results",
+            str(root / "exports" / filename),
+            "Excel workbooks (*.xlsx)",
+        )
+        if not selected:
+            return
+        destination = Path(selected)
+        if destination.suffix.casefold() != ".xlsx":
+            destination = destination.with_suffix(".xlsx")
+        try:
+            exported = self.study_service.export_approved_t2_results_excel(
+                destination,
+                detailed=detailed,
+                actor=self._reviewer_identity(),
+            )
+        except StudyStateError as exc:
+            self._show_error("The approved T2 Excel export could not be created.", exc)
+            return
+        detail = (
+            f" and {exported.slice_row_count} per-slice row(s)"
+            if exported.detailed
+            else ""
+        )
+        self._notify(
+            "Export complete",
+            f"Saved {exported.row_count} approved result(s){detail} to {exported.path}.",
             kind="success",
         )
 

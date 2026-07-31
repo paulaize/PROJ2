@@ -714,6 +714,8 @@ def _present_subject(
     return SubjectViewModel(
         subject_id=subject.id,
         display_id=subject.subject_code,
+        animal_identifier=subject.animal_identifier,
+        time_identifier=subject.time_identifier,
         group=subject.group_name,
         t1_data=t1_data,
         brain_mask=brain_mask,
@@ -910,24 +912,35 @@ def _present_t2_review_item(
         if source is not None and source.output_shape
         else 1
     )
-    corrected = artifact.state is ArtifactState.CORRECTED_REVIEW_REQUIRED
+    corrected = artifact.origin == "CORRECTED"
+    threshold_adjusted = artifact.origin == "THRESHOLD_ADJUSTED"
+    model_default_threshold = float(
+        artifact.metadata.get(
+            "model_default_threshold",
+            artifact.metadata.get("inference_threshold", artifact.threshold),
+        )
+    )
     return ReviewItemViewModel(
         subject_id=subject.id,
         category="T2 lesion masks",
         artifact_name=(
             f"ITK-SNAP corrected lesion mask · v{artifact.version}"
             if corrected
+            else f"Case-threshold adjusted lesion mask · v{artifact.version}"
+            if threshold_adjusted
             else f"Automatic draft lesion mask · v{artifact.version}"
         ),
         reason=(
             "The human-corrected mask requires explicit approval before measurement."
             if corrected
+            else "The case-specific probability threshold requires explicit human review."
+            if threshold_adjusted
             else "The automatic prediction requires explicit human review."
         ),
         automatic_qc=(
             f"Provisional volume {artifact.provisional_volume_mm3:.3f} mm³ · "
             f"{artifact.lesion_voxel_count:,} lesion voxels · threshold "
-            f"{artifact.threshold:.2f} · {presented.release_label}"
+            f"{artifact.threshold:.6g} · {presented.release_label}"
         ),
         status=presented.state,
         slice_count=slice_count,
@@ -936,6 +949,12 @@ def _present_t2_review_item(
         qc_preview_path=artifact.qc_preview_path,
         qc_slice_paths=_qc_slice_paths(artifact.qc_preview_path),
         workflow_key="t2_lesion",
+        reference_path=source.output_path if source is not None else None,
+        probability_path=artifact.probability_path,
+        probability_sha256=artifact.probability_sha256,
+        current_threshold=artifact.threshold,
+        model_default_threshold=model_default_threshold,
+        can_adjust_threshold=not corrected,
     )
 
 
@@ -1255,7 +1274,11 @@ def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactView
             "review",
         ),
         ArtifactState.CORRECTED_REVIEW_REQUIRED: StatusValue(
-            "Corrected mask · review required",
+            (
+                "Case-threshold mask · review required"
+                if artifact.origin == "THRESHOLD_ADJUSTED"
+                else "Corrected mask · review required"
+            ),
             "review",
         ),
         ArtifactState.APPROVED: StatusValue("Human approved", "approved"),
@@ -1270,7 +1293,7 @@ def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactView
         qc_preview_path=artifact.qc_preview_path,
         lesion_voxel_count=artifact.lesion_voxel_count,
         provisional_volume_text=f"{artifact.provisional_volume_mm3:.3f} mm³",
-        threshold_text=f"{artifact.threshold:.2f}",
+        threshold_text=f"{artifact.threshold:.6g}",
         release_label=(release.version if release is not None else artifact.model_release_id),
         device=artifact.device,
         created_at=_format_timestamp(artifact.created_at),
@@ -1278,6 +1301,8 @@ def _present_t2_artifact(artifact, study: StudySnapshot) -> T2LesionArtifactView
         origin_label=(
             "ITK-SNAP correction"
             if artifact.origin == "CORRECTED"
+            else "Case-specific threshold adjustment"
+            if artifact.origin == "THRESHOLD_ADJUSTED"
             else "Automatic T2 lesion draft"
         ),
         can_correct=artifact.active
@@ -1359,6 +1384,8 @@ def _present_result(subject: SubjectRecord, study: StudySnapshot) -> ResultViewM
     )
     return ResultViewModel(
         subject_id=subject.subject_code,
+        animal_identifier=subject.animal_identifier,
+        time_identifier=subject.time_identifier,
         group=subject.group_name,
         t1_value=t1_value,
         t1_state=t1_state,

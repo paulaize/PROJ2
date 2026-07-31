@@ -186,6 +186,8 @@ class T2InferenceService:
                             "native_affine_preserved": True,
                             "predictions_are_drafts": True,
                             "human_review_required": True,
+                            "inference_threshold": release.threshold,
+                            "model_default_threshold": release.threshold,
                             "inference_summary": str(inference.summary_path),
                         },
                     )

@@ -120,6 +120,14 @@ def test_holdout_notebook_has_sealed_animal_grouped_16_2_2_contract():
     assert source.count(
         "LYS_T1_brainmask_holdout_16_2_2_resume.tar.gz"
     ) == 2
+    assert "BASE_NUMPY_VERSION" in source
+    assert "normalize-kaggle-nifti" in [
+        cell["id"] for cell in notebook["cells"]
+    ]
+    assert 'source.with_suffix("")' in source
+    assert "normalized_rows.at[index, hash_column] = sha256(destination)" in source
+    cell_ids = [cell["id"] for cell in notebook["cells"]]
+    assert cell_ids.index("install") < cell_ids.index("configuration")
     for index, cell in enumerate(notebook["cells"]):
         if cell["cell_type"] == "code":
             compile(

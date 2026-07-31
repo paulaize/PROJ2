@@ -31,6 +31,16 @@ def connect_main_window_signals(window: Any) -> None:
     window.subjects_page.t2_inference_requested.connect(
         window.run_t2_inference_for_study
     )
+    window.subjects_page.longitudinal_identifiers_requested.connect(
+        lambda subject_id, animal_id, time_id: (
+            window.update_subject_longitudinal_identifiers(
+                subject_id,
+                animal_id,
+                time_id,
+                return_page="subjects",
+            )
+        )
+    )
 
     window.workspace_page.back_requested.connect(
         lambda: window.show_page("subjects")
@@ -51,6 +61,16 @@ def connect_main_window_signals(window: Any) -> None:
         window.select_mri_source_folder
     )
     window.workspace_page.rename_requested.connect(window.rename_subject)
+    window.workspace_page.longitudinal_identifiers_requested.connect(
+        lambda subject_id, animal_id, time_id: (
+            window.update_subject_longitudinal_identifiers(
+                subject_id,
+                animal_id,
+                time_id,
+                return_page="workspace",
+            )
+        )
+    )
     window.workspace_page.t2_release_requested.connect(
         window.select_t2_model_release
     )
@@ -114,8 +134,14 @@ def connect_main_window_signals(window: Any) -> None:
     )
     window.reviews_page.subject_requested.connect(window.open_review_subject)
     window.reviews_page.qc_slices_requested.connect(window.prepare_review_qc_slices)
+    window.reviews_page.threshold_apply_requested.connect(
+        window.apply_review_t2_probability_threshold
+    )
     window.results_page.approved_csv_requested.connect(
         window.export_approved_t2_results_csv
+    )
+    window.results_page.approved_excel_requested.connect(
+        window.export_approved_t2_results_excel
     )
     window.settings_page.blinding_changed.connect(window._handle_blinding_toggle)
     window.settings_page.input_folder_requested.connect(window.select_input_folder)

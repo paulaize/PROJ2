@@ -8,6 +8,7 @@ from contextlib import closing
 from pathlib import Path
 from uuid import uuid4
 
+from lys_bbb.subject_identifiers import normalize_time_identifier
 from lys_bbb_app.domain.scan_import import (
     ImportConfidence,
     InputValidationIssue,
@@ -73,7 +74,8 @@ def stage_scan_imports(
                     row["subject_code"].casefold(): row
                     for row in connection.execute(
                         """
-                        SELECT id, subject_code, expected_t1, expected_t2, archived_at
+                        SELECT id, subject_code, animal_identifier, time_identifier,
+                               expected_t1, expected_t2, archived_at
                         FROM subjects WHERE study_id = ?
                         """,
                         (study["id"],),
@@ -87,6 +89,18 @@ def stage_scan_imports(
 
                 created_subjects = 0
                 for folded_code, subject_assignments in by_subject.items():
+                    animal_values = {
+                        value
+                        for item in subject_assignments
+                        if (value := _normalize_optional(item.animal_identifier))
+                    }
+                    time_values = {
+                        value
+                        for item in subject_assignments
+                        if (value := normalize_time_identifier(item.time_identifier))
+                    }
+                    animal_identifier = next(iter(animal_values), None)
+                    time_identifier = next(iter(time_values), None)
                     expected_t1 = any(
                         item.role in {ScanRole.T1_PRE, ScanRole.T1_POST}
                         for item in subject_assignments
@@ -106,14 +120,17 @@ def stage_scan_imports(
                         connection.execute(
                             """
                             INSERT INTO subjects(
-                                id, study_id, subject_code, group_name, metadata_json,
+                                id, study_id, subject_code, animal_identifier,
+                                time_identifier, group_name, metadata_json,
                                 expected_t1, expected_t2, created_at, updated_at
-                            ) VALUES (?, ?, ?, NULL, '{}', ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, NULL, '{}', ?, ?, ?, ?)
                             """,
                             (
                                 subject_id,
                                 study["id"],
                                 subject_code,
+                                animal_identifier,
+                                time_identifier,
                                 int(expected_t1),
                                 int(expected_t2),
                                 now,
@@ -123,6 +140,8 @@ def stage_scan_imports(
                         subjects[folded_code] = {
                             "id": subject_id,
                             "subject_code": subject_code,
+                            "animal_identifier": animal_identifier,
+                            "time_identifier": time_identifier,
                             "expected_t1": int(expected_t1),
                             "expected_t2": int(expected_t2),
                             "archived_at": None,
@@ -136,6 +155,8 @@ def stage_scan_imports(
                             actor=normalized_actor,
                             details={
                                 "subject_code": subject_code,
+                                "animal_identifier": animal_identifier,
+                                "time_identifier": time_identifier,
                                 "expected_t1": expected_t1,
                                 "expected_t2": expected_t2,
                             },
@@ -145,10 +166,13 @@ def stage_scan_imports(
                         connection.execute(
                             """
                             UPDATE subjects
-                            SET expected_t1 = ?, expected_t2 = ?, updated_at = ?
+                            SET animal_identifier = ?, time_identifier = ?,
+                                expected_t1 = ?, expected_t2 = ?, updated_at = ?
                             WHERE id = ?
                             """,
                             (
+                                existing["animal_identifier"] or animal_identifier,
+                                existing["time_identifier"] or time_identifier,
                                 int(bool(existing["expected_t1"]) or expected_t1),
                                 int(bool(existing["expected_t2"]) or expected_t2),
                                 now,
@@ -480,8 +504,24 @@ def _validate_assignments(assignments: tuple[ScanImportAssignment, ...]) -> None
     if not assignments:
         raise StudyStateError("Select at least one MRI scan to import.")
     keys: set[tuple[str, ScanRole]] = set()
+    identifiers: dict[str, tuple[set[str], set[str]]] = {}
     for assignment in assignments:
         subject_code = _normalize_required(assignment.subject_code, "Subject ID")
+        animal_values, time_values = identifiers.setdefault(
+            subject_code.casefold(), (set(), set())
+        )
+        if animal_identifier := _normalize_optional(assignment.animal_identifier):
+            animal_values.add(animal_identifier)
+        try:
+            if time_identifier := normalize_time_identifier(assignment.time_identifier):
+                time_values.add(time_identifier)
+        except ValueError as exc:
+            raise StudyStateError(str(exc)) from exc
+        if len(animal_values) > 1 or len(time_values) > 1:
+            raise StudyStateError(
+                f"Subject {subject_code} has conflicting longitudinal identifiers "
+                "across its MRI assignments."
+            )
         if assignment.role is ScanRole.IGNORE:
             raise StudyStateError("Ignored scans cannot be staged for import.")
         key = (subject_code.casefold(), assignment.role)
@@ -497,6 +537,11 @@ def _validate_assignments(assignments: tuple[ScanImportAssignment, ...]) -> None
             raise StudyStateError(
                 f"The selected MRI source is unavailable: {assignment.source_path}"
             )
+
+
+def _normalize_optional(value: str | None) -> str | None:
+    normalized = (value or "").strip()
+    return normalized or None
 
 
 def _insert_assignment(

@@ -6,6 +6,7 @@ import csv
 import json
 from pathlib import Path
 import sqlite3
+from zipfile import ZipFile
 
 import nibabel as nib
 import numpy as np
@@ -168,6 +169,12 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
     tmp_path: Path,
 ) -> None:
     service, subject_id, artifact_id, _reference = _build_service_with_draft(tmp_path)
+    service.update_subject_longitudinal_identifiers(
+        subject_id,
+        "C23S2",
+        "D_7",
+        actor="Reviewer A",
+    )
 
     approved = service.approve_t2_mask(
         subject_id,
@@ -201,10 +208,48 @@ def test_approval_creates_immutable_review_official_result_and_blinded_csv(
         rows = list(csv.DictReader(handle))
     assert "group" not in rows[0]
     assert rows[0]["subject_id"] == "Mouse-01"
+    assert rows[0]["animal_identifier"] == "C23S2"
+    assert rows[0]["time_identifier"] == "D7"
     assert rows[0]["result_state"] == "APPROVED"
     assert rows[0]["approved_mask_sha256"] == artifact.mask_sha256
     with pytest.raises(StudyStateError, match="will not be overwritten"):
         service.export_approved_t2_results_csv(destination, actor="Reviewer A")
+
+    excel_destination = approved.root_path / "exports" / "approved-t2.xlsx"
+    excel_export = service.export_approved_t2_results_excel(
+        excel_destination,
+        detailed=False,
+        actor="Reviewer A",
+    )
+    assert excel_export.row_count == 1
+    assert excel_export.slice_row_count == 0
+    with ZipFile(excel_destination) as workbook:
+        assert "Summary" in workbook.read("xl/workbook.xml").decode()
+        assert "Per-slice lesions" not in workbook.read("xl/workbook.xml").decode()
+
+    detailed_destination = approved.root_path / "exports" / "approved-t2-detailed.xlsx"
+    detailed_export = service.export_approved_t2_results_excel(
+        detailed_destination,
+        detailed=True,
+        actor="Reviewer A",
+    )
+    assert detailed_export.row_count == 1
+    assert detailed_export.slice_row_count == 4
+    with ZipFile(detailed_destination) as workbook:
+        workbook_xml = workbook.read("xl/workbook.xml").decode()
+        strings = workbook.read("xl/sharedStrings.xml").decode()
+        slice_xml = workbook.read("xl/worksheets/sheet2.xml").decode()
+    assert "Per-slice lesions" in workbook_xml
+    assert "lesion_area_mm2" in strings
+    assert "slice_position_mm" in strings
+    assert ">group<" not in strings
+    assert slice_xml.count("<row") == 7
+    with pytest.raises(StudyStateError, match="will not be overwritten"):
+        service.export_approved_t2_results_excel(
+            detailed_destination,
+            detailed=True,
+            actor="Reviewer A",
+        )
 
     service.unblind(reviewer="Reviewer A")
     service.assign_groups({subject_id: "Treatment A"}, reviewer="Reviewer A")
@@ -250,6 +295,150 @@ def test_persistent_t2_draft_is_presented_in_general_review_queue(
     service.approve_t2_mask(subject_id, artifact_id, reviewer="Reviewer A")
 
     assert present_study(service.current_study).reviews == ()
+
+
+def test_case_specific_probability_threshold_creates_auditable_mask_version(
+    tmp_path: Path,
+) -> None:
+    service, subject_id, artifact_id, _reference = _build_service_with_draft(tmp_path)
+    original = service.current_study.t2_artifacts_for_subject(subject_id)[0]
+
+    adjusted = service.apply_t2_probability_threshold(
+        subject_id,
+        artifact_id,
+        0.75,
+        actor="Reviewer A",
+    )
+
+    current = next(
+        artifact
+        for artifact in adjusted.t2_artifacts_for_subject(subject_id)
+        if artifact.active
+    )
+    superseded = next(
+        artifact
+        for artifact in adjusted.t2_artifacts_for_subject(subject_id)
+        if artifact.id == artifact_id
+    )
+    assert current.id != artifact_id
+    assert current.origin == "THRESHOLD_ADJUSTED"
+    assert current.state is ArtifactState.CORRECTED_REVIEW_REQUIRED
+    assert current.threshold == pytest.approx(0.75)
+    assert current.lesion_voxel_count == 4
+    assert current.probability_path == original.probability_path
+    assert current.probability_sha256 == original.probability_sha256
+    assert current.metadata["case_specific_threshold_override"] is True
+    assert current.metadata["model_default_threshold"] == pytest.approx(0.4)
+    assert current.metadata["inference_threshold"] == pytest.approx(0.4)
+    assert current.metadata["threshold_source_artifact_id"] == artifact_id
+    assert current.metadata["postprocessing"] == "none"
+    assert current.metadata["imported_from"] is None
+    assert superseded.state is ArtifactState.OUTDATED
+    assert superseded.superseded_by == current.id
+
+    review = present_study(adjusted).reviews[0]
+    assert review.can_adjust_threshold
+    assert review.current_threshold == pytest.approx(0.75)
+    assert review.model_default_threshold == pytest.approx(0.4)
+    assert review.probability_path == current.probability_path
+    assert "Case-threshold adjusted" in review.artifact_name
+
+    events = service.list_audit_events()
+    event = next(
+        item
+        for item in events
+        if item.event_type == "T2_CASE_SPECIFIC_THRESHOLD_APPLIED"
+    )
+    assert event.details["selected_threshold"] == pytest.approx(0.75)
+    assert event.details["model_default_threshold"] == pytest.approx(0.4)
+
+
+def test_corrupt_probability_blocks_case_threshold_without_changing_state(
+    tmp_path: Path,
+) -> None:
+    service, subject_id, artifact_id, reference_path = _build_service_with_draft(tmp_path)
+    artifact = service.current_study.t2_artifacts_for_subject(subject_id)[0]
+    reference = nib.load(reference_path)
+    nib.save(
+        nib.Nifti1Image(
+            np.zeros(reference.shape, dtype=np.float32),
+            reference.affine,
+        ),
+        artifact.probability_path,
+    )
+
+    with pytest.raises(StudyStateError, match="changed after it was registered"):
+        service.apply_t2_probability_threshold(
+            subject_id,
+            artifact_id,
+            0.2,
+            actor="Reviewer A",
+        )
+
+    unchanged = service.current_study
+    assert unchanged is not None
+    current = next(
+        item
+        for item in unchanged.t2_artifacts_for_subject(subject_id)
+        if item.active
+    )
+    assert current.id == artifact_id
+    assert current.version == 1
+
+
+def test_manual_correction_starts_from_case_threshold_mask_and_can_be_approved(
+    tmp_path: Path,
+) -> None:
+    service, subject_id, artifact_id, reference_path = _build_service_with_draft(
+        tmp_path
+    )
+    thresholded = service.apply_t2_probability_threshold(
+        subject_id,
+        artifact_id,
+        0.75,
+        actor="Reviewer A",
+    )
+    threshold_artifact = next(
+        item
+        for item in thresholded.t2_artifacts_for_subject(subject_id)
+        if item.active
+    )
+    session = service.start_t2_manual_edit(
+        subject_id,
+        threshold_artifact.id,
+        actor="Reviewer A",
+    )
+    assert sha256_file(session.editable_mask_path) == threshold_artifact.mask_sha256
+
+    reference = nib.load(reference_path)
+    corrected_data = np.zeros(reference.shape, dtype=np.uint8)
+    corrected_data[0, 0, :2] = 1
+    nib.save(
+        nib.Nifti1Image(corrected_data, reference.affine),
+        session.editable_mask_path,
+    )
+    corrected = service.finish_t2_manual_edit(session, actor="Reviewer A")
+    corrected_artifact = next(
+        item
+        for item in corrected.t2_artifacts_for_subject(subject_id)
+        if item.active
+    )
+    assert corrected_artifact.origin == "CORRECTED"
+    assert corrected_artifact.threshold == pytest.approx(0.75)
+    assert corrected_artifact.metadata["model_default_threshold"] == pytest.approx(0.4)
+    assert corrected_artifact.metadata["case_specific_threshold_override"] is True
+    assert corrected_artifact.probability_path == threshold_artifact.probability_path
+    assert corrected_artifact.lesion_voxel_count == 2
+
+    approved = service.approve_t2_mask(
+        subject_id,
+        corrected_artifact.id,
+        reviewer="Reviewer A",
+    )
+    result = approved.active_t2_result_for_subject(subject_id)
+    assert result is not None
+    assert result.source_artifact_id == corrected_artifact.id
+    assert result.lesion_voxel_count == 2
 
 
 def test_correction_is_new_artifact_and_approval_uses_corrected_mask(
@@ -386,6 +575,32 @@ def test_registered_mask_change_blocks_approval_without_creating_a_decision(
     assert unchanged is not None
     assert unchanged.review_for_artifact(artifact_id) is None
     assert unchanged.active_t2_result_for_subject(subject_id) is None
+
+
+def test_registered_mask_change_blocks_detailed_excel_export(
+    tmp_path: Path,
+) -> None:
+    service, subject_id, artifact_id, _reference = _build_service_with_draft(tmp_path)
+    approved = service.approve_t2_mask(
+        subject_id,
+        artifact_id,
+        reviewer="Reviewer A",
+    )
+    artifact = approved.t2_artifacts_for_subject(subject_id)[0]
+    image = nib.load(artifact.mask_path)
+    changed = np.asarray(image.dataobj).copy()
+    changed[0, 0, 0] = 1
+    nib.save(nib.Nifti1Image(changed, image.affine, image.header), artifact.mask_path)
+    destination = approved.root_path / "exports" / "must-not-exist.xlsx"
+
+    with pytest.raises(StudyStateError, match="changed after it was registered"):
+        service.export_approved_t2_results_excel(
+            destination,
+            detailed=True,
+            actor="Reviewer A",
+        )
+
+    assert not destination.exists()
 
 
 def test_empty_native_grid_correction_is_a_valid_approved_zero_volume(
@@ -620,7 +835,17 @@ def test_schema_six_draft_migrates_non_destructively_to_review_schema(
         )
         assert connection.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
-        ).fetchall() == [(6,), (8,), (9,), (10,), (11,), (12,), (13,)]
+        ).fetchall() == [
+            (6,),
+            (8,),
+            (9,),
+            (10,),
+            (11,),
+            (12,),
+            (13,),
+            (14,),
+            (15,),
+        ]
 
 
 def test_schema_seven_review_migrates_to_approval_without_notes_or_issue_type(

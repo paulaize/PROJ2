@@ -160,6 +160,8 @@ class SubjectViewModel:
     t2_lesion: StatusValue
     overall: StatusValue
     updated: str
+    animal_identifier: str | None = None
+    time_identifier: str | None = None
     expects_t1: bool = True
     expects_t2: bool = True
     metadata: tuple[tuple[str, str], ...] = ()
@@ -276,11 +278,19 @@ class ReviewItemViewModel:
     can_manual_edit: bool = True
     manual_edit_label: str = "Manually edit in ITK-SNAP…"
     supports_slice_qc: bool = True
+    reference_path: Path | None = None
+    probability_path: Path | None = None
+    probability_sha256: str | None = None
+    current_threshold: float | None = None
+    model_default_threshold: float | None = None
+    can_adjust_threshold: bool = False
 
 
 @dataclass(frozen=True)
 class ResultViewModel:
     subject_id: str
+    animal_identifier: str | None
+    time_identifier: str | None
     group: str | None
     t1_value: str
     t1_state: StatusValue

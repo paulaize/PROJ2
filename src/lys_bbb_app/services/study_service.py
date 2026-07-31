@@ -95,7 +95,9 @@ from lys_bbb_app.services.mri_input_service import (
 )
 from lys_bbb_app.services.t2_export_service import (
     ApprovedT2Export,
+    ApprovedT2ExcelExport,
     export_approved_t2_results,
+    export_approved_t2_results_excel,
 )
 from lys_bbb_app.services.t1_brain_mask_service import (
     T1BrainMaskEditSession,
@@ -223,6 +225,21 @@ class StudyService:
         return self._require_repository().rename_subject(
             subject_id,
             subject_code,
+            actor=actor,
+        )
+
+    def update_subject_longitudinal_identifiers(
+        self,
+        subject_id: str,
+        animal_identifier: str | None,
+        time_identifier: str | None,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        return self._require_repository().update_subject_longitudinal_identifiers(
+            subject_id,
+            animal_identifier,
+            time_identifier,
             actor=actor,
         )
 
@@ -1118,6 +1135,22 @@ class StudyService:
         )
         return self._require_repository().snapshot()
 
+    def apply_t2_probability_threshold(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        threshold: float,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        self._t2_review_service().apply_probability_threshold(
+            subject_id,
+            artifact_id,
+            threshold,
+            actor=actor,
+        )
+        return self._require_repository().snapshot()
+
     def approve_t2_mask(
         self,
         subject_id: str,
@@ -1148,6 +1181,34 @@ class StudyService:
                 "row_count": exported.row_count,
                 "blinded": exported.blinded,
                 "approved_only": True,
+            },
+        )
+        return exported
+
+    def export_approved_t2_results_excel(
+        self,
+        destination: Path | str,
+        *,
+        detailed: bool,
+        actor: str,
+    ) -> ApprovedT2ExcelExport:
+        repository = self._require_repository()
+        exported = export_approved_t2_results_excel(
+            repository.snapshot(),
+            destination,
+            detailed=detailed,
+        )
+        repository.record_audit_event(
+            "APPROVED_T2_RESULTS_EXPORTED",
+            actor=actor,
+            details={
+                "path": str(exported.path),
+                "row_count": exported.row_count,
+                "slice_row_count": exported.slice_row_count,
+                "blinded": exported.blinded,
+                "approved_only": True,
+                "format": "xlsx",
+                "detailed": exported.detailed,
             },
         )
         return exported

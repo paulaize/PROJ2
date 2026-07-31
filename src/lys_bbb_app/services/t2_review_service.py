@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
-from lys_bbb.t2_review import validate_and_measure_t2_mask
+from lys_bbb.t2_review import (
+    save_thresholded_t2_probability,
+    validate_and_measure_t2_mask,
+    validate_t2_probability_map,
+)
 from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import ScanImportState
 from lys_bbb_app.domain.t2_lesion import (
@@ -163,6 +167,83 @@ class T2ReviewService:
             sorted((artifact.qc_preview_path.parent / "qc_slices").glob("slice_*.png"))
         )
 
+    def apply_probability_threshold(
+        self,
+        subject_id: str,
+        artifact_id: str,
+        threshold: float,
+        *,
+        actor: str,
+    ) -> str:
+        """Create a new review-required mask from one case's saved probabilities."""
+
+        artifact, reference_path = self._active_artifact_and_reference(
+            subject_id,
+            artifact_id,
+        )
+        if artifact.origin == "CORRECTED":
+            raise StudyStateError(
+                "A manually corrected mask cannot be regenerated from probabilities."
+            )
+        try:
+            probability = validate_t2_probability_map(
+                artifact.probability_path,
+                reference_path,
+                expected_probability_sha256=artifact.probability_sha256,
+            )
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            raise StudyStateError(
+                f"The case-specific T2 threshold cannot be applied: {exc}"
+            ) from exc
+
+        threshold_work = (
+            self._repository.root_path
+            / "work"
+            / "t2_lesion"
+            / "threshold_adjustments"
+            / str(uuid4())
+        )
+        thresholded_mask = threshold_work / "lesion_mask_thresholded.nii.gz"
+        try:
+            save_thresholded_t2_probability(
+                probability,
+                reference_path,
+                thresholded_mask,
+                threshold=threshold,
+            )
+            return self._register_corrected_mask(
+                subject_id,
+                artifact_id,
+                thresholded_mask,
+                actor=actor,
+                origin="THRESHOLD_ADJUSTED",
+                metadata={
+                    "threshold": float(threshold),
+                    "case_specific_threshold_override": True,
+                    "model_default_threshold": float(
+                        artifact.metadata.get(
+                            "model_default_threshold",
+                            artifact.metadata.get("inference_threshold", artifact.threshold),
+                        )
+                    ),
+                    "inference_threshold": float(
+                        artifact.metadata.get("inference_threshold", artifact.threshold)
+                    ),
+                    "threshold_source_artifact_id": artifact.id,
+                    "threshold_source_probability_sha256": probability.probability_sha256,
+                    "maximum_probability": probability.maximum_probability,
+                    "postprocessing": "none",
+                },
+            )
+        except StudyStateError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise StudyStateError(
+                f"The case-specific T2 threshold could not be applied: {exc}"
+            ) from exc
+        finally:
+            shutil.rmtree(threshold_work, ignore_errors=True)
+
     def finish_manual_edit(
         self,
         session: T2ManualEditSession,
@@ -203,6 +284,8 @@ class T2ReviewService:
         corrected_path: Path | str,
         *,
         actor: str,
+        origin: str = "CORRECTED",
+        metadata: dict[str, object] | None = None,
     ) -> str:
         """Validate and copy one managed edit into immutable study-owned storage."""
 
@@ -227,7 +310,11 @@ class T2ReviewService:
             / subject_id
             / str(uuid4())
         )
-        immutable_mask = artifact_directory / "lesion_mask_corrected.nii.gz"
+        immutable_mask = artifact_directory / (
+            "lesion_mask_thresholded.nii.gz"
+            if origin == "THRESHOLD_ADJUSTED"
+            else "lesion_mask_corrected.nii.gz"
+        )
         qc_preview = artifact_directory / "qc_preview.png"
         try:
             artifact_directory.mkdir(parents=True, exist_ok=False)
@@ -238,6 +325,18 @@ class T2ReviewService:
                 expected_mask_sha256=source_measurement.mask_sha256,
             )
             self._qc_builder(reference_path, immutable_mask, qc_preview)
+            artifact_metadata: dict[str, object] = {
+                "shape": list(measurement.shape),
+                "spacing_mm": list(measurement.spacing_mm),
+                "axis_codes": list(measurement.axis_codes),
+                "native_affine_preserved": True,
+                "postprocessing": (
+                    "none"
+                    if origin == "THRESHOLD_ADJUSTED"
+                    else "human correction in ITK-SNAP"
+                ),
+            }
+            artifact_metadata.update(metadata or {})
             draft = T2CorrectedArtifactDraft(
                 subject_id=subject_id,
                 source_artifact_id=source_artifact.id,
@@ -247,13 +346,8 @@ class T2ReviewService:
                 lesion_voxel_count=measurement.lesion_voxel_count,
                 provisional_volume_mm3=measurement.lesion_volume_mm3,
                 imported_from=imported_from,
-                metadata={
-                    "shape": list(measurement.shape),
-                    "spacing_mm": list(measurement.spacing_mm),
-                    "axis_codes": list(measurement.axis_codes),
-                    "native_affine_preserved": True,
-                    "postprocessing": "human correction in ITK-SNAP",
-                },
+                metadata=artifact_metadata,
+                origin=origin,
             )
             artifact_id = self._repository.create_corrected_t2_artifact(
                 draft,

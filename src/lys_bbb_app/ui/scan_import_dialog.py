@@ -86,9 +86,11 @@ class ScanImportReviewDialog(QDialog):
 
         help_text = QLabel(
             "Edit subject IDs and scan roles where needed. T1 coronal conversion uses the "
-            "NIfTI affine without interpolation. X/Y/Z flips reverse the stored voxel axis "
-            "and update the affine; every choice is recorded in provenance. Automatic "
-            "outputs remain inputs awaiting later scientific QC."
+            "NIfTI affine without interpolation. Proposed T2 storage-axis flips normalize "
+            "coronal direction labels to LIP; an already-LIP T2 receives no flips. X/Y/Z "
+            "flips reverse the stored voxel axis and update the affine; every choice is "
+            "recorded in provenance. Automatic outputs remain inputs awaiting later "
+            "scientific QC."
         )
         help_text.setObjectName("muted")
         help_text.setWordWrap(True)
@@ -180,7 +182,8 @@ class ScanImportReviewDialog(QDialog):
             flip_layout = QHBoxLayout(flip_widget)
             flip_layout.setContentsMargins(2, 0, 2, 0)
             boxes = tuple(QCheckBox(axis) for axis in ("X", "Y", "Z"))
-            for box in boxes:
+            for axis, box in enumerate(boxes):
+                box.setChecked(axis in scan.suggested_flip_axes)
                 flip_layout.addWidget(box)
             flip_layout.addStretch()
             self._flip_boxes[row] = boxes  # type: ignore[assignment]
@@ -252,6 +255,8 @@ class ScanImportReviewDialog(QDialog):
                         else ImportConfidence.LOW
                     ),
                     orientation_policy=orientation,
+                    animal_identifier=scan.suggested_animal_identifier,
+                    time_identifier=scan.suggested_time_identifier,
                     flip_axes=flip_axes,
                 )
             )
@@ -287,6 +292,13 @@ class ScanImportReviewDialog(QDialog):
         )
         selector = self._orientation_selectors[row]
         selector.setCurrentIndex(selector.findData(desired.value))
+        suggested_flips = (
+            self.report.scans[row].suggested_flip_axes
+            if role is ScanRole.T2
+            else ()
+        )
+        for axis, box in enumerate(self._flip_boxes[row]):
+            box.setChecked(axis in suggested_flips)
         self._apply_row_visibility()
 
     def _exclude_selected_subjects(self) -> None:

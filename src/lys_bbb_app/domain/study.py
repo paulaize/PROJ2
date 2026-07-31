@@ -68,6 +68,8 @@ class AnalysisScope(str, Enum):
 class SubjectRecord:
     id: str
     subject_code: str
+    animal_identifier: str | None
+    time_identifier: str | None
     group_name: str | None
     metadata: dict[str, Any]
     expected_t1: bool
@@ -304,5 +306,7 @@ class CreateSubjectRequest:
     expected_t1: bool
     expected_t2: bool
     group_name: str | None = None
+    animal_identifier: str | None = None
+    time_identifier: str | None = None
     metadata: dict[str, Any] | None = None
     actor: str = "Application"

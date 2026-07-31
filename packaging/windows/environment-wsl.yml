@@ -20,6 +20,7 @@ dependencies:
   - requests
   - simpleitk=2.5.5
   - tifffile
+  - xlsxwriter>=3.2,<4
   - pip:
       - antspyx==0.6.3
       - acvl-utils==0.2.1

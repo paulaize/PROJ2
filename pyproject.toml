@@ -10,6 +10,7 @@ dependencies = [
   "numpy>=1.26,<2.4",
   "scipy==1.15.2",
   "SimpleITK>=2.3",
+  "XlsxWriter>=3.2,<4",
 ]
 
 [project.scripts]

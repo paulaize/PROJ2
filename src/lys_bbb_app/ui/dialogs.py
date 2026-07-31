@@ -213,6 +213,10 @@ class AddSubjectDialog(QDialog):
         form = QFormLayout()
         self.subject_code = QLineEdit()
         self.subject_code.setPlaceholderText("Example: Mouse-001")
+        self.animal_identifier = QLineEdit()
+        self.animal_identifier.setPlaceholderText("Example: C23S2")
+        self.time_identifier = QLineEdit()
+        self.time_identifier.setPlaceholderText("Example: 1H, D7")
         self.group = QComboBox()
         self.group.setEditable(True)
         self.group.addItem("Unassigned")
@@ -223,6 +227,8 @@ class AddSubjectDialog(QDialog):
         self.expected_t2 = QCheckBox("T2 lesion")
         self.expected_t2.setChecked(analysis_scope.includes_t2)
         form.addRow("Subject ID", self.subject_code)
+        form.addRow("Animal ID", self.animal_identifier)
+        form.addRow("Time", self.time_identifier)
         form.addRow("Experimental group", self.group)
         layout.addLayout(form)
 
@@ -257,6 +263,8 @@ class AddSubjectDialog(QDialog):
             expected_t1=self.expected_t1.isChecked(),
             expected_t2=self.expected_t2.isChecked(),
             group_name=group_name,
+            animal_identifier=self.animal_identifier.text().strip() or None,
+            time_identifier=self.time_identifier.text().strip() or None,
             actor=actor,
         )
 

@@ -22,6 +22,7 @@ from lys_bbb.mri_import import (
     ScanRole,
     SourceFormat,
 )
+from lys_bbb.subject_identifiers import infer_longitudinal_identifiers
 
 
 _CASE_ANIMAL = re.compile(r"C\d+S\d+", re.IGNORECASE)
@@ -31,6 +32,7 @@ _PRE = re.compile(r"(?:pre[ _-]?gd|pre[ _-]?contrast|(?:^|[_-])pre(?:[_-]|$))", 
 _POST = re.compile(r"(?:post[ _-]?gd|post[ _-]?contrast|(?:^|[_-])post(?:[_-]|$))", re.I)
 _T1 = re.compile(r"T1.*FLASH.*3D|T1[_ -]?FLASH", re.I)
 _T2 = re.compile(r"(?:^|[^A-Za-z0-9])T2(?:W|[_ -]|$)", re.I)
+T2_TARGET_AXCODES = ("L", "I", "P")
 _SKIP_DIRECTORIES = {
     ".git",
     "AdjResult",
@@ -172,11 +174,20 @@ def _proposals_for_bruker_session(
     rows: list[ScanRecord],
 ) -> list[DiscoveredScan]:
     subject_code, subject_confidence, subject_issues = infer_subject_code(session.name)
+    animal_identifier, time_identifier = infer_longitudinal_identifiers(session.name)
     t2_roles = _rank_t2_candidates(rows)
     proposals: list[DiscoveredScan] = []
     for row in rows:
         role, confidence, reason, role_issues = _role_for_bruker_row(row, t2_roles)
-        issues = subject_issues + role_issues
+        suggested_flip_axes: tuple[int, ...] = ()
+        orientation_issues: tuple[DiscoveryIssue, ...] = ()
+        if role is ScanRole.T2:
+            suggested_flip_axes, orientation_issues = _t2_lip_flip_proposal(
+                session,
+                SourceFormat.BRUKER,
+                int(row.scan_id),
+            )
+        issues = subject_issues + role_issues + orientation_issues
         proposals.append(
             DiscoveredScan(
                 proposal_id=_proposal_id(session, row.scan_id),
@@ -198,6 +209,9 @@ def _proposals_for_bruker_session(
                     if role in {ScanRole.T1_PRE, ScanRole.T1_POST}
                     else OrientationPolicy.NATIVE
                 ),
+                suggested_animal_identifier=animal_identifier,
+                suggested_time_identifier=time_identifier,
+                suggested_flip_axes=suggested_flip_axes,
                 issues=issues,
             )
         )
@@ -341,6 +355,17 @@ def _discover_nifti_candidates(
             subject_code, subject_confidence, issues = infer_subject_code(
                 f"{path.name}_{filename}"
             )
+            animal_identifier, time_identifier = infer_longitudinal_identifiers(
+                f"{path.name}_{filename}"
+            )
+            suggested_flip_axes: tuple[int, ...] = ()
+            orientation_issues: tuple[DiscoveryIssue, ...] = ()
+            if role is ScanRole.T2:
+                suggested_flip_axes, orientation_issues = _t2_lip_flip_proposal(
+                    source,
+                    SourceFormat.NIFTI,
+                    None,
+                )
             proposals.append(
                 DiscoveredScan(
                     proposal_id=_proposal_id(source, None),
@@ -362,7 +387,10 @@ def _discover_nifti_candidates(
                         if role in {ScanRole.T1_PRE, ScanRole.T1_POST}
                         else OrientationPolicy.NATIVE
                     ),
-                    issues=issues,
+                    suggested_animal_identifier=animal_identifier,
+                    suggested_time_identifier=time_identifier,
+                    suggested_flip_axes=suggested_flip_axes,
+                    issues=issues + orientation_issues,
                 )
             )
     return proposals
@@ -387,3 +415,94 @@ def _strip_nifti_suffix(name: str) -> str:
 def _proposal_id(path: Path, scan_id: int | str | None) -> str:
     value = f"{path.resolve()}::{scan_id if scan_id is not None else ''}"
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:20]
+
+
+def propose_axis_flips_to_target(
+    source_axis_codes: tuple[str, str, str],
+    target_axis_codes: tuple[str, str, str],
+) -> tuple[int, ...]:
+    """Return storage-axis direction flips, rejecting required axis permutations."""
+
+    anatomical_axes = {
+        "L": "LR",
+        "R": "LR",
+        "I": "IS",
+        "S": "IS",
+        "P": "PA",
+        "A": "PA",
+    }
+    try:
+        source_axes = tuple(anatomical_axes[code] for code in source_axis_codes)
+        target_axes = tuple(anatomical_axes[code] for code in target_axis_codes)
+    except KeyError as exc:
+        raise ValueError(f"Unsupported anatomical axis code: {exc.args[0]!r}") from exc
+    if source_axes != target_axes:
+        raise ValueError(
+            "Reaching the target orientation requires axis reordering, not flips alone."
+        )
+    return tuple(
+        axis
+        for axis, (source, target) in enumerate(
+            zip(source_axis_codes, target_axis_codes, strict=True)
+        )
+        if source != target
+    )
+
+
+def _t2_lip_flip_proposal(
+    source_path: Path,
+    source_format: SourceFormat,
+    scan_id: int | None,
+) -> tuple[tuple[int, ...], tuple[DiscoveryIssue, ...]]:
+    """Inspect a proposed T2 and offer only safe direction flips to LIP."""
+
+    try:
+        from lys_bbb.scan_conversion import inspect_source_axis_codes
+
+        source_axis_codes = inspect_source_axis_codes(
+            source_path,
+            source_format,
+            scan_id,
+        )
+    except Exception as exc:
+        return (
+            (),
+            (
+                DiscoveryIssue(
+                    "T2_ORIENTATION_UNAVAILABLE",
+                    "T2 orientation could not be inspected automatically; keep native "
+                    f"storage or review flips manually ({exc}).",
+                ),
+            ),
+        )
+    try:
+        flip_axes = propose_axis_flips_to_target(
+            source_axis_codes,
+            T2_TARGET_AXCODES,
+        )
+    except ValueError:
+        return (
+            (),
+            (
+                DiscoveryIssue(
+                    "T2_LIP_REQUIRES_AXIS_REORDER",
+                    f"T2 source orientation {''.join(source_axis_codes)} cannot reach "
+                    "LIP with direction flips alone; review its orientation manually.",
+                ),
+            ),
+        )
+    if not flip_axes:
+        return (), ()
+    labels = ", ".join(("X", "Y", "Z")[axis] for axis in flip_axes)
+    return (
+        flip_axes,
+        (
+            DiscoveryIssue(
+                "T2_LIP_FLIPS_PROPOSED",
+                f"T2 source orientation {''.join(source_axis_codes)}: storage-axis "
+                f"flip{'s' if len(flip_axes) != 1 else ''} {labels} "
+                "proposed to produce LIP.",
+                "info",
+            ),
+        ),
+    )

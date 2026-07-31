@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
+from dataclasses import replace
+
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QSortFilterProxyModel,
+    Qt,
+    Signal,
+)
 from PySide6.QtGui import QColor, QFont
 
 from lys_bbb_app.domain.view_models import ResultViewModel, StatusValue, SubjectViewModel
@@ -11,6 +19,8 @@ from lys_bbb_app.ui.widgets import STATUS_COLOURS
 
 SUBJECT_COLUMNS = (
     "Subject",
+    "Animal ID",
+    "Time",
     "Next action",
     "T1",
     "T2",
@@ -19,6 +29,8 @@ SUBJECT_COLUMNS = (
 
 
 class SubjectTableModel(QAbstractTableModel):
+    longitudinal_edit_requested = Signal(str, str, str)
+
     def __init__(self, subjects: tuple[SubjectViewModel, ...] = ()) -> None:
         super().__init__()
         self.subjects = subjects
@@ -40,13 +52,15 @@ class SubjectTableModel(QAbstractTableModel):
         subject = self.subjects[index.row()]
         values = (
             subject.label,
+            subject.animal_identifier or "",
+            subject.time_identifier or "",
             subject.next_action,
             subject.t1_workflow_status,
             subject.t2_workflow_status,
             subject.overall,
         )
         value = values[index.column()]
-        if role == Qt.DisplayRole:
+        if role in {Qt.DisplayRole, Qt.EditRole}:
             return value.label if isinstance(value, StatusValue) else value
         if isinstance(value, StatusValue):
             background, foreground, _border = STATUS_COLOURS.get(
@@ -71,6 +85,47 @@ class SubjectTableModel(QAbstractTableModel):
         if role == Qt.UserRole:
             return subject
         return None
+
+    def flags(self, index: QModelIndex) -> Qt.ItemFlag:
+        flags = super().flags(index)
+        if index.isValid() and index.column() in {1, 2}:
+            flags |= Qt.ItemIsEditable
+        return flags
+
+    def setData(self, index: QModelIndex, value, role: int = Qt.EditRole) -> bool:  # noqa: N802
+        if (
+            role != Qt.EditRole
+            or not index.isValid()
+            or index.column() not in {1, 2}
+        ):
+            return False
+        subject = self.subjects[index.row()]
+        text = str(value).strip()
+        updated = replace(
+            subject,
+            animal_identifier=(
+                (text or None)
+                if index.column() == 1
+                else subject.animal_identifier
+            ),
+            time_identifier=(
+                (text or None)
+                if index.column() == 2
+                else subject.time_identifier
+            ),
+        )
+        if updated == subject:
+            return False
+        subjects = list(self.subjects)
+        subjects[index.row()] = updated
+        self.subjects = tuple(subjects)
+        self.dataChanged.emit(index, index, [Qt.DisplayRole, Qt.EditRole])
+        self.longitudinal_edit_requested.emit(
+            updated.subject_id,
+            updated.animal_identifier or "",
+            updated.time_identifier or "",
+        )
+        return True
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = Qt.DisplayRole):  # noqa: N802
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
@@ -101,7 +156,16 @@ class SubjectFilterProxyModel(QSortFilterProxyModel):
         subject = source.subject_at(source_row) if isinstance(source, SubjectTableModel) else None
         if subject is None:
             return False
-        if self.search_text and self.search_text not in subject.label.lower():
+        searchable = " ".join(
+            value
+            for value in (
+                subject.label,
+                subject.animal_identifier,
+                subject.time_identifier,
+            )
+            if value
+        ).lower()
+        if self.search_text and self.search_text not in searchable:
             return False
         if self.group_name != "All groups" and subject.group != self.group_name:
             return False
@@ -132,6 +196,8 @@ class SubjectFilterProxyModel(QSortFilterProxyModel):
 
 RESULT_COLUMNS = (
     "Subject",
+    "Animal ID",
+    "Time",
     "Group",
     "T1 enhancement",
     "T2 lesion volume",
@@ -161,16 +227,18 @@ class ResultsTableModel(QAbstractTableModel):
         result = self.results[index.row()]
         values = (
             result.subject_id,
+            result.animal_identifier,
+            result.time_identifier,
             result.group,
             result.t1_value,
             result.t2_value,
             result.method_version,
         )
-        states = (None, None, result.t1_state, result.t2_state, None)
+        states = (None, None, None, None, result.t1_state, result.t2_state, None)
         if role == Qt.DisplayRole:
-            if index.column() == 1 and values[index.column()] is None:
+            if index.column() == 3 and values[index.column()] is None:
                 return "Unassigned"
-            return values[index.column()]
+            return values[index.column()] or ""
         state = states[index.column()]
         if state is not None:
             background, foreground, _border = STATUS_COLOURS.get(

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QScrollArea,
     QSizePolicy,
@@ -40,6 +41,7 @@ class SubjectWorkspacePage(QScrollArea):
     input_flip_requested = Signal(str)
     input_import_requested = Signal()
     rename_requested = Signal(str)
+    longitudinal_identifiers_requested = Signal(str, str, str)
     t2_release_requested = Signal()
     t2_run_subject_requested = Signal(str)
     t2_run_study_requested = Signal()
@@ -106,6 +108,28 @@ class SubjectWorkspacePage(QScrollArea):
         )
         self.layout.addWidget(self.subject_title)
         self.layout.addWidget(self.subject_subtitle)
+
+        self.longitudinal_card = QFrame()
+        self.longitudinal_card.setObjectName("subtleCard")
+        longitudinal_layout = QHBoxLayout(self.longitudinal_card)
+        longitudinal_layout.setContentsMargins(14, 10, 14, 10)
+        longitudinal_layout.setSpacing(10)
+        longitudinal_layout.addWidget(QLabel("Animal ID"))
+        self.animal_identifier = QLineEdit()
+        self.animal_identifier.setPlaceholderText("Enter animal identifier")
+        longitudinal_layout.addWidget(self.animal_identifier, 1)
+        longitudinal_layout.addWidget(QLabel("Time"))
+        self.time_identifier = QLineEdit()
+        self.time_identifier.setPlaceholderText("Example: 1H, D7")
+        longitudinal_layout.addWidget(self.time_identifier, 1)
+        self.save_longitudinal = secondary_button("Save identifiers")
+        self.save_longitudinal.clicked.connect(self._save_longitudinal_identifiers)
+        longitudinal_layout.addWidget(self.save_longitudinal)
+        self.animal_identifier.textChanged.connect(
+            self._update_longitudinal_save_state
+        )
+        self.time_identifier.textChanged.connect(self._update_longitudinal_save_state)
+        self.layout.addWidget(self.longitudinal_card)
 
         self.next_action_card = QFrame()
         self.next_action_card.setObjectName("nextActionCard")
@@ -276,6 +300,13 @@ class SubjectWorkspacePage(QScrollArea):
     def set_subject(self, subject: SubjectViewModel) -> None:
         self.current_subject = subject
         self.subject_title.setText(subject.label)
+        self.animal_identifier.blockSignals(True)
+        self.time_identifier.blockSignals(True)
+        self.animal_identifier.setText(subject.animal_identifier or "")
+        self.time_identifier.setText(subject.time_identifier or "")
+        self.animal_identifier.blockSignals(False)
+        self.time_identifier.blockSignals(False)
+        self._update_longitudinal_save_state()
         self.open_mri.setEnabled(subject.mri_input_count > 0)
         self._refresh_subject_subtitle()
         self.inputs_panel.set_subject(subject)
@@ -336,6 +367,26 @@ class SubjectWorkspacePage(QScrollArea):
 
         self.history_list.clear()
         self.history_list.addItems(subject.history or ("No history recorded.",))
+
+    def _update_longitudinal_save_state(self) -> None:
+        subject = self.current_subject
+        self.save_longitudinal.setEnabled(
+            subject is not None
+            and (
+                self.animal_identifier.text().strip()
+                != (subject.animal_identifier or "")
+                or self.time_identifier.text().strip()
+                != (subject.time_identifier or "")
+            )
+        )
+
+    def _save_longitudinal_identifiers(self) -> None:
+        if self.current_subject is not None:
+            self.longitudinal_identifiers_requested.emit(
+                self.current_subject.subject_id,
+                self.animal_identifier.text().strip(),
+                self.time_identifier.text().strip(),
+            )
 
     def set_atlas_mapping_state(self, state: AtlasMappingState | None) -> None:
         self.t1_analysis_panel.set_t1_to_t2_state(state)

@@ -302,6 +302,7 @@ class SubjectsPage(QWidget):
     group_assignment_requested = Signal()
     audit_history_requested = Signal()
     t2_inference_requested = Signal()
+    longitudinal_identifiers_requested = Signal(str, str, str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -364,6 +365,9 @@ class SubjectsPage(QWidget):
         layout.addWidget(filters)
 
         self.model = SubjectTableModel()
+        self.model.longitudinal_edit_requested.connect(
+            self.longitudinal_identifiers_requested.emit
+        )
         self.proxy = SubjectFilterProxyModel()
         self.proxy.setSourceModel(self.model)
         self.table = QTableView()
@@ -378,7 +382,7 @@ class SubjectsPage(QWidget):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.table.sortByColumn(0, Qt.AscendingOrder)
         self.table.doubleClicked.connect(self._open_index)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
@@ -423,8 +427,8 @@ class SubjectsPage(QWidget):
 
     def set_study(self, study: StudyViewModel) -> None:
         self.model.set_subjects(study.subjects)
-        self.table.setColumnHidden(2, not study.analysis_scope.includes_t1)
-        self.table.setColumnHidden(3, not study.analysis_scope.includes_t2)
+        self.table.setColumnHidden(4, not study.analysis_scope.includes_t1)
+        self.table.setColumnHidden(5, not study.analysis_scope.includes_t2)
         self.table.clearSelection()
         self._selection_changed()
         self.restore_subjects.setEnabled(bool(study.archived_subjects))
@@ -549,6 +553,7 @@ class SubjectsPage(QWidget):
 
 class ResultsPage(QScrollArea):
     approved_csv_requested = Signal()
+    approved_excel_requested = Signal(bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -612,7 +617,7 @@ class ResultsPage(QScrollArea):
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(42)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.table.setColumnHidden(4, True)
+        self.table.setColumnHidden(6, True)
         self.results_stack = QStackedWidget()
         self.results_stack.setMinimumHeight(214)
         self.results_empty = EmptyState(
@@ -625,7 +630,7 @@ class ResultsPage(QScrollArea):
         results_layout.addWidget(self.results_stack)
         self.approved_only.toggled.connect(self.proxy.set_approved_only)
         self.show_method_details.toggled.connect(
-            lambda visible: self.table.setColumnHidden(4, not visible)
+            lambda visible: self.table.setColumnHidden(6, not visible)
         )
         layout.addWidget(self.results_card)
 
@@ -646,6 +651,28 @@ class ResultsPage(QScrollArea):
         )
         self.approved_csv.clicked.connect(self.approved_csv_requested.emit)
         export_layout.addWidget(self.approved_csv, alignment=Qt.AlignLeft)
+        self.approved_excel = primary_button(
+            "Export approved T2 results Excel…",
+            FluentIcon.DOWNLOAD,
+        )
+        self.approved_excel.setToolTip(
+            "Exports the approved per-animal result summary as an Excel workbook."
+        )
+        self.approved_excel.clicked.connect(
+            lambda: self.approved_excel_requested.emit(False)
+        )
+        export_layout.addWidget(self.approved_excel, alignment=Qt.AlignLeft)
+        self.detailed_excel = secondary_button(
+            "Export detailed Excel (per slice)…",
+            FluentIcon.DOWNLOAD,
+        )
+        self.detailed_excel.setToolTip(
+            "Adds one row per native T2 slice with lesion voxel, area, and volume data."
+        )
+        self.detailed_excel.clicked.connect(
+            lambda: self.approved_excel_requested.emit(True)
+        )
+        export_layout.addWidget(self.detailed_excel, alignment=Qt.AlignLeft)
         layout.addWidget(self.export_card)
         layout.addStretch()
         self.set_blinded_review(False)
@@ -661,8 +688,8 @@ class ResultsPage(QScrollArea):
             for result in study.results
         )
         self.model.set_results(study.results)
-        self.table.setColumnHidden(2, not study.analysis_scope.includes_t1)
-        self.table.setColumnHidden(3, not study.analysis_scope.includes_t2)
+        self.table.setColumnHidden(4, not study.analysis_scope.includes_t1)
+        self.table.setColumnHidden(5, not study.analysis_scope.includes_t2)
         self.provisional_warning.setVisible(has_provisional_results)
         self.results_stack.setCurrentWidget(
             self.table if self.has_results else self.results_empty
@@ -674,15 +701,28 @@ class ResultsPage(QScrollArea):
         self.approved_only.setEnabled(self.has_results)
         self.show_method_details.setVisible(self.has_results)
         self.approved_csv.setEnabled(self.has_approved_results)
+        self.approved_excel.setEnabled(self.has_approved_results)
+        self.detailed_excel.setEnabled(self.has_approved_results)
         self.approved_csv.setToolTip(
             ""
             if self.has_approved_results
             else "Available after at least one T2 lesion result is approved."
         )
+        unavailable = "Available after at least one T2 lesion result is approved."
+        self.approved_excel.setToolTip(
+            "Exports the approved per-animal result summary as an Excel workbook."
+            if self.has_approved_results
+            else unavailable
+        )
+        self.detailed_excel.setToolTip(
+            "Adds one row per native T2 slice with lesion voxel, area, and volume data."
+            if self.has_approved_results
+            else unavailable
+        )
 
     def set_blinded_review(self, blinded: bool) -> None:
         self.blinded_review = blinded
-        self.table.setColumnHidden(1, blinded)
+        self.table.setColumnHidden(3, blinded)
         self.blinding_note.setVisible(blinded)
         self.blinding_note.setText(
             "BLINDED REVIEW — Experimental groups are hidden. Approved exports omit "

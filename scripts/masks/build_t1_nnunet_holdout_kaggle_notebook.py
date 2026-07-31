@@ -59,7 +59,7 @@ and checkpoint selection.
     set_source(
         cells["configuration-heading"],
         """
-## 1 — Configuration
+## 2 — Configuration
 
 The execution flags run exactly one predefined development split. Keep the
 resume archive enabled so a later Kaggle session can continue from the latest
@@ -92,11 +92,117 @@ completed epoch.
     )
     set_source(cells["configuration"], configuration)
 
+    set_source(
+        cells["install-heading"],
+        """
+## 1 — Install pinned nnU-Net before loading the scientific stack
+
+Installation runs before NumPy, SciPy, or scikit-image are imported. This
+prevents a live Kaggle kernel from mixing binary extensions from the base
+image with packages selected by pip.
+""",
+    )
+    install = """
+import importlib.metadata
+import inspect
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+NNUNET_COMMIT = "468cf803df9b267150ae2b6c0c59b8ac84f16227"
+NUM_GPUS = 2
+BASE_NUMPY_VERSION = importlib.metadata.version("numpy")
+BASE_SCIPY_VERSION = importlib.metadata.version("scipy")
+BASE_SKIMAGE_VERSION = importlib.metadata.version("scikit-image")
+
+""" + source(cells["install"])
+    install = install.replace(
+        '        "-q",\n',
+        '        "-q",\n'
+        '        f"numpy=={BASE_NUMPY_VERSION}",\n'
+        '        f"scipy=={BASE_SCIPY_VERSION}",\n'
+        '        f"scikit-image=={BASE_SKIMAGE_VERSION}",\n',
+    )
+    install = install.replace(
+        "assert importlib.metadata.version",
+        "import torch\n"
+        "from IPython.display import display\n\n"
+        "assert importlib.metadata.version",
+    )
+    set_source(cells["install"], install)
+
     restore_resume = source(cells["restore-resume"]).replace(
         "LYS_T1_brainmask_standard3d_resume.tar.gz",
         "LYS_T1_brainmask_holdout_16_2_2_resume.tar.gz",
     )
     set_source(cells["restore-resume"], restore_resume)
+
+    normalize_cell = {
+        "cell_type": "code",
+        "execution_count": None,
+        "id": "normalize-kaggle-nifti",
+        "metadata": {},
+        "outputs": [],
+        "source": [],
+    }
+    set_source(
+        normalize_cell,
+        """
+# Kaggle may expand nested .nii.gz files to .nii while leaving the manifest
+# paths unchanged. Recreate a private working copy with valid .nii.gz files.
+uploaded_manifests = sorted(
+    Path("/kaggle/input").rglob("training_manifest.csv")
+)
+if len(uploaded_manifests) == 1:
+    uploaded_manifest = uploaded_manifests[0]
+    uploaded_root = uploaded_manifest.parent
+    uploaded_rows = pd.read_csv(uploaded_manifest, keep_default_na=False)
+    needs_normalization = any(
+        not (uploaded_root / str(value)).is_file()
+        and str(value).endswith(".nii.gz")
+        and (uploaded_root / str(value)).with_suffix("").is_file()
+        for column in ("image", "mask")
+        for value in uploaded_rows[column]
+    )
+    if needs_normalization:
+        normalized_root = WORK / "normalized_training_package"
+        normalized_root.mkdir(parents=True, exist_ok=True)
+        normalized_rows = uploaded_rows.copy()
+        for column, hash_column in (
+            ("image", "image_sha256"),
+            ("mask", "mask_sha256"),
+        ):
+            original_hash_column = f"source_manifest_{hash_column}"
+            normalized_rows[original_hash_column] = normalized_rows[
+                hash_column
+            ]
+            for index, value in normalized_rows[column].items():
+                relative_path = Path(str(value))
+                source = uploaded_root / relative_path
+                if not source.is_file() and str(source).endswith(".nii.gz"):
+                    source = source.with_suffix("")
+                assert source.is_file(), source
+                destination = normalized_root / relative_path
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                nib.save(nib.load(str(source)), str(destination))
+                normalized_rows.at[index, hash_column] = sha256(destination)
+        normalized_manifest = normalized_root / "training_manifest.csv"
+        normalized_rows.to_csv(normalized_manifest, index=False)
+        TRAINING_PACKAGE_OVERRIDE = normalized_manifest
+        print("Normalized Kaggle .nii files:", normalized_manifest)
+    else:
+        print("NIfTI upload paths already match the manifest.")
+else:
+    print("NIfTI normalization deferred to package discovery.")
+""",
+    )
+    restore_index = next(
+        index
+        for index, cell in enumerate(notebook["cells"])
+        if cell["id"] == "restore-resume"
+    )
+    notebook["cells"].insert(restore_index + 1, normalize_cell)
 
     set_source(
         cells["input-heading"],
@@ -578,6 +684,16 @@ checkpoints but excludes uploaded source images and masks.
   T1, Ktrans, Ki, DCE, or a direct permeability value.
 """,
     )
+    notebook["cells"] = [
+        notebook["cells"][0],
+        cells["install-heading"],
+        cells["install"],
+        *[
+            cell
+            for cell in notebook["cells"][1:]
+            if cell["id"] not in {"install-heading", "install"}
+        ],
+    ]
     notebook["metadata"]["kaggle"]["accelerator"] = "gpu"
     return notebook
 

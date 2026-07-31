@@ -11,7 +11,15 @@ import numpy as np
 import pytest
 
 from lys_bbb.scan_conversion import convert_scan_assignment
-from lys_bbb.scan_discovery import discover_mri_source, infer_subject_code
+from lys_bbb.scan_discovery import (
+    discover_mri_source,
+    infer_subject_code,
+    propose_axis_flips_to_target,
+)
+from lys_bbb.subject_identifiers import (
+    infer_longitudinal_identifiers,
+    normalize_time_identifier,
+)
 from lys_bbb_app.domain.scan_import import (
     ImportConfidence,
     InputValidationState,
@@ -105,7 +113,37 @@ def test_discovery_uses_metadata_to_propose_t1_pair_and_rare_t2(tmp_path: Path) 
     assert proposed[3].orientation_policy is OrientationPolicy.T1_CORONAL
     assert proposed[5].suggested_role is ScanRole.T2
     assert proposed[6].suggested_role is ScanRole.T1_POST
+    assert proposed[5].suggested_animal_identifier == "C23S2"
+    assert proposed[5].suggested_time_identifier == "D1"
     assert next(scan for scan in report.scans if scan.scan_id == 7).suggested_role is ScanRole.IGNORE
+
+
+@pytest.mark.parametrize(
+    ("raw", "canonical"),
+    (
+        ("H1", "1H"),
+        ("1_H", "1H"),
+        ("168h", "168H"),
+        ("7D", "D7"),
+        ("D_14", "D14"),
+        ("31_J", "D31"),
+        ("J5", "D5"),
+    ),
+)
+def test_longitudinal_time_identifiers_are_normalized(
+    raw: str,
+    canonical: str,
+) -> None:
+    assert normalize_time_identifier(raw) == canonical
+
+
+def test_longitudinal_inference_is_conservative_and_supports_reversed_tokens() -> None:
+    assert infer_longitudinal_identifiers("C23S2_7D") == ("C23S2", "D7")
+    assert infer_longitudinal_identifiers("BD_12_1__24_H") == ("BD_12_1", "24H")
+    assert infer_longitudinal_identifiers("unlabelled_mouse") == (None, None)
+    assert infer_longitudinal_identifiers("C1S2_D1_J1") == ("C1S2", "D1")
+    with pytest.raises(ValueError, match="Unsupported"):
+        normalize_time_identifier("4h")
 
 
 def test_unknown_subject_name_is_low_confidence_and_requires_edit() -> None:
@@ -140,6 +178,77 @@ def test_equal_high_resolution_t2_candidates_are_flagged_for_review(tmp_path: Pa
     assert any(
         issue.code == "MULTIPLE_T2_RARE_CANDIDATES" for issue in selected[0].issues
     )
+
+
+def test_t2_discovery_proposes_only_direction_flips_needed_for_lip(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "mri"
+    source_root.mkdir()
+    lsa_affine = np.array(
+        [
+            [-0.07, 0.0, 0.0, 9.0],
+            [0.0, 0.0, 0.5, -1.0],
+            [0.0, 0.07, 0.0, -5.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    lip_affine = lsa_affine.copy()
+    lip_affine[:3, 1:3] *= -1
+    data = np.arange(3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+    nib.save(
+        nib.Nifti1Image(data, lsa_affine),
+        source_root / "C1S1_D1_t2w.nii.gz",
+    )
+    nib.save(
+        nib.Nifti1Image(data, lip_affine),
+        source_root / "C2S1_D1_t2w.nii.gz",
+    )
+
+    proposals = {
+        scan.suggested_subject_code: scan
+        for scan in discover_mri_source(source_root).scans
+    }
+
+    assert proposals["C1S1_D1"].suggested_flip_axes == (1, 2)
+    assert any(
+        issue.code == "T2_LIP_FLIPS_PROPOSED"
+        for issue in proposals["C1S1_D1"].issues
+    )
+    assert proposals["C2S1_D1"].suggested_flip_axes == ()
+    assert not proposals["C2S1_D1"].issues
+
+    proposal = proposals["C1S1_D1"]
+    result = convert_scan_assignment(
+        ScanImportAssignment(
+            proposal_id=proposal.proposal_id,
+            subject_code=proposal.suggested_subject_code,
+            role=proposal.suggested_role,
+            source_path=proposal.source_path,
+            source_format=proposal.source_format,
+            session_id=proposal.session_id,
+            scan_id=proposal.scan_id,
+            protocol=proposal.protocol,
+            method=proposal.method,
+            acquisition_orientation=proposal.acquisition_orientation,
+            confidence=proposal.role_confidence,
+            orientation_policy=proposal.orientation_policy,
+            flip_axes=proposal.suggested_flip_axes,
+        ),
+        output_directory=tmp_path / "converted",
+        work_directory=tmp_path / "work",
+    )
+    assert result.axis_codes == ("L", "I", "P")
+
+
+def test_t2_lip_flip_planning_rejects_axis_permutations() -> None:
+    assert propose_axis_flips_to_target(("L", "S", "A"), ("L", "I", "P")) == (
+        1,
+        2,
+    )
+    assert propose_axis_flips_to_target(("L", "I", "P"), ("L", "I", "P")) == ()
+    with pytest.raises(ValueError, match="requires axis reordering"):
+        propose_axis_flips_to_target(("R", "A", "S"), ("L", "I", "P"))
 
 
 def test_direct_nifti_conversion_records_affine_preserving_axis_flip(tmp_path: Path) -> None:

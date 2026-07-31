@@ -106,32 +106,67 @@ def convert_scan_assignment(
         raise
 
 
+def inspect_source_axis_codes(
+    source_path: Path,
+    source_format: SourceFormat,
+    scan_id: int | None,
+) -> tuple[str, str, str]:
+    """Read source geometry without modifying or importing the scan."""
+
+    source = Path(source_path)
+    if source_format is SourceFormat.NIFTI:
+        if not source.is_file():
+            raise FileNotFoundError(f"NIfTI source file is unavailable: {source}")
+        image = nib.load(source)
+    else:
+        image = _load_bruker_image(source, scan_id)
+    image = _validate_three_dimensional(image)
+    return tuple(str(value) for value in nib.aff2axcodes(image.affine))
+
+
 def _load_source(assignment: ScanImportAssignment) -> tuple[nib.spatialimages.SpatialImage, str]:
     if assignment.source_format is SourceFormat.NIFTI:
         if not assignment.source_path.is_file():
             raise FileNotFoundError(f"NIfTI source file is unavailable: {assignment.source_path}")
         return nib.load(assignment.source_path), _sha256_file(assignment.source_path)
 
+    session = assignment.source_path
     if assignment.scan_id is None:
         raise ValueError("A Bruker assignment requires a numeric scan ID.")
-    session = assignment.source_path
     scan_directory = session / str(assignment.scan_id)
     if not scan_directory.is_dir():
         raise FileNotFoundError(
             f"Bruker scan {assignment.scan_id} is unavailable below {session}"
         )
+    return (
+        _load_bruker_image(session, assignment.scan_id),
+        _sha256_bruker_scan(scan_directory),
+    )
+
+
+def _load_bruker_image(
+    session: Path,
+    scan_id: int | None,
+) -> nib.spatialimages.SpatialImage:
+    if scan_id is None:
+        raise ValueError("A Bruker assignment requires a numeric scan ID.")
+    scan_directory = session / str(scan_id)
+    if not scan_directory.is_dir():
+        raise FileNotFoundError(
+            f"Bruker scan {scan_id} is unavailable below {session}"
+        )
     # Importing conversion applies the compatibility patches required by brkraw 0.5.7.
     from lys_bbb import conversion
 
     study = conversion.brkraw.load(str(session))
-    converted = study.get_nifti1image(assignment.scan_id, reco_id=None)
+    converted = study.get_nifti1image(scan_id, reco_id=None)
     if isinstance(converted, (list, tuple)):
         if not converted:
             raise ValueError(
-                f"Bruker scan {assignment.scan_id} produced no reconstructed image."
+                f"Bruker scan {scan_id} produced no reconstructed image."
             )
         converted = converted[0]
-    return converted, _sha256_bruker_scan(scan_directory)
+    return converted
 
 
 def _validate_three_dimensional(

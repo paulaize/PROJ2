@@ -153,7 +153,7 @@ def test_full_profile_uses_antspyx_and_hides_unvalidated_atlas_entry_points(
 
     assert window.windowTitle() == "LYS IRM"
     assert window.workspace_page.atlas_mapping_panel is None
-    assert set(window.reviews_page.modality_buttons) == {"T1", "T2"}
+    assert set(window.reviews_page.modality_tab_indices) == {"T1", "T2"}
     assert window.reviews_page.reviews == (t1_review,)
     window.close()
 
@@ -355,13 +355,21 @@ def test_single_modality_study_removes_irrelevant_ui(
     assert [workflow.key for workflow in window.current_study.workflows] == [
         "t1" if scope.includes_t1 else "t2"
     ]
-    assert window.subjects_page.table.isColumnHidden(2) is t1_hidden
-    assert window.subjects_page.table.isColumnHidden(3) is t2_hidden
-    assert window.results_page.table.isColumnHidden(2) is t1_hidden
-    assert window.results_page.table.isColumnHidden(3) is t2_hidden
+    assert window.subjects_page.table.isColumnHidden(4) is t1_hidden
+    assert window.subjects_page.table.isColumnHidden(5) is t2_hidden
+    assert window.results_page.table.isColumnHidden(4) is t1_hidden
+    assert window.results_page.table.isColumnHidden(5) is t2_hidden
     assert window.subjects_page.run_t2.isHidden() is (not scope.includes_t2)
-    assert window.reviews_page.modality_buttons["T1"].isHidden() is t1_hidden
-    assert window.reviews_page.modality_buttons["T2"].isHidden() is t2_hidden
+    assert (
+        not window.reviews_page.modality_tabs.isTabVisible(
+            window.reviews_page.modality_tab_indices["T1"]
+        )
+    ) is t1_hidden
+    assert (
+        not window.reviews_page.modality_tabs.isTabVisible(
+            window.reviews_page.modality_tab_indices["T2"]
+        )
+    ) is t2_hidden
     assert tuple(
         window.workspace_page.tabs.tabText(index)
         for index in range(window.workspace_page.tabs.count())
@@ -474,14 +482,23 @@ def test_persistent_review_queue_emits_connected_t2_actions(
     )
     page.subject_requested.connect(subjects.append)
 
-    assert set(page.modality_buttons) == {"T1", "T2"}
+    assert set(page.modality_tab_indices) == {"T1", "T2"}
+    assert page.review_splitter.count() == 3
+    assert page.modality_tabs.tabText(page.modality_tabs.currentIndex()) == "T2"
     assert len(page.queue_buttons) == 1
     assert page.queue_buttons[0].text() == "Mouse-001 — T2 lesion"
+    page.modality_tabs.setCurrentIndex(page.modality_tab_indices["T1"])
+    assert page.queue_buttons == []
+    page.modality_tabs.setCurrentIndex(page.modality_tab_indices["T2"])
+    assert len(page.queue_buttons) == 1
     assert page.approve.isEnabled()
-    assert not page.previous_slice.isHidden()
+    assert not page.slice_slider.isHidden()
+    assert page.slice_slider.minimum() == 1
+    assert page.slice_slider.maximum() == 3
+    assert page.slice_slider.value() == 2
     assert page.slice_label.text() == "Slice 2 / 3"
     assert not page.technical_details.is_expanded
-    page.next_slice.click()
+    page.slice_slider.setValue(3)
     assert page.slice_label.text() == "Slice 3 / 3"
 
     page.approve.click()
@@ -492,6 +509,107 @@ def test_persistent_review_queue_emits_connected_t2_actions(
     assert approvals == [("stable-subject-id", "artifact-t2-v1")]
     assert edits == [("stable-subject-id", "artifact-t2-v1")]
     assert subjects == ["stable-subject-id"]
+    page.close()
+
+
+def test_t2_review_has_adaptive_case_threshold_preview(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    affine = np.diag([0.07, 0.07, 0.5, 1.0])
+    scan_path = tmp_path / "t2.nii.gz"
+    probability_path = tmp_path / "lesion_probability.nii.gz"
+    scan = np.arange(16 * 12 * 4, dtype=np.float32).reshape((16, 12, 4))
+    probability = np.zeros(scan.shape, dtype=np.float32)
+    probability[5, 6, 1] = 0.8
+    probability[7, 8, 1] = 0.002
+    nib.save(nib.Nifti1Image(scan, affine), scan_path)
+    nib.save(nib.Nifti1Image(probability, affine), probability_path)
+    review = ReviewItemViewModel(
+        subject_id="stable-subject-id",
+        subject_label="Mouse-001",
+        category="T2 lesion masks",
+        artifact_name="Automatic draft lesion mask · v1",
+        reason="Human review required",
+        automatic_qc="Threshold 0.20",
+        status=StatusValue("Awaiting review", "review"),
+        slice_count=4,
+        artifact_id="artifact-t2-v1",
+        workflow_key="t2_lesion",
+        reference_path=scan_path,
+        probability_path=probability_path,
+        current_threshold=0.20,
+        model_default_threshold=0.20,
+        can_adjust_threshold=True,
+    )
+    page = ReviewsPage()
+    page.set_study(replace(_empty_study_view(tmp_path), reviews=(review,)))
+    applied: list[tuple[str, str, float]] = []
+    page.threshold_apply_requested.connect(
+        lambda subject_id, artifact_id, threshold: applied.append(
+            (subject_id, artifact_id, threshold)
+        )
+    )
+
+    assert not page.threshold_card.isHidden()
+    assert page.threshold_spin.value() == pytest.approx(0.20)
+    assert "1 lesion voxels" in page.threshold_summary.text()
+    assert page.threshold_warning.isHidden()
+    assert not page.threshold_apply.isEnabled()
+
+    page.threshold_spin.setValue(0.001)
+    page._refresh_threshold_preview()
+    assert "2 lesion voxels" in page.threshold_summary.text()
+    assert not page.threshold_warning.isHidden()
+    assert page.threshold_apply.isEnabled()
+    assert not page.manual_edit.isEnabled()
+    assert not page.approve.isEnabled()
+    assert page._threshold_floor <= 0.000002
+    page.threshold_apply.click()
+
+    assert applied == [
+        ("stable-subject-id", "artifact-t2-v1", pytest.approx(0.001))
+    ]
+    page.threshold_reset.click()
+    assert page.threshold_spin.value() == pytest.approx(0.20)
+    assert page.manual_edit.isEnabled()
+    assert page.approve.isEnabled()
+    page.close()
+
+
+def test_t1_brain_mask_review_uses_slice_slider(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    qc_slices = []
+    for index in range(12):
+        path = tmp_path / "t1_qc_slices" / f"slice_{index + 1:04d}.png"
+        path.parent.mkdir(exist_ok=True)
+        pixmap = QPixmap(12, 12)
+        pixmap.fill(Qt.GlobalColor.black)
+        assert pixmap.save(str(path))
+        qc_slices.append(path)
+    review = ReviewItemViewModel(
+        subject_id="stable-subject-id",
+        subject_label="Mouse-001",
+        category="T1 brain masks",
+        artifact_name="T1 brain mask v1",
+        reason="Human review required",
+        automatic_qc="Native-space draft",
+        status=StatusValue("Awaiting review", "review"),
+        artifact_id="artifact-t1-v1",
+        workflow_key="t1_brain_mask",
+        qc_preview_path=qc_slices[5],
+        qc_slice_paths=tuple(qc_slices),
+    )
+    page = ReviewsPage()
+    page.set_study(replace(_empty_study_view(tmp_path), reviews=(review,)))
+
+    assert page.slice_slider.minimum() == 1
+    assert page.slice_slider.maximum() == 12
+    assert page.slice_slider.value() == 6
+    page.slice_slider.setValue(11)
+    assert page.slice_label.text() == "Slice 11 / 12"
     page.close()
 
 
@@ -534,7 +652,7 @@ def test_registration_review_uses_qc_approval_without_mask_editing(
     assert page.queue_buttons[0].text() == "Mouse-001 — T1 registration"
     assert page.approve.text() == "Approve registration"
     assert page.manual_edit.isHidden()
-    assert page.previous_slice.isHidden()
+    assert page.slice_slider.isHidden()
     assert qc_requests == []
     page.approve.click()
     assert approvals == [("stable-subject-id", "registration-v1")]
@@ -573,6 +691,8 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.results_page.approved_only.text() == "Show approved results only"
     assert window.results_page.show_method_details.text() == "Show technical details"
     assert not window.results_page.approved_csv.isEnabled()
+    assert not window.results_page.approved_excel.isEnabled()
+    assert not window.results_page.detailed_excel.isEnabled()
     assert window.results_page.approved_only.isHidden()
     assert window.results_page.export_card.isHidden()
 
@@ -598,7 +718,21 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
         == "Mouse-P01"
     )
     subject_id = window.current_study.subjects[0].subject_id
+    assert window.subjects_page.model.setData(
+        window.subjects_page.model.index(0, 1),
+        "C23S2",
+        Qt.EditRole,
+    )
+    assert window.subjects_page.model.setData(
+        window.subjects_page.model.index(0, 2),
+        "7_D",
+        Qt.EditRole,
+    )
+    assert window.current_study.subjects[0].animal_identifier == "C23S2"
+    assert window.current_study.subjects[0].time_identifier == "D7"
     window.open_subject(subject_id)
+    assert window.workspace_page.animal_identifier.text() == "C23S2"
+    assert window.workspace_page.time_identifier.text() == "D7"
     assert window.workspace_page.next_action_title.text() == "Add MRI inputs"
     assert window.workspace_page.next_action_button.text() == "Add MRI inputs"
     assert not window.workspace_page.technical_details.is_expanded
@@ -606,7 +740,7 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     assert window.workspace_page.atlas_mapping_panel is None
     assert not window.workspace_page.t1_analysis_panel.t1_to_t2_card.isHidden()
     assert not window.workspace_page.t1_analysis_panel.run_t1_to_t2.isEnabled()
-    assert window.subjects_page.model.columnCount() == 5
+    assert window.subjects_page.model.columnCount() == 7
     assert window.subjects_page.group_filter.isHidden()
 
     monkeypatch.setattr(UnblindingDialog, "exec", lambda _dialog: QDialog.Accepted)
@@ -683,6 +817,8 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     assert snapshot.mri_input_folder == source_root.resolve()
     assert len(snapshot.subjects) == 1
     assert snapshot.subjects[0].subject_code == "C1S1_D1"
+    assert snapshot.subjects[0].animal_identifier == "C1S1"
+    assert snapshot.subjects[0].time_identifier == "D1"
     assert snapshot.scan_inputs[0].state.value == "CONVERTED"
     assert snapshot.scan_inputs[0].output_path is not None
     assert snapshot.scan_inputs[0].output_path.is_file()
@@ -692,11 +828,11 @@ def test_mri_folder_flow_reviews_and_converts_discovered_nifti_off_gui_thread(
     assert window.current_study.subjects[0].t2_data.label == "Input review required"
     assert window.current_study.subjects[0].t2_lesion.label == "Not started"
     assert window.subjects_page.model.data(
-        window.subjects_page.model.index(0, 1),
+        window.subjects_page.model.index(0, 3),
         Qt.DisplayRole,
     ) == "Validate selected conversion"
     assert window.subjects_page.model.data(
-        window.subjects_page.model.index(0, 3),
+        window.subjects_page.model.index(0, 5),
         Qt.DisplayRole,
     ) == "Input review required"
 
@@ -763,6 +899,42 @@ def test_scan_review_can_exclude_and_restore_an_entire_discovered_subject(
         "C1S1_D1",
         "C2S2_D1",
     }
+    dialog.close()
+
+
+def test_scan_review_prechecks_t2_lip_flips_but_not_for_existing_lip(
+    qt_app: QApplication,
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "t2-orientation"
+    source_root.mkdir()
+    lsa_affine = np.array(
+        [
+            [-0.07, 0.0, 0.0, 9.0],
+            [0.0, 0.0, 0.5, -1.0],
+            [0.0, 0.07, 0.0, -5.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    lip_affine = lsa_affine.copy()
+    lip_affine[:3, 1:3] *= -1
+    data = np.ones((3, 4, 5), dtype=np.float32)
+    nib.save(
+        nib.Nifti1Image(data, lsa_affine),
+        source_root / "C1S1_D1_t2w.nii.gz",
+    )
+    nib.save(
+        nib.Nifti1Image(data, lip_affine),
+        source_root / "C2S1_D1_t2w.nii.gz",
+    )
+
+    dialog = ScanImportReviewDialog(discover_mri_source(source_root))
+    assignments = {
+        assignment.subject_code: assignment for assignment in dialog.assignments()
+    }
+
+    assert assignments["C1S1_D1"].flip_axes == (1, 2)
+    assert assignments["C2S1_D1"].flip_axes == ()
     dialog.close()
 
 

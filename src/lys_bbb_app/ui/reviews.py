@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 from PySide6.QtCore import QTimer, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QSlider,
     QSplitter,
     QStackedWidget,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -22,6 +28,10 @@ from lys_bbb_app.domain.view_models import (
     StudyViewModel,
 )
 from lys_bbb_app.features import AppFeatures, FULL_FEATURES
+from lys_bbb_app.services.t2_threshold_preview_service import (
+    load_t2_threshold_preview,
+    orient_t2_threshold_preview_slice,
+)
 from lys_bbb_app.ui.layout_helpers import clear_layout, page_heading
 from lys_bbb_app.ui.widgets import CollapsibleSection, StatusBadge, secondary_button
 
@@ -33,6 +43,7 @@ class ReviewsPage(QWidget):
     manual_edit_requested = Signal(str, str)
     subject_requested = Signal(str)
     qc_slices_requested = Signal(str, str)
+    threshold_apply_requested = Signal(str, str, float)
 
     def __init__(self, *, features: AppFeatures = FULL_FEATURES) -> None:
         super().__init__()
@@ -43,6 +54,15 @@ class ReviewsPage(QWidget):
         self.current_row = -1
         self.current_slice = 1
         self.requested_qc_artifacts: set[str] = set()
+        self._threshold_scan: np.ndarray | None = None
+        self._threshold_probability: np.ndarray | None = None
+        self._threshold_intensity_range = (0.0, 1.0)
+        self._threshold_spacing = (1.0, 1.0, 1.0)
+        self._threshold_floor = 1e-6
+        self._threshold_refresh_timer = QTimer(self)
+        self._threshold_refresh_timer.setSingleShot(True)
+        self._threshold_refresh_timer.setInterval(25)
+        self._threshold_refresh_timer.timeout.connect(self._refresh_threshold_preview)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
@@ -52,49 +72,34 @@ class ReviewsPage(QWidget):
             "Inspect exact artifacts and record explicit human approval.",
         )
         layout.addWidget(heading)
+        layout.addWidget(self._build_modality_tabs())
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = self.review_splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
-        splitter.addWidget(self._build_categories())
         splitter.addWidget(self._build_queue())
         splitter.addWidget(self._build_viewer())
         splitter.addWidget(self._build_review_panel())
-        splitter.setSizes([180, 270, 560, 300])
+        splitter.setSizes([270, 650, 330])
         layout.addWidget(splitter, 1)
 
-    def _build_categories(self) -> QWidget:
-        panel = QFrame()
-        panel.setObjectName("panel")
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(12, 14, 12, 14)
-        title = QLabel("Queues")
-        title.setObjectName("cardTitle")
-        layout.addWidget(title)
-        self.modality_group = QButtonGroup(self)
-        self.modality_group.setExclusive(True)
-        self.modality_buttons: dict[str, QPushButton] = {}
-        self.modality_layout = layout
-        layout.addStretch()
+    def _build_modality_tabs(self) -> QTabBar:
+        self.modality_tabs = QTabBar()
+        self.modality_tabs.setDocumentMode(True)
+        self.modality_tabs.setExpanding(False)
+        self.modality_tabs.setDrawBase(False)
+        self.modality_tab_indices: dict[str, int] = {}
+        self._modality_by_tab: dict[int, str] = {}
         for modality in ("T1", "T2"):
-            self._add_modality_button(modality)
-        return panel
+            self._add_modality_tab(modality)
+        self.modality_tabs.currentChanged.connect(self._modality_tab_changed)
+        return self.modality_tabs
 
-    def _add_modality_button(self, modality: str) -> None:
-        if modality in self.modality_buttons:
+    def _add_modality_tab(self, modality: str) -> None:
+        if modality in self.modality_tab_indices:
             return
-        button = QPushButton(modality)
-        button.setCheckable(True)
-        button.setProperty("kind", "reviewFilter")
-        button.clicked.connect(
-            lambda checked, selected=modality: self._modality_changed(selected)
-            if checked
-            else None
-        )
-        self.modality_group.addButton(button)
-        self.modality_buttons[modality] = button
-        self.modality_layout.insertWidget(
-            max(1, self.modality_layout.count() - 1), button
-        )
+        index = self.modality_tabs.addTab(modality)
+        self.modality_tab_indices[modality] = index
+        self._modality_by_tab[index] = modality
 
     def _build_queue(self) -> QWidget:
         panel = QFrame()
@@ -143,17 +148,16 @@ class ReviewsPage(QWidget):
         previous.clicked.connect(self._previous_item)
         next_item = secondary_button("Item →")
         next_item.clicked.connect(self._next_item)
-        self.previous_slice = secondary_button("‹ Slice")
-        self.previous_slice.clicked.connect(lambda: self._move_slice(-1))
-        self.next_slice = secondary_button("Slice ›")
-        self.next_slice.clicked.connect(lambda: self._move_slice(1))
+        self.slice_slider = QSlider(Qt.Horizontal)
+        self.slice_slider.setRange(1, 1)
+        self.slice_slider.setMinimumWidth(180)
+        self.slice_slider.valueChanged.connect(self._slice_changed)
         self.slice_label = QLabel("Slice 1 / 1")
         controls.addWidget(previous)
         controls.addWidget(next_item)
         controls.addStretch()
-        controls.addWidget(self.previous_slice)
+        controls.addWidget(self.slice_slider, 1)
         controls.addWidget(self.slice_label)
-        controls.addWidget(self.next_slice)
         layout.addLayout(controls)
 
         return panel
@@ -177,6 +181,49 @@ class ReviewsPage(QWidget):
         self.technical_details.content_layout.addWidget(self.review_qc)
         self.review_status_holder = QHBoxLayout()
 
+        self.threshold_card = QFrame()
+        self.threshold_card.setObjectName("subtleCard")
+        threshold_layout = QVBoxLayout(self.threshold_card)
+        threshold_layout.setContentsMargins(12, 11, 12, 11)
+        threshold_title = QLabel("Case-specific probability threshold")
+        threshold_title.setObjectName("cardTitle")
+        threshold_help = QLabel(
+            "Preview a cutoff for this animal only. The model default is unchanged."
+        )
+        threshold_help.setObjectName("muted")
+        threshold_help.setWordWrap(True)
+        threshold_layout.addWidget(threshold_title)
+        threshold_layout.addWidget(threshold_help)
+        threshold_value_row = QHBoxLayout()
+        self.threshold_slider = QSlider(Qt.Horizontal)
+        self.threshold_slider.setRange(0, 1200)
+        self.threshold_slider.valueChanged.connect(self._threshold_slider_changed)
+        self.threshold_spin = QDoubleSpinBox()
+        self.threshold_spin.setDecimals(8)
+        self.threshold_spin.setRange(1e-9, 0.99999999)
+        self.threshold_spin.setSingleStep(0.001)
+        self.threshold_spin.valueChanged.connect(self._threshold_spin_changed)
+        threshold_value_row.addWidget(self.threshold_slider, 1)
+        threshold_value_row.addWidget(self.threshold_spin)
+        threshold_layout.addLayout(threshold_value_row)
+        self.threshold_summary = QLabel()
+        self.threshold_summary.setObjectName("muted")
+        self.threshold_summary.setWordWrap(True)
+        self.threshold_warning = QLabel()
+        self.threshold_warning.setObjectName("warningBanner")
+        self.threshold_warning.setWordWrap(True)
+        threshold_layout.addWidget(self.threshold_summary)
+        threshold_layout.addWidget(self.threshold_warning)
+        threshold_actions = QHBoxLayout()
+        self.threshold_reset = secondary_button("Reset to model default")
+        self.threshold_reset.clicked.connect(self._reset_threshold)
+        self.threshold_apply = QPushButton("Apply to this case")
+        self.threshold_apply.clicked.connect(self._apply_threshold)
+        threshold_actions.addWidget(self.threshold_reset)
+        threshold_actions.addStretch()
+        threshold_actions.addWidget(self.threshold_apply)
+        threshold_layout.addLayout(threshold_actions)
+
         self.approve = QPushButton("Approve current mask")
         self.approve.setObjectName("approveReviewButton")
         self.approve.clicked.connect(self._approve)
@@ -190,11 +237,13 @@ class ReviewsPage(QWidget):
         layout.addWidget(self.review_reason)
         layout.addWidget(self.technical_details)
         layout.addLayout(self.review_status_holder)
+        layout.addWidget(self.threshold_card)
         layout.addStretch()
         layout.addWidget(self.approve)
         layout.addWidget(self.manual_edit)
         layout.addWidget(self.open_subject)
         self._set_actions_enabled(False)
+        self.threshold_card.hide()
         return panel
 
     def set_study(self, study: StudyViewModel) -> None:
@@ -205,7 +254,7 @@ class ReviewsPage(QWidget):
             or not review.workflow_key.startswith("atlas_")
         )
         if any(_review_modality(item) == "Atlas" for item in self.reviews):
-            self._add_modality_button("Atlas")
+            self._add_modality_tab("Atlas")
         allowed_modalities = tuple(
             modality
             for modality, enabled in (
@@ -220,8 +269,8 @@ class ReviewsPage(QWidget):
             )
             if enabled
         )
-        for modality, button in self.modality_buttons.items():
-            button.setVisible(modality in allowed_modalities)
+        for modality, index in self.modality_tab_indices.items():
+            self.modality_tabs.setTabVisible(index, modality in allowed_modalities)
         default_modality = next(
             (
                 modality
@@ -231,7 +280,11 @@ class ReviewsPage(QWidget):
             ),
             allowed_modalities[0],
         )
-        self.modality_buttons[default_modality].setChecked(True)
+        self.modality_tabs.blockSignals(True)
+        self.modality_tabs.setCurrentIndex(
+            self.modality_tab_indices[default_modality]
+        )
+        self.modality_tabs.blockSignals(False)
         self._populate_queue(default_modality)
 
     def focus_subject(self, subject_id: str) -> None:
@@ -242,15 +295,19 @@ class ReviewsPage(QWidget):
         if review is None:
             return
         modality = _review_modality(review)
-        self.modality_buttons[modality].setChecked(True)
+        self.modality_tabs.blockSignals(True)
+        self.modality_tabs.setCurrentIndex(self.modality_tab_indices[modality])
+        self.modality_tabs.blockSignals(False)
         self._populate_queue(modality)
         for index, item in enumerate(self.filtered):
             if item.subject_id == subject_id:
                 self._select_review(index)
                 break
 
-    def _modality_changed(self, modality: str) -> None:
-        self._populate_queue(modality)
+    def _modality_tab_changed(self, index: int) -> None:
+        modality = self._modality_by_tab.get(index)
+        if modality is not None:
+            self._populate_queue(modality)
 
     def _populate_queue(self, modality: str) -> None:
         self.filtered = [
@@ -310,16 +367,22 @@ class ReviewsPage(QWidget):
         clear_layout(self.review_status_holder)
         self.review_status_holder.addWidget(StatusBadge(review.status))
         self.review_status_holder.addStretch()
+        self._prepare_threshold_control(review)
         self._show_review_image(review)
         self._set_actions_enabled(True)
 
     def _show_review_image(self, review: ReviewItemViewModel) -> None:
+        if self._has_threshold_preview(review):
+            assert self._threshold_scan is not None
+            self._configure_slice_slider(int(self._threshold_scan.shape[2]))
+            self._refresh_threshold_preview()
+            return
         has_real_slices = bool(review.qc_slice_paths)
         can_browse_slices = has_real_slices
-        self.previous_slice.setVisible(can_browse_slices)
-        self.next_slice.setVisible(can_browse_slices)
+        self.slice_slider.setVisible(can_browse_slices)
         self.slice_label.setVisible(can_browse_slices)
         if has_real_slices:
+            self._configure_slice_slider(len(review.qc_slice_paths))
             self._show_real_qc_slice(review)
             return
         preview = review.qc_preview_path
@@ -356,14 +419,14 @@ class ReviewsPage(QWidget):
             "Run an eligible workflow to create a review item for this modality."
         )
         self.review_qc.clear()
+        self._clear_threshold_control()
         self.technical_details.set_expanded(False)
         self.approve.setText("Approve current mask")
         self.manual_edit.setText("Manually edit in ITK-SNAP…")
         self.manual_edit.show()
         clear_layout(self.review_status_holder)
         self.viewer_stack.setCurrentWidget(self.empty_viewer)
-        self.previous_slice.hide()
-        self.next_slice.hide()
+        self.slice_slider.hide()
         self.slice_label.hide()
         self._set_actions_enabled(False)
 
@@ -373,25 +436,56 @@ class ReviewsPage(QWidget):
             and self.current_item is not None
             and self.current_item.artifact_id is not None
         )
-        self.approve.setEnabled(actionable)
+        threshold_preview_pending = self._threshold_preview_is_pending()
+        self.approve.setEnabled(actionable and not threshold_preview_pending)
         self.manual_edit.setEnabled(
             actionable
             and self.current_item is not None
             and self.current_item.can_manual_edit
+            and not threshold_preview_pending
         )
+        pending_tooltip = (
+            "Apply the previewed case threshold, or reset it, before approving or "
+            "opening the mask for manual editing."
+            if threshold_preview_pending
+            else ""
+        )
+        self.approve.setToolTip(pending_tooltip)
+        self.manual_edit.setToolTip(pending_tooltip)
         self.open_subject.setEnabled(selected)
 
-    def _move_slice(self, delta: int) -> None:
+    def _threshold_preview_is_pending(self) -> bool:
+        review = self.current_item
+        return (
+            review is not None
+            and self._has_threshold_preview(review)
+            and review.current_threshold is not None
+            and not math.isclose(
+                float(self.threshold_spin.value()),
+                review.current_threshold,
+                rel_tol=0,
+                abs_tol=max(1e-12, self._threshold_floor / 2),
+            )
+        )
+
+    def _configure_slice_slider(self, slice_count: int) -> None:
+        self.slice_slider.blockSignals(True)
+        self.slice_slider.setRange(1, max(1, slice_count))
+        self.slice_slider.setValue(
+            max(1, min(self.current_slice, max(1, slice_count)))
+        )
+        self.slice_slider.blockSignals(False)
+        self.slice_slider.show()
+        self.slice_label.show()
+
+    def _slice_changed(self, slice_number: int) -> None:
         if self.current_item is None:
             return
-        slice_count = len(self.current_item.qc_slice_paths)
-        if slice_count < 1:
-            return
-        self.current_slice = max(
-            1,
-            min(self.current_slice + delta, slice_count),
-        )
-        self._show_real_qc_slice(self.current_item)
+        self.current_slice = int(slice_number)
+        if self._has_threshold_preview(self.current_item):
+            self._refresh_threshold_preview()
+        else:
+            self._show_real_qc_slice(self.current_item)
 
     def _show_real_qc_slice(self, review: ReviewItemViewModel) -> None:
         slice_count = len(review.qc_slice_paths)
@@ -407,6 +501,178 @@ class ReviewsPage(QWidget):
         )
         self.slice_label.setText(f"Slice {self.current_slice} / {slice_count}")
         self.viewer_stack.setCurrentWidget(self.qc_image)
+
+    def _prepare_threshold_control(self, review: ReviewItemViewModel) -> None:
+        self._clear_threshold_control()
+        if (
+            not review.can_adjust_threshold
+            or review.reference_path is None
+            or review.probability_path is None
+            or review.current_threshold is None
+            or review.model_default_threshold is None
+        ):
+            return
+        try:
+            preview = load_t2_threshold_preview(
+                review.reference_path,
+                review.probability_path,
+                expected_probability_sha256=review.probability_sha256,
+            )
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            self.threshold_card.show()
+            self.threshold_summary.setText(f"Threshold preview unavailable: {exc}")
+            self.threshold_warning.setText(
+                "Re-run inference before attempting a case-specific threshold."
+            )
+            self.threshold_slider.setEnabled(False)
+            self.threshold_spin.setEnabled(False)
+            self.threshold_reset.setEnabled(False)
+            self.threshold_apply.setEnabled(False)
+            return
+
+        self._threshold_scan = preview.scan
+        self._threshold_probability = preview.probability
+        self._threshold_intensity_range = preview.intensity_range
+        self._threshold_spacing = preview.spacing_mm
+        maximum = preview.maximum_probability
+        self._threshold_floor = max(
+            1e-9,
+            min(1e-6, maximum / 1000.0 if maximum > 0.0 else 1e-6),
+        )
+        self.threshold_spin.setRange(self._threshold_floor, 0.99999999)
+        self.threshold_slider.setEnabled(True)
+        self.threshold_spin.setEnabled(True)
+        self.threshold_reset.setEnabled(True)
+        self.threshold_card.show()
+        self._set_threshold_value(review.current_threshold)
+
+    def _clear_threshold_control(self) -> None:
+        self._threshold_refresh_timer.stop()
+        self._threshold_scan = None
+        self._threshold_probability = None
+        self.threshold_card.hide()
+
+    def _has_threshold_preview(self, review: ReviewItemViewModel) -> bool:
+        return (
+            review.can_adjust_threshold
+            and self._threshold_scan is not None
+            and self._threshold_probability is not None
+        )
+
+    def _set_threshold_value(self, threshold: float) -> None:
+        value = min(max(float(threshold), self._threshold_floor), 0.99999999)
+        self.threshold_spin.blockSignals(True)
+        self.threshold_slider.blockSignals(True)
+        self.threshold_spin.setValue(value)
+        self.threshold_slider.setValue(
+            _threshold_to_slider(value, self._threshold_floor)
+        )
+        self.threshold_spin.blockSignals(False)
+        self.threshold_slider.blockSignals(False)
+        self._refresh_threshold_preview()
+
+    def _threshold_slider_changed(self, position: int) -> None:
+        value = _slider_to_threshold(position, self._threshold_floor)
+        self.threshold_spin.blockSignals(True)
+        self.threshold_spin.setValue(value)
+        self.threshold_spin.blockSignals(False)
+        self._threshold_refresh_timer.start()
+
+    def _threshold_spin_changed(self, value: float) -> None:
+        self.threshold_slider.blockSignals(True)
+        self.threshold_slider.setValue(
+            _threshold_to_slider(value, self._threshold_floor)
+        )
+        self.threshold_slider.blockSignals(False)
+        self._threshold_refresh_timer.start()
+
+    def _reset_threshold(self) -> None:
+        review = self.current_item
+        if review is not None and review.model_default_threshold is not None:
+            self._set_threshold_value(review.model_default_threshold)
+
+    def _refresh_threshold_preview(self) -> None:
+        review = self.current_item
+        scan = self._threshold_scan
+        probability = self._threshold_probability
+        if (
+            review is None
+            or scan is None
+            or probability is None
+            or not self._has_threshold_preview(review)
+        ):
+            return
+        threshold = float(self.threshold_spin.value())
+        mask = probability >= threshold
+        lesion_voxels = int(np.count_nonzero(mask))
+        volume = float(lesion_voxels * np.prod(self._threshold_spacing))
+        maximum = float(probability.max()) if probability.size else 0.0
+        self.threshold_summary.setText(
+            f"Preview: {lesion_voxels:,} lesion voxels · {volume:.4f} mm³ · "
+            f"case maximum {maximum:.6g} · model default "
+            f"{review.model_default_threshold:.2f}"
+        )
+        outside_validated = not math.isclose(
+            threshold,
+            review.model_default_threshold,
+            rel_tol=0,
+            abs_tol=1e-12,
+        )
+        self.threshold_warning.setVisible(outside_validated)
+        self.threshold_warning.setText(
+            "Case-specific override: this cutoff was not selected during model "
+            "validation and requires careful human review."
+        )
+        self.threshold_apply.setEnabled(
+            review.artifact_id is not None
+            and review.current_threshold is not None
+            and not math.isclose(
+                threshold,
+                review.current_threshold,
+                rel_tol=0,
+                abs_tol=max(1e-12, self._threshold_floor / 2),
+            )
+        )
+        self._set_actions_enabled(True)
+
+        z = max(0, min(self.current_slice - 1, scan.shape[2] - 1))
+        image_slice = orient_t2_threshold_preview_slice(scan[:, :, z])
+        mask_slice = orient_t2_threshold_preview_slice(mask[:, :, z])
+        low, high = self._threshold_intensity_range
+        gray = np.clip((image_slice - low) / (high - low), 0.0, 1.0)
+        gray_u8 = np.asarray(np.rint(gray * 255.0), dtype=np.uint8)
+        rgb = np.repeat(gray_u8[:, :, None], 3, axis=2)
+        if np.any(mask_slice):
+            rgb[mask_slice] = np.asarray(
+                0.62 * rgb[mask_slice] + 0.38 * np.array([32, 211, 176]),
+                dtype=np.uint8,
+            )
+            boundary = _mask_boundary(mask_slice)
+            rgb[boundary] = np.array([32, 211, 176], dtype=np.uint8)
+        rgb = np.ascontiguousarray(rgb)
+        height, width = rgb.shape[:2]
+        image = QImage(
+            rgb.data,
+            width,
+            height,
+            int(rgb.strides[0]),
+            QImage.Format_RGB888,
+        ).copy()
+        pixmap = QPixmap.fromImage(image)
+        self.qc_image.setPixmap(
+            pixmap.scaled(820, 500, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        self.slice_label.setText(f"Slice {z + 1} / {scan.shape[2]}")
+        self.viewer_stack.setCurrentWidget(self.qc_image)
+
+    def _apply_threshold(self) -> None:
+        review = self.current_item
+        if review is not None and review.artifact_id is not None:
+            self.threshold_apply_requested.emit(
+                review.subject_id,
+                review.artifact_id,
+                float(self.threshold_spin.value()),
+            )
 
     def _previous_item(self) -> None:
         if self.filtered:
@@ -436,6 +702,33 @@ class ReviewsPage(QWidget):
     def _open_subject(self) -> None:
         if self.current_item is not None:
             self.subject_requested.emit(self.current_item.subject_id)
+
+
+def _slider_to_threshold(position: int, floor: float) -> float:
+    fraction = min(max(position, 0), 1200) / 1200.0
+    return float(math.exp(math.log(floor) + fraction * -math.log(floor)))
+
+
+def _threshold_to_slider(threshold: float, floor: float) -> int:
+    value = min(max(float(threshold), floor), 1.0)
+    fraction = (math.log(value) - math.log(floor)) / -math.log(floor)
+    return int(round(min(max(fraction, 0.0), 1.0) * 1200))
+
+
+def _mask_boundary(mask: np.ndarray) -> np.ndarray:
+    """Return a one-pixel internal boundary without requiring scipy."""
+
+    inside = np.asarray(mask, dtype=bool)
+    neighbours = np.zeros_like(inside)
+    if inside.shape[0] > 2 and inside.shape[1] > 2:
+        neighbours[1:-1, 1:-1] = (
+            inside[:-2, 1:-1]
+            & inside[2:, 1:-1]
+            & inside[1:-1, :-2]
+            & inside[1:-1, 2:]
+        )
+    return inside & ~neighbours
+
 
 def _review_modality(review: ReviewItemViewModel) -> str:
     if review.workflow_key:

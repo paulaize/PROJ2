@@ -121,9 +121,10 @@ from lys_bbb_app.infrastructure.t2_review_repository import (
     review_from_row as _t2_review_from_row,
 )
 from lys_bbb.t2_review import T2MaskMeasurement
+from lys_bbb.subject_identifiers import normalize_time_identifier
 
 
-STUDY_SCHEMA_VERSION = 13
+STUDY_SCHEMA_VERSION = 15
 STUDY_APPLICATION_ID = 0x4C595342  # "LYSB"
 STUDY_MANIFEST_FORMAT = "lys-irm-study"
 STUDY_DATABASE_NAME = "project.sqlite"
@@ -339,7 +340,8 @@ class StudyRepository:
                     _subject_from_row(row)
                     for row in connection.execute(
                         """
-                        SELECT id, subject_code, group_name, metadata_json,
+                        SELECT id, subject_code, animal_identifier, time_identifier,
+                               group_name, metadata_json,
                                expected_t1, expected_t2, created_at, updated_at
                         FROM subjects
                         WHERE study_id = ? AND archived_at IS NULL
@@ -352,7 +354,8 @@ class StudyRepository:
                     _subject_from_row(row)
                     for row in connection.execute(
                         """
-                        SELECT id, subject_code, group_name, metadata_json,
+                        SELECT id, subject_code, animal_identifier, time_identifier,
+                               group_name, metadata_json,
                                expected_t1, expected_t2, created_at, updated_at
                         FROM subjects
                         WHERE study_id = ? AND archived_at IS NOT NULL
@@ -614,6 +617,11 @@ class StudyRepository:
         if not request.expected_t1 and not request.expected_t2:
             raise StudyStateError("Select at least one expected workflow for the subject.")
         group_name = _normalize_optional(request.group_name)
+        animal_identifier = _normalize_optional(request.animal_identifier)
+        try:
+            time_identifier = normalize_time_identifier(request.time_identifier)
+        except ValueError as exc:
+            raise StudyStateError(str(exc)) from exc
         now = _utc_now()
         subject_id = str(uuid4())
 
@@ -640,14 +648,17 @@ class StudyRepository:
                     connection.execute(
                         """
                         INSERT INTO subjects(
-                            id, study_id, subject_code, group_name, metadata_json,
+                            id, study_id, subject_code, animal_identifier,
+                            time_identifier, group_name, metadata_json,
                             expected_t1, expected_t2, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             subject_id,
                             study["id"],
                             subject_code,
+                            animal_identifier,
+                            time_identifier,
                             group_name,
                             json.dumps(request.metadata or {}, sort_keys=True),
                             int(request.expected_t1),
@@ -667,6 +678,8 @@ class StudyRepository:
                         actor=actor,
                         details={
                             "subject_code": subject_code,
+                            "animal_identifier": animal_identifier,
+                            "time_identifier": time_identifier,
                             "expected_t1": request.expected_t1,
                             "expected_t2": request.expected_t2,
                         },
@@ -680,6 +693,79 @@ class StudyRepository:
             raise StudyStateError(f"Could not add the subject: {exc}") from exc
         except sqlite3.Error as exc:
             raise StudyStateError(f"Could not add the subject: {exc}") from exc
+        return self.snapshot()
+
+    def update_subject_longitudinal_identifiers(
+        self,
+        subject_id: str,
+        animal_identifier: str | None,
+        time_identifier: str | None,
+        *,
+        actor: str,
+    ) -> StudySnapshot:
+        """Edit grouping identifiers while preserving the stable subject UUID."""
+
+        normalized_subject_id = _normalize_required(subject_id, "Subject ID")
+        normalized_animal = _normalize_optional(animal_identifier)
+        normalized_actor = _normalize_required(actor, "Actor")
+        try:
+            normalized_time = normalize_time_identifier(time_identifier)
+        except ValueError as exc:
+            raise StudyStateError(str(exc)) from exc
+        now = _utc_now()
+        try:
+            with closing(_connect(self.database_path)) as connection:
+                with connection:
+                    study = _single_study(connection)
+                    subject = connection.execute(
+                        """
+                        SELECT id, animal_identifier, time_identifier
+                        FROM subjects
+                        WHERE id = ? AND study_id = ? AND archived_at IS NULL
+                        """,
+                        (normalized_subject_id, study["id"]),
+                    ).fetchone()
+                    if subject is None:
+                        raise StudyStateError("The selected subject is not active.")
+                    if (
+                        subject["animal_identifier"] == normalized_animal
+                        and subject["time_identifier"] == normalized_time
+                    ):
+                        return self.snapshot()
+                    connection.execute(
+                        """
+                        UPDATE subjects
+                        SET animal_identifier = ?, time_identifier = ?, updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            normalized_animal,
+                            normalized_time,
+                            now,
+                            normalized_subject_id,
+                        ),
+                    )
+                    _touch_study(connection, study["id"], now)
+                    _insert_audit(
+                        connection,
+                        study_id=study["id"],
+                        subject_id=normalized_subject_id,
+                        event_type="SUBJECT_LONGITUDINAL_IDENTIFIERS_UPDATED",
+                        actor=normalized_actor,
+                        details={
+                            "previous_animal_identifier": subject["animal_identifier"],
+                            "animal_identifier": normalized_animal,
+                            "previous_time_identifier": subject["time_identifier"],
+                            "time_identifier": normalized_time,
+                        },
+                        created_at=now,
+                    )
+        except StudyStateError:
+            raise
+        except sqlite3.Error as exc:
+            raise StudyStateError(
+                f"Could not update the longitudinal identifiers: {exc}"
+            ) from exc
         return self.snapshot()
 
     def rename_subject(
@@ -1450,6 +1536,8 @@ def _subject_from_row(row: sqlite3.Row) -> SubjectRecord:
     return SubjectRecord(
         id=row["id"],
         subject_code=row["subject_code"],
+        animal_identifier=row["animal_identifier"],
+        time_identifier=row["time_identifier"],
         group_name=row["group_name"],
         metadata=json.loads(row["metadata_json"]),
         expected_t1=bool(row["expected_t1"]),

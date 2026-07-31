@@ -103,6 +103,105 @@ def test_study_creation_never_reuses_an_existing_directory(tmp_path: Path) -> No
     assert marker.read_text() == "do not overwrite"
 
 
+def test_subject_longitudinal_identifiers_persist_normalize_and_audit(
+    tmp_path: Path,
+) -> None:
+    repository = _create_study(tmp_path)
+    snapshot = repository.add_subject(
+        CreateSubjectRequest(
+            "C23S2_D7",
+            True,
+            True,
+            animal_identifier="C23S2",
+            time_identifier="7_D",
+            actor="Test researcher",
+        )
+    )
+    subject = snapshot.subjects[0]
+    assert subject.animal_identifier == "C23S2"
+    assert subject.time_identifier == "D7"
+
+    edited = repository.update_subject_longitudinal_identifiers(
+        subject.id,
+        "Mouse-23",
+        "H_24",
+        actor="Test researcher",
+    )
+    assert edited.subjects[0].animal_identifier == "Mouse-23"
+    assert edited.subjects[0].time_identifier == "24H"
+    with sqlite3.connect(edited.database_path) as connection:
+        assert connection.execute(
+            """
+            SELECT event_type FROM audit_events
+            WHERE subject_id = ? ORDER BY created_at DESC LIMIT 1
+            """,
+            (subject.id,),
+        ).fetchone()[0] == "SUBJECT_LONGITUDINAL_IDENTIFIERS_UPDATED"
+    reopened = StudyRepository.open(edited.root_path).snapshot()
+    assert reopened.subjects[0].animal_identifier == "Mouse-23"
+    assert reopened.subjects[0].time_identifier == "24H"
+
+    with pytest.raises(StudyStateError, match="Unsupported"):
+        repository.update_subject_longitudinal_identifiers(
+            subject.id,
+            "Mouse-23",
+            "4h",
+            actor="Test researcher",
+        )
+
+
+def test_schema_thirteen_migration_backfills_recognized_subject_identifiers(
+    tmp_path: Path,
+) -> None:
+    repository = _create_study(tmp_path)
+    snapshot = repository.add_subject(
+        CreateSubjectRequest("C23S2_7D", True, True, actor="Test researcher")
+    )
+    with sqlite3.connect(snapshot.database_path) as connection:
+        connection.execute("DELETE FROM schema_migrations WHERE version = 14")
+        connection.execute("PRAGMA user_version = 13")
+    manifest_path = snapshot.root_path / STUDY_MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 13
+    manifest_path.write_text(json.dumps(manifest))
+
+    migrated = StudyRepository.open(snapshot.root_path).snapshot()
+
+    assert migrated.subjects[0].animal_identifier == "C23S2"
+    assert migrated.subjects[0].time_identifier == "D7"
+
+
+def test_schema_fourteen_migration_canonicalizes_saved_time_identifiers(
+    tmp_path: Path,
+) -> None:
+    repository = _create_study(tmp_path)
+    snapshot = repository.add_subject(
+        CreateSubjectRequest(
+            "C23S2_J7",
+            True,
+            True,
+            time_identifier="J7",
+            actor="Test researcher",
+        )
+    )
+    subject_id = snapshot.subjects[0].id
+    with sqlite3.connect(snapshot.database_path) as connection:
+        connection.execute(
+            "UPDATE subjects SET time_identifier = '7_j' WHERE id = ?",
+            (subject_id,),
+        )
+        connection.execute("DELETE FROM schema_migrations WHERE version = 15")
+        connection.execute("PRAGMA user_version = 14")
+    manifest_path = snapshot.root_path / STUDY_MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text())
+    manifest["schema_version"] = 14
+    manifest_path.write_text(json.dumps(manifest))
+
+    migrated = StudyRepository.open(snapshot.root_path).snapshot()
+
+    assert migrated.subjects[0].time_identifier == "D7"
+
+
 def test_schema_nine_study_migrates_to_t1_analysis_contract(tmp_path: Path) -> None:
     repository = _create_study(tmp_path)
     snapshot = repository.snapshot()

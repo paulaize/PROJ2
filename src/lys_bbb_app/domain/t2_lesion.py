@@ -158,6 +158,7 @@ class T2CorrectedArtifactDraft:
     provisional_volume_mm3: float
     imported_from: Path
     metadata: dict[str, Any]
+    origin: str = "CORRECTED"
 
 
 @dataclass(frozen=True)

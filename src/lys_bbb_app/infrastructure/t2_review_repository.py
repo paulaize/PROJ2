@@ -109,17 +109,22 @@ def create_corrected_t2_artifact(
                 source_metadata = json.loads(source["metadata_json"])
                 metadata = dict(source_metadata)
                 metadata.update(draft.metadata)
+                threshold_adjusted = draft.origin == "THRESHOLD_ADJUSTED"
                 metadata.update(
                     {
-                        "origin": "CORRECTED",
+                        "origin": draft.origin,
                         "source_artifact_id": source["id"],
-                        "imported_from": str(draft.imported_from),
+                        "imported_from": (
+                            None
+                            if threshold_adjusted
+                            else str(draft.imported_from)
+                        ),
                         "qc_preview_path": (
                             relative_qc.as_posix() if relative_qc is not None else None
                         ),
                         "lesion_voxel_count": draft.lesion_voxel_count,
                         "provisional_volume_mm3": draft.provisional_volume_mm3,
-                        "automatic_prediction": False,
+                        "automatic_prediction": threshold_adjusted,
                         "human_review_required": True,
                     }
                 )
@@ -155,14 +160,22 @@ def create_corrected_t2_artifact(
                 invalidated = invalidate_t2_results(
                     connection,
                     subject_id=draft.subject_id,
-                    reason="A corrected T2 lesion mask was imported.",
+                    reason=(
+                        "A case-specific T2 probability threshold was applied."
+                        if threshold_adjusted
+                        else "A corrected T2 lesion mask was imported."
+                    ),
                     changed_at=now,
                 )
                 invalidated_atlas = invalidate_atlas_for_lesion_change(
                     connection,
                     subject_id=draft.subject_id,
                     lesion_artifact_id=source["id"],
-                    reason="A corrected T2 lesion mask was imported.",
+                    reason=(
+                        "A case-specific T2 probability threshold was applied."
+                        if threshold_adjusted
+                        else "A corrected T2 lesion mask was imported."
+                    ),
                     changed_at=now,
                 )
                 connection.execute(
@@ -174,7 +187,11 @@ def create_corrected_t2_artifact(
                     connection,
                     study_id=study["id"],
                     subject_id=draft.subject_id,
-                    event_type="T2_CORRECTED_LESION_MASK_IMPORTED",
+                    event_type=(
+                        "T2_CASE_SPECIFIC_THRESHOLD_APPLIED"
+                        if threshold_adjusted
+                        else "T2_CORRECTED_LESION_MASK_IMPORTED"
+                    ),
                     actor=reviewer,
                     details={
                         "artifact_id": artifact_id,
@@ -186,6 +203,11 @@ def create_corrected_t2_artifact(
                         "results_invalidated": invalidated,
                         "atlas_mapping_invalidated": invalidated_atlas,
                         "human_review_required": True,
+                        "origin": draft.origin,
+                        "selected_threshold": metadata.get("threshold"),
+                        "model_default_threshold": metadata.get(
+                            "model_default_threshold"
+                        ),
                     },
                     created_at=now,
                 )

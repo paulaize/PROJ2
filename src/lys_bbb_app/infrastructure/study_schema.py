@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 
+from lys_bbb.subject_identifiers import (
+    infer_longitudinal_identifiers,
+    normalize_time_identifier,
+)
+
 from lys_bbb_app.infrastructure.atlas_mapping_repository import create_atlas_schema
 
 
@@ -13,7 +18,7 @@ def create_schema(
     schema_version: int,
     applied_at: str,
 ) -> None:
-    if schema_version != 13:
+    if schema_version != 15:
         raise ValueError(f"Unsupported schema creation target: {schema_version}")
     connection.executescript(
         """
@@ -39,6 +44,8 @@ def create_schema(
             id TEXT PRIMARY KEY,
             study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
             subject_code TEXT NOT NULL CHECK (length(trim(subject_code)) > 0),
+            animal_identifier TEXT,
+            time_identifier TEXT,
             group_name TEXT,
             metadata_json TEXT NOT NULL DEFAULT '{}',
             expected_t1 INTEGER NOT NULL CHECK (expected_t1 IN (0, 1)),
@@ -423,6 +430,8 @@ def create_schema(
             details_json TEXT NOT NULL DEFAULT '{}'
         );
         CREATE INDEX idx_subjects_study_code ON subjects(study_id, subject_code);
+        CREATE INDEX idx_subjects_study_animal_time
+            ON subjects(study_id, animal_identifier, time_identifier);
         CREATE INDEX idx_subjects_study_group ON subjects(study_id, group_name);
         CREATE INDEX idx_subjects_study_archived ON subjects(study_id, archived_at);
         CREATE INDEX idx_scan_inputs_subject_role ON scan_inputs(subject_id, role, version DESC);
@@ -1156,6 +1165,61 @@ def migrate_schema(
             )
         connection.execute("PRAGMA foreign_keys = ON")
         version = 13
+        connection.execute(
+            "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 13:
+        subject_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(subjects)")
+        }
+        if "animal_identifier" not in subject_columns:
+            connection.execute(
+                "ALTER TABLE subjects ADD COLUMN animal_identifier TEXT"
+            )
+        if "time_identifier" not in subject_columns:
+            connection.execute("ALTER TABLE subjects ADD COLUMN time_identifier TEXT")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_subjects_study_animal_time
+            ON subjects(study_id, animal_identifier, time_identifier)
+            """
+        )
+        for subject_id, subject_code in connection.execute(
+            "SELECT id, subject_code FROM subjects"
+        ).fetchall():
+            animal_identifier, time_identifier = infer_longitudinal_identifiers(
+                subject_code
+            )
+            connection.execute(
+                """
+                UPDATE subjects
+                SET animal_identifier = COALESCE(animal_identifier, ?),
+                    time_identifier = COALESCE(time_identifier, ?)
+                WHERE id = ?
+                """,
+                (animal_identifier, time_identifier, subject_id),
+            )
+        version = 14
+        connection.execute(
+            "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (version, applied_at),
+        )
+        connection.execute(f"PRAGMA user_version = {version}")
+    if version == 14:
+        for subject_id, time_identifier in connection.execute(
+            "SELECT id, time_identifier FROM subjects WHERE time_identifier IS NOT NULL"
+        ).fetchall():
+            try:
+                canonical = normalize_time_identifier(time_identifier)
+            except ValueError:
+                continue
+            connection.execute(
+                "UPDATE subjects SET time_identifier = ? WHERE id = ?",
+                (canonical, subject_id),
+            )
+        version = 15
         connection.execute(
             "INSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES (?, ?)",
             (version, applied_at),

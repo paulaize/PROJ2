@@ -58,6 +58,9 @@ class DiscoveredScan:
     role_confidence: ImportConfidence
     role_reason: str
     orientation_policy: OrientationPolicy
+    suggested_animal_identifier: str | None = None
+    suggested_time_identifier: str | None = None
+    suggested_flip_axes: tuple[int, ...] = ()
     issues: tuple[DiscoveryIssue, ...] = ()
 
 
@@ -88,6 +91,8 @@ class ScanImportAssignment:
     acquisition_orientation: str
     confidence: ImportConfidence
     orientation_policy: OrientationPolicy
+    animal_identifier: str | None = None
+    time_identifier: str | None = None
     flip_axes: tuple[int, ...] = ()
 
 

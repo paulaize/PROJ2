@@ -22,6 +22,7 @@ dependencies:
   - requests
   - simpleitk=2.5.5
   - tifffile
+  - xlsxwriter>=3.2,<4
   - ucrt
   - vc14_runtime
   - pip:
