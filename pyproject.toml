@@ -41,6 +41,10 @@ t1-inference = [
 ]
 test = ["pytest>=8", "ruff>=0.8"]
 
+[tool.ruff.lint]
+# Keep the project's existing checks stable across Ruff default-rule changes.
+select = ["E4", "E7", "E9", "F"]
+
 [tool.pytest.ini_options]
 pythonpath = [".", "src"]
 testpaths = ["tests"]
