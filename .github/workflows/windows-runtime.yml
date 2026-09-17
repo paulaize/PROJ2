@@ -39,6 +39,9 @@ jobs:
       - name: Build and test the Windows runtime, including relocation
         shell: bash -el {0}
         run: python scripts/packaging/build_windows_runtime.py --conda "$CONDA_EXE"
+      - name: Exercise offline installation and failed-reinstall preservation
+        shell: bash -el {0}
+        run: python tests/windows_offline_install_check.py --runtime-directory dist/runtime
       - name: Upload the verified runtime for final assembly with local T2 models
         uses: actions/upload-artifact@v6
         with:

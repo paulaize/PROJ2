@@ -93,6 +93,7 @@ try {
     $env:PYTHONPATH = Join-Path $applicationDirectory "src"
     $env:PYTHONHOME = $environmentDirectory
     $env:PYTHONNOUSERSITE = "1"
+    $env:PYTHONUTF8 = "1"
     $env:LYS_IRM_FEATURE_PROFILE = "t2-only"
     $env:LYS_IRM_MODELS_DIRECTORY = $modelDirectory
     $env:QT_QPA_PLATFORM = "offscreen"

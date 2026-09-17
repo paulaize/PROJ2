@@ -24,6 +24,7 @@ try {
     $env:PYTHONPATH = Join-Path $application "src"
     $env:PYTHONHOME = $runtime
     $env:PYTHONNOUSERSITE = "1"
+    $env:PYTHONUTF8 = "1"
     $env:LYS_IRM_FEATURE_PROFILE = "t2-only"
     $env:LYS_IRM_MODELS_DIRECTORY = Join-Path $release "models"
     $env:LYS_IRM_ICON = Join-Path $InstallRoot "lys-irm.ico"

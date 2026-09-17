@@ -192,7 +192,8 @@ def test_t2_edition_blocks_t1_models_in_existing_mixed_studies(
 def test_elided_label_preserves_and_reveals_the_complete_value(
     qt_app: QApplication,
 ) -> None:
-    full_value = "/external-drive/" + "/nested-folder" * 20 + "/scan.nii.gz"
+    # Keep the expanded label within the Windows offscreen display's bounds.
+    full_value = "/external-drive/" + "/nested-folder" * 5 + "/scan.nii.gz"
     label = ElidedLabel(full_value)
     label.resize(180, 28)
     label.show()
@@ -203,7 +204,7 @@ def test_elided_label_preserves_and_reveals_the_complete_value(
     assert "…" in label.text()
     assert label.toolTip() == full_value
 
-    label.resize(2400, 28)
+    label.resize(label.fontMetrics().horizontalAdvance(full_value) + 20, 28)
     qt_app.processEvents()
     assert label.text() == full_value
     assert label.toolTip() == ""

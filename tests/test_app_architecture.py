@@ -17,7 +17,7 @@ def _python_files(root: Path) -> tuple[Path, ...]:
 
 
 def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     imported: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

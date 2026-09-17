@@ -45,6 +45,7 @@ def main() -> int:
                LYS_IRM_FEATURE_PROFILE="t2-only", QT_QPA_PLATFORM="offscreen",
                OMP_NUM_THREADS="2", MKL_NUM_THREADS="2",
                ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS="2", PYTHONNOUSERSITE="1")
+    env["PYTHONUTF8"] = "1"
     env["QT_QPA_FONTDIR"] = str(Path(os.environ["WINDIR"]) / "Fonts")
     try:
         with tempfile.TemporaryDirectory(prefix="lys-win-build-") as temporary:
@@ -56,13 +57,14 @@ def main() -> int:
             run([python, "-m", "pip", "check"], env=env)
             run([python, "-m", "lys_bbb_app.windows_smoke"], env=env)
             (output / "pip-freeze.txt").write_text(
-                run([python, "-m", "pip", "freeze", "--all"], env=env), encoding="utf-8")
+                run([python, "-m", "pip", "list", "--format=freeze"], env=env), encoding="utf-8")
             (output / "conda-explicit.txt").write_text(
                 run([str(args.conda), "list", "--prefix", str(prefix), "--explicit"]),
                 encoding="utf-8")
             # conda-pack belongs to the build host, never the colleague's install.
-            run([sys.executable, "-m", "conda_pack", "--prefix", str(prefix),
-                 "--output", str(archive), "--format", "zip"])
+            import conda_pack
+
+            conda_pack.pack(prefix=str(prefix), output=str(archive), format="zip")
             relocated = Path(temporary) / "relocated with spaces" / "env"
             with zipfile.ZipFile(archive) as packed:
                 packed.extractall(relocated)
