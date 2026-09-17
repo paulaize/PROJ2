@@ -70,7 +70,8 @@ def main() -> int:
     for name in ("lys_v3_standard3d_nnunet", "lys_v3_standard3d_nnunet/variants/folds_0_1",
                  "lys_v1_small_ratlesnetv2"):
         write_fixture(models / name)
-    with tempfile.TemporaryDirectory(prefix="lys-install-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="lys-install-test-",
+                                     dir=os.environ.get("RUNNER_TEMP")) as temporary:
         work = Path(temporary)
         runtime = work / "build-env"
         with zipfile.ZipFile(args.runtime_directory / "windows-runtime.zip") as archive:
@@ -95,6 +96,9 @@ def main() -> int:
                    "-Unattended", "-NoShortcuts"]
         env.update(HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9")
         installation = run(command, env=env)
+        if installation.returncode:
+            for log in (installed / "logs").glob("setup-*.log"):
+                print(log.read_text(encoding="utf-8-sig"), flush=True)
         installation.check_returncode()
         lines = [line.strip() for line in installation.stdout.splitlines() if line.strip()]
         if lines != ["Verification...", "Installation...", "Finalisation...",
