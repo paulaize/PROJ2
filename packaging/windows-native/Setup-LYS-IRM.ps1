@@ -36,6 +36,21 @@ function Invoke-LoggedProcess {
     if ($process.ExitCode -ne 0) { throw "$Step : code $($process.ExitCode)" }
 }
 
+function Get-BundleHash {
+    param([string]$Path)
+    # Avoid depending on PowerShell module discovery (including PS7-inherited
+    # PSModulePath values). SHA-256 is available directly in Windows .NET.
+    $stream = [IO.File]::OpenRead($Path)
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Test-BundleIntegrity {
     $root = [IO.Path]::GetFullPath($PSScriptRoot) + [IO.Path]::DirectorySeparatorChar
     foreach ($line in Get-Content -LiteralPath (Join-Path $PSScriptRoot "SHA256SUMS.txt")) {
@@ -48,7 +63,7 @@ function Test-BundleIntegrity {
         if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Chemin de paquet invalide: $target"
         }
-        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) {
+        if ((Get-BundleHash -Path $target) -ne $expected) {
             throw "Le controle d'integrite a echoue: $target. Telechargez a nouveau le ZIP."
         }
     }
@@ -86,7 +101,7 @@ try {
     if ($runtimeManifest.platform -ne "win-64" -or $runtimeManifest.relocation_test -ne "passed") {
         throw "Le runtime Windows n'a pas passe sa validation."
     }
-    if ((Get-FileHash -LiteralPath $runtimeArchive -Algorithm SHA256).Hash -ne $runtimeManifest.archive_sha256) {
+    if ((Get-BundleHash -Path $runtimeArchive) -ne $runtimeManifest.archive_sha256) {
         throw "Le runtime Windows est incomplet ou corrompu."
     }
     $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($InstallRoot))

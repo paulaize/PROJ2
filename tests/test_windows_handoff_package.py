@@ -169,6 +169,9 @@ def test_native_antspyx_bundle_is_windows_only_and_pinned(
         assert 'write-step "installation..."' in setup
         assert 'write-step "finalisation..."' in setup
         assert "messagebox" not in setup
+        assert "get-filehash" not in setup
+        assert "[security.cryptography.sha256]::create()" in setup
+        assert "computehash($stream)" in setup
         assert "conda-unpack-script.py" in setup
         assert "--models-directory" in setup
         assert "nnunetv2==2.8.1" in environment
