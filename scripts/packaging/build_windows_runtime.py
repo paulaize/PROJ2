@@ -22,12 +22,15 @@ def sha256(path: Path) -> str:
 
 def run(command: list[str], *, env: dict[str, str] | None = None) -> str:
     result = subprocess.run(command, check=True, text=True, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, env=env)
+                            stderr=subprocess.STDOUT, encoding="utf-8", errors="replace",
+                            env=dict(os.environ if env is None else env, PYTHONUTF8="1"))
     print(result.stdout, flush=True)
     return result.stdout
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--conda", required=True, type=Path)
     parser.add_argument("--output-directory", type=Path, default=Path("dist/runtime"))

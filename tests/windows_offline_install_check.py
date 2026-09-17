@@ -56,6 +56,8 @@ def run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProce
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-directory", type=Path, required=True)
     args = parser.parse_args()

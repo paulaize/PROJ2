@@ -12,6 +12,8 @@ jobs:
   runtime:
     runs-on: windows-latest
     timeout-minutes: 60
+    env:
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v7
       - name: Validate Windows PowerShell 5 installer syntax
