@@ -1,37 +1,33 @@
-name: lys-irm-windows-native-antspyx
+# Build on Windows; colleagues receive the packed result, not a solver.
+# Conda owns Python/VC runtime; pip owns the scientific and Qt stack.
+name: lys-irm-windows-t2
 channels:
   - conda-forge
   - nodefaults
 dependencies:
   - python=3.11
-  - git
-  - matplotlib=3.10.9
-  - nibabel=5.4.0
-  - numpy=2.3.5
-  - pandas>=1.5
   - pip
-  - pyside6=6.11.1
-  - pytorch-cpu=2.12.1
-  - scikit-image=0.26.0
-  - scipy=1.15.2
-  - statsmodels
-  - scikit-learn
-  - pyyaml
-  - webcolors
-  - pillow
-  - requests
-  - simpleitk=2.5.5
-  - tifffile
-  - xlsxwriter>=3.2,<4
   - ucrt
   - vc14_runtime
   - pip:
-      - acvl-utils==0.2.1
-      - batchgenerators>=0.25,<1
-      - brkraw==0.5.7
-      - einops>=0.4
-      - gdown>=5,<6
-      - imageio>=2.22
-      - monai==1.4.0
-      - nnunetv2==2.8.1
+      - antspyx==0.6.3
+      - numpy==1.26.4
+      - scipy==1.15.2
+      - matplotlib==3.10.9
+      - nibabel==5.4.0
+      - PySide6==6.11.1
       - PySide6-Fluent-Widgets==1.11.2
+      - torch==2.13.0
+      - torchvision==0.28.0
+      - nnunetv2==2.8.1
+      - acvl-utils==0.2.6
+      - SimpleITK==2.5.5
+      - scikit-image==0.26.0
+      - brkraw==0.5.7
+      - XlsxWriter>=3.2,<4
+      - statsmodels
+      - scikit-learn
+      - pyyaml
+      - webcolors
+      - pillow
+      - requests

@@ -51,6 +51,7 @@ from lys_bbb.scan_conversion import convert_scan_assignment
 from lys_bbb.scan_discovery import discover_mri_source
 from lys_bbb.registration_runtime import ANTSPYX_BACKEND
 from lys_bbb_app.domain.errors import StudyStateError
+from lys_bbb_app.features import AppFeatures, active_features
 from lys_bbb_app.domain.scan_import import (
     InputValidationState,
     ScanDiscoveryReport,
@@ -142,7 +143,9 @@ class StudyService:
         t1_enhancement_runner: T1EnhancementRunner = run_t1_enhancement,
         t1_enhancement_config: T1EnhancementConfig = T1EnhancementConfig(),
         ants_backend: str = ANTSPYX_BACKEND,
+        features: AppFeatures | None = None,
     ) -> None:
+        self.features = features if features is not None else active_features()
         self._repository: StudyRepository | None = None
         self._viewer_launcher = viewer_launcher
         self._t2_qc_builder = t2_qc_builder
@@ -254,6 +257,10 @@ class StudyService:
     ) -> StudySnapshot:
         return self.mri_inputs.validate_subject_inputs(subject_id, actor=actor)
 
+    def _require_t1_model(self) -> None:
+        if not self.features.t1_brain_mask:
+            raise StudyStateError("T1 model generation is unavailable in this edition.")
+
     def register_t1_brain_mask_release(
         self,
         release_root: Path | str,
@@ -262,6 +269,7 @@ class StudyService:
     ) -> StudySnapshot:
         """Validate and activate the reviewed local RS2/M-seam method."""
 
+        self._require_t1_model()
         repository = self._require_repository()
         try:
             release = self._t1_release_validator(Path(release_root))
@@ -286,6 +294,7 @@ class StudyService:
     ) -> T1BrainMaskReadiness:
         """Return active subjects with a validated native pre-Gd T1."""
 
+        self._require_t1_model()
         snapshot = self._require_repository().snapshot()
         requested = set(subject_ids) if subject_ids is not None else None
         active_ids = {subject.id for subject in snapshot.subjects}
@@ -341,6 +350,7 @@ class StudyService:
     ) -> StudySnapshot:
         """Generate low-impact no-TTA drafts and persist them only on success."""
 
+        self._require_t1_model()
         repository = self._require_repository()
         snapshot = repository.snapshot()
         release_record = snapshot.active_t1_brain_mask_release

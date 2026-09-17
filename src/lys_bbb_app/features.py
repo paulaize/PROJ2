@@ -11,6 +11,7 @@ from lys_bbb.registration_runtime import ANTSPYX_BACKEND
 
 FEATURE_PROFILE_ENVIRONMENT_VARIABLE = "LYS_IRM_FEATURE_PROFILE"
 FULL_FEATURE_PROFILE = "full"
+T2_FEATURE_PROFILE = "t2-only"
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class AppFeatures:
     ants_backend: str = ANTSPYX_BACKEND
     window_title_suffix: str = ""
     runtime_notice: str = ""
+    t1_brain_mask: bool = True
 
 
 FULL_FEATURES = AppFeatures(
@@ -31,6 +33,12 @@ FULL_FEATURES = AppFeatures(
     atlas_mapping=False,
 )
 
+T2_FEATURES = AppFeatures(
+    profile=T2_FEATURE_PROFILE,
+    atlas_mapping=False,
+    t1_brain_mask=False,
+)
+
 
 def features_for_profile(profile: str) -> AppFeatures:
     """Resolve a named release profile or fail before exposing the wrong workflow."""
@@ -38,6 +46,8 @@ def features_for_profile(profile: str) -> AppFeatures:
     normalised = profile.strip().casefold()
     if normalised in {"", FULL_FEATURE_PROFILE}:
         return FULL_FEATURES
+    if normalised == T2_FEATURE_PROFILE:
+        return T2_FEATURES
     raise ValueError(f"Unknown LYS IRM feature profile: {profile!r}")
 
 

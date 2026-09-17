@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from lys_bbb_app.application.study_presenter import present_study
 from lys_bbb_app.domain.errors import StudyStateError
 from lys_bbb_app.domain.scan_import import ScanImportAssignment, ScanRole
-from lys_bbb_app.domain.study import StudySnapshot
+from lys_bbb_app.domain.study import AnalysisScope, StudySnapshot
 from lys_bbb_app.domain.view_models import StatusValue, StudyViewModel
 from lys_bbb_app.features import AppFeatures, FULL_FEATURES
 from lys_bbb_app.platform_paths import (
@@ -94,7 +94,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.features = features
         self.study_service = study_service or StudyService(
-            ants_backend=self.features.ants_backend
+            ants_backend=self.features.ants_backend,
+            features=self.features,
         )
         self.recent_studies = recent_studies or RecentStudiesService()
         self.current_study: StudyViewModel | None = None
@@ -316,6 +317,10 @@ class MainWindow(QMainWindow):
 
     def create_project(self) -> None:
         dialog = CreateStudyDialog(self)
+        if not self.features.t1_brain_mask:
+            dialog.analysis_scope.setCurrentIndex(
+                dialog.analysis_scope.findData(AnalysisScope.T2_ONLY)
+            )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         mri_source = dialog.mri_source_path()
@@ -438,7 +443,7 @@ class MainWindow(QMainWindow):
             self.workspace_page.tabs.setCurrentWidget(
                 self.workspace_page.t1_analysis_panel
             )
-        elif workflow_key == "t1_brain_mask":
+        elif workflow_key == "t1_brain_mask" and self.features.t1_brain_mask:
             self.workspace_page.tabs.setCurrentWidget(
                 self.workspace_page.t1_brain_mask_panel
             )
@@ -719,6 +724,9 @@ class MainWindow(QMainWindow):
         self._set_job_status()
 
     def select_t1_brain_mask_release(self) -> bool:
+        if not self.features.t1_brain_mask:
+            self._show_status_message("T1 models are unavailable in this edition.")
+            return False
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
                 "Open a study before selecting a T1 brain-mask release."
@@ -735,6 +743,8 @@ class MainWindow(QMainWindow):
         return self._register_t1_brain_mask_release(Path(selected))
 
     def _register_t1_brain_mask_release(self, release_root: Path) -> bool:
+        if not self.features.t1_brain_mask:
+            return False
         try:
             snapshot = self.study_service.register_t1_brain_mask_release(
                 release_root,
@@ -754,6 +764,9 @@ class MainWindow(QMainWindow):
         return True
 
     def run_t1_brain_mask_for_subject(self, subject_id: str) -> None:
+        if not self.features.t1_brain_mask:
+            self._show_status_message("T1 models are unavailable in this edition.")
+            return
         if self.current_study is None or self.study_service.current_study is None:
             self._show_status_message(
                 "Open a study before generating a T1 brain mask."

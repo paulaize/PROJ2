@@ -26,7 +26,7 @@ def default_user_data_directory(
     if active_platform.startswith("win"):
         local_app_data = active_environ.get("LOCALAPPDATA")
         base = Path(local_app_data) if local_app_data else active_home / "AppData" / "Local"
-        return base / "LYS IRM"
+        return base / "LYS-IRM"
     xdg_data_home = active_environ.get("XDG_DATA_HOME")
     base = Path(xdg_data_home) if xdg_data_home else active_home / ".local" / "share"
     return base / "lys-irm"
@@ -47,13 +47,16 @@ def _legacy_user_data_directories() -> tuple[Path, ...]:
             if local_app_data
             else active_home / "AppData" / "Local"
         )
-        return (base / "LYS BBB", base / "LYS_BBB")
+        return (base / "LYS IRM", base / "LYS BBB", base / "LYS_BBB")
     xdg_data_home = os.environ.get("XDG_DATA_HOME")
     base = Path(xdg_data_home) if xdg_data_home else active_home / ".local" / "share"
     return (base / "lys-bbb",)
 
 
 def _model_release_path(directory_name: str) -> Path:
+    bundled_root = os.environ.get("LYS_IRM_MODELS_DIRECTORY")
+    if bundled_root:
+        return Path(bundled_root) / directory_name
     canonical = default_user_data_directory() / "models" / directory_name
     if canonical.is_dir():
         return canonical
@@ -130,7 +133,7 @@ def t2_model_choices() -> tuple[T2ModelChoice, ...]:
             path=nnunet_root / "variants" / "folds_0_1",
         ),
     )
-
+2
 
 def t2_model_display_label(model_id: str) -> str:
     """Return a non-technical model name for user-facing UI copy."""

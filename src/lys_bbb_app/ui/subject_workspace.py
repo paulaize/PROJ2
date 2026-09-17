@@ -198,6 +198,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.inputs_panel.flip_requested.connect(self.input_flip_requested.emit)
         self.inputs_panel.import_requested.connect(self.input_import_requested.emit)
         self.t1_brain_mask_panel = T1BrainMaskPanel()
+        self.t1_brain_mask_panel.setEnabled(self.features.t1_brain_mask)
         self.t1_brain_mask_panel.select_release_requested.connect(
             self.t1_brain_mask_release_requested.emit
         )
@@ -293,6 +294,7 @@ class SubjectWorkspacePage(QScrollArea):
         else:
             self._atlas_mapping_tab = None
         self._history_tab = self.tabs.addTab(self.history_list, "History")
+        self.tabs.setTabVisible(self._t1_brain_mask_tab, self.features.t1_brain_mask)
         self.tabs.setMinimumHeight(390)
         self.tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.layout.addWidget(self.tabs, 1)
@@ -326,7 +328,7 @@ class SubjectWorkspacePage(QScrollArea):
         self.t2_status_layout.addWidget(StatusBadge(subject.t2_workflow_status))
         self.tabs.setTabVisible(
             self._t1_brain_mask_tab,
-            subject.expects_t1,
+            subject.expects_t1 and self.features.t1_brain_mask,
         )
         self.tabs.setTabVisible(
             self._t1_analysis_tab,
@@ -458,6 +460,15 @@ class SubjectWorkspacePage(QScrollArea):
             self._next_action_code = "inputs"
             self.next_action_button.setText("Review workflow")
             detail = "Open the relevant workflow to inspect its current state."
+        if not self.features.t1_brain_mask and self._next_action_code in {
+            "select_t1", "run_t1", "t1_mask",
+        }:
+            self._next_action_code = "t2" if subject.expects_t2 else "inputs"
+            label = "Open T2 lesion" if subject.expects_t2 else "Open inputs"
+            self.next_action_title.setText(label)
+            self.next_action_button.setText(label)
+            self.next_action_button.setEnabled(True)
+            detail = "T1 models are unavailable in this edition."
         self.next_action_detail.setText(detail)
 
     def _perform_next_action(self) -> None:
@@ -519,7 +530,8 @@ class SubjectWorkspacePage(QScrollArea):
         self.tabs.setCurrentWidget(self.t2_panel)
 
     def _show_t1_mask(self) -> None:
-        self.tabs.setCurrentWidget(self.t1_brain_mask_panel)
+        if self.features.t1_brain_mask:
+            self.tabs.setCurrentWidget(self.t1_brain_mask_panel)
 
     def _show_t1_analysis(self) -> None:
         self.tabs.setCurrentWidget(self.t1_analysis_panel)

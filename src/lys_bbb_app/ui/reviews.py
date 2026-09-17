@@ -249,8 +249,9 @@ class ReviewsPage(QWidget):
         self.reviews = tuple(
             review
             for review in study.reviews
-            if self.features.atlas_mapping
-            or not review.workflow_key.startswith("atlas_")
+            if (self.features.atlas_mapping
+                or not review.workflow_key.startswith("atlas_"))
+            and (self.features.t1_brain_mask or review.workflow_key != "t1_brain_mask")
         )
         if any(_review_modality(item) == "Atlas" for item in self.reviews):
             self._add_modality_tab("Atlas")
