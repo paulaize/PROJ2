@@ -7,13 +7,33 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-$transcriptStarted = $false
+$logPath = $null
 $exitCode = 1
 $releaseDirectory = $null
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "`n==> $Message" -ForegroundColor Cyan
+    Write-Host $Message
+    Add-Content -LiteralPath $logPath -Value $Message -Encoding UTF8
+}
+
+function Invoke-LoggedProcess {
+    param([string]$FilePath, [string[]]$Arguments, [string]$Step)
+    $stdout = "$logPath.$Step.stdout"
+    $stderr = "$logPath.$Step.stderr"
+    # Windows paths may contain spaces. These internally constructed arguments
+    # never contain embedded quotes or end in a directory separator.
+    $quoted = ($Arguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
+    Add-Content -LiteralPath $logPath -Value "`n[$Step] $FilePath $quoted" -Encoding UTF8
+    $process = Start-Process -FilePath $FilePath -ArgumentList $quoted `
+        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    foreach ($output in @($stdout, $stderr)) {
+        if ((Test-Path -LiteralPath $output) -and (Get-Item -LiteralPath $output).Length -gt 0) {
+            Add-Content -LiteralPath $logPath -Value (Get-Content -LiteralPath $output -Raw -Encoding UTF8) -Encoding UTF8
+        }
+    }
+    Add-Content -LiteralPath $logPath -Value "Exit code: $($process.ExitCode)" -Encoding UTF8
+    if ($process.ExitCode -ne 0) { throw "$Step : code $($process.ExitCode)" }
 }
 
 function Test-BundleIntegrity {
@@ -50,10 +70,9 @@ try {
     $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
     $logDirectory = Join-Path $InstallRoot "logs"
     New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
-    $logPath = Join-Path $logDirectory ("setup-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
-    Start-Transcript -LiteralPath $logPath -Force | Out-Null
-    $transcriptStarted = $true
-    Write-Step "Verification du paquet Windows T2 hors ligne"
+    $logPath = Join-Path $logDirectory ("setup-" + (Get-Date -Format "yyyyMMdd-HHmmss-fff") + ".log")
+    Set-Content -LiteralPath $logPath -Value "LYS IRM setup - $(Get-Date -Format o) - $InstallRoot" -Encoding UTF8
+    Write-Step "Verification..."
     if (-not [Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
         throw "Utilisez Windows x86-64 et PowerShell 64 bits."
     }
@@ -83,9 +102,9 @@ try {
     $applicationDirectory = Join-Path $releaseDirectory "app"
     $modelDirectory = Join-Path $releaseDirectory "models"
     New-Item -ItemType Directory -Path $environmentDirectory -Force | Out-Null
-    Write-Step "Extraction du runtime inclus (aucun telechargement)"
-    & (Join-Path $env:SystemRoot "System32\tar.exe") -xf $runtimeArchive -C $environmentDirectory
-    if ($LASTEXITCODE -ne 0) { throw "L'extraction du runtime a echoue: $LASTEXITCODE" }
+    Write-Step "Installation..."
+    Invoke-LoggedProcess -FilePath (Join-Path $env:SystemRoot "System32\tar.exe") `
+        -Arguments @("-xf", $runtimeArchive, "-C", $environmentDirectory) -Step "extract"
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "app") -Destination $applicationDirectory -Recurse
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "models") -Destination $modelDirectory -Recurse
     $python = Join-Path $environmentDirectory "python.exe"
@@ -101,12 +120,12 @@ try {
     $env:ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS = "2"
     $env:OMP_NUM_THREADS = "2"
     $env:MKL_NUM_THREADS = "2"
-    & $python (Join-Path $environmentDirectory "Scripts\conda-unpack-script.py")
-    if ($LASTEXITCODE -ne 0) { throw "La configuration des chemins du runtime a echoue." }
+    Invoke-LoggedProcess -FilePath $python `
+        -Arguments @((Join-Path $environmentDirectory "Scripts\conda-unpack-script.py")) -Step "relocate"
 
-    Write-Step "Verification des modeles inclus, du runtime et du demarrage T2"
-    & $python -m lys_bbb_app.windows_smoke --models-directory $modelDirectory
-    if ($LASTEXITCODE -ne 0) { throw "Le test de demarrage T2 a echoue: code $LASTEXITCODE. Consultez $logPath" }
+    Write-Step "Finalisation..."
+    Invoke-LoggedProcess -FilePath $python `
+        -Arguments @("-m", "lys_bbb_app.windows_smoke", "--models-directory", $modelDirectory) -Step "startup"
 
     # Publish the selected install only after every required validation passes.
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-IRM.ps1") -Destination $InstallRoot -Force
@@ -121,25 +140,20 @@ try {
     }
     Move-Item -LiteralPath $stagedActive -Destination $activePath -Force
     if (-not $NoShortcuts) {
-        Write-Step "Creation des raccourcis"
         New-LysShortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "LYS IRM.lnk")
         New-LysShortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "LYS IRM.lnk")
     }
-    Write-Host "`nLYS IRM est pret. Modeles T2 uniquement; aucun modele T1 installe." -ForegroundColor Green
-    Write-Host "Journal: $logPath"
-    Write-Host "ITK-SNAP est facultatif et peut etre installe separement pour l'edition manuelle."
-    if (-not $Unattended) {
-        Add-Type -AssemblyName PresentationFramework
-        [System.Windows.MessageBox]::Show("Installation terminee. Lancez LYS IRM depuis le Bureau.", "LYS IRM") | Out-Null
-    }
+    Write-Step "Installation terminee. Lancez LYS IRM depuis le Bureau."
     $exitCode = 0
 }
 catch {
-    Write-Host "`nERREUR: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "Journal disponible dans: $(Join-Path $InstallRoot 'logs')"
-    Write-Host "Les donnees d'etude et les installations precedentes sont conservees."
-}
-finally {
-    if ($transcriptStarted) { Stop-Transcript | Out-Null }
+    $failure = $_ | Out-String
+    Write-Host "Installation interrompue." -ForegroundColor Red
+    if ($logPath -and (Test-Path -LiteralPath $logPath)) {
+        Add-Content -LiteralPath $logPath -Value $failure -Encoding UTF8
+        Write-Host "Journal : $logPath"
+    } else {
+        Write-Host $_.Exception.Message
+    }
 }
 exit $exitCode

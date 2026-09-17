@@ -85,6 +85,8 @@ def main() -> int:
              "--output-directory", str(work / "bundle"), "--allow-dirty"], env=env).check_returncode()
         bundle = next((work / "bundle").glob("*.zip"))
         with zipfile.ZipFile(bundle) as archive:
+            if any(Path(name).name == "LISEZ-MOI.txt" for name in archive.namelist()):
+                raise RuntimeError("The colleague package must not contain LISEZ-MOI.txt")
             archive.extractall(work / "extracted")
         extracted = work / "extracted/LYS-IRM-Windows-Native"
         installed = work / "colleague with spaces"
@@ -92,16 +94,41 @@ def main() -> int:
                    "-File", str(extracted / "Setup-LYS-IRM.ps1"), "-InstallRoot", str(installed),
                    "-Unattended", "-NoShortcuts"]
         env.update(HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9")
-        run(command, env=env).check_returncode()
+        installation = run(command, env=env)
+        installation.check_returncode()
+        lines = [line.strip() for line in installation.stdout.splitlines() if line.strip()]
+        if lines != ["Verification...", "Installation...", "Finalisation...",
+                     "Installation terminee. Lancez LYS IRM depuis le Bureau."]:
+            raise RuntimeError(f"Unexpected installer console output: {lines!r}")
+        logs = list((installed / "logs").glob("setup-*.log"))
+        if len(logs) != 1:
+            raise RuntimeError("Expected one installation log")
+        diagnostic = logs[0].read_text(encoding="utf-8-sig")
+        if '"status": "passed"' not in diagnostic or "Verified T2 model:" not in diagnostic:
+            raise RuntimeError("Startup diagnostics were not preserved in the log")
         active = installed / "active-install.json"
         previous = active.read_bytes()
         record = json.loads(previous.decode("utf-8-sig"))
         if record["feature_profile"] != "t2-only":
             raise RuntimeError("Installer selected the wrong feature profile")
+        # Also exercise the native Windows Qt plugin from the installed prefix.
+        release = installed / "releases" / record["release_id"]
+        actual_env = dict(env, PYTHONHOME=str(release / "env"),
+                          PYTHONPATH=str(release / "app/src"),
+                          LYS_IRM_FEATURE_PROFILE="t2-only", QT_QPA_PLATFORM="windows",
+                          LYS_IRM_MODELS_DIRECTORY=str(release / "models"))
+        actual_env["PATH"] = f"{release / 'env'};{release / 'env/Library/bin'};{os.environ['PATH']}"
+        run([str(release / "env/python.exe"), "-m", "lys_bbb_app.windows_smoke",
+             "--models-directory", str(release / "models")], env=actual_env).check_returncode()
         # A corrupt subsequent package must fail without changing the active install.
         (extracted / "app/src/lys_bbb_app/features.py").write_text("# corrupt\n", encoding="utf-8")
-        if run(command, env=env).returncode == 0 or active.read_bytes() != previous:
+        failed = run(command, env=env)
+        if failed.returncode == 0 or active.read_bytes() != previous:
             raise RuntimeError("Corrupt reinstall was accepted or changed the active installation")
+        if "Installation interrompue." not in failed.stdout or "Journal :" not in failed.stdout:
+            raise RuntimeError("A failed install must show a concise error and log location")
+        if "Traceback" in failed.stdout:
+            raise RuntimeError("Technical failure details leaked into the console")
     shutil.rmtree(models)  # Only the test fixtures just created in this CI checkout.
     print("Offline setup and failed-reinstall preservation passed on Windows.", flush=True)
     return 0

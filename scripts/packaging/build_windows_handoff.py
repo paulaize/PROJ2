@@ -62,7 +62,6 @@ TARGETS = {
             "Setup-LYS-IRM.cmd",
             "Setup-LYS-IRM.ps1",
             "Launch-LYS-IRM.ps1",
-            "LISEZ-MOI.txt",
         ),
         environment_file="packaging/windows-native/environment-win64.yml",
         archive_label="LYS-IRM-Windows-T2-Offline",

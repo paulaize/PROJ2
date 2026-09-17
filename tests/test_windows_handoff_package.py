@@ -134,6 +134,7 @@ def test_native_antspyx_bundle_is_windows_only_and_pinned(
         assert NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.cmd" in names
         assert NATIVE_BUNDLE_ROOT + "lys-irm.ico" in names
         assert NATIVE_BUNDLE_ROOT + "Install-LYS-IRM.sh" not in names
+        assert NATIVE_BUNDLE_ROOT + "LISEZ-MOI.txt" not in names
         environment_path = (
             NATIVE_BUNDLE_ROOT
             + "app/packaging/windows-native/environment-win64.yml"
@@ -162,7 +163,12 @@ def test_native_antspyx_bundle_is_windows_only_and_pinned(
         assert "pip install" not in setup
         assert "conda env" not in setup
         assert "t1_brain_mask_setup_cli" not in setup
-        assert "start-transcript" in setup
+        assert "-redirectstandardoutput" in setup
+        assert "-redirectstandarderror" in setup
+        assert 'write-step "verification..."' in setup
+        assert 'write-step "installation..."' in setup
+        assert 'write-step "finalisation..."' in setup
+        assert "messagebox" not in setup
         assert "conda-unpack-script.py" in setup
         assert "--models-directory" in setup
         assert "nnunetv2==2.8.1" in environment

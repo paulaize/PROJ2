@@ -61,6 +61,11 @@ The colleague downloads one ZIP, fully extracts it, and double-clicks
 installation, Git clone, or model downloads. ITK-SNAP is an optional separate
 installation; its availability cannot fail the LYS setup.
 
+The native ZIP does not contain `LISEZ-MOI.txt`. Setup shows only verification,
+installation, finalisation and completion messages. Native command output and
+startup diagnostics go to `logs/setup-*.log`, not the console. Errors show a short
+failure message and the log path. No completion popup is displayed.
+
 Setup verifies the payload, extracts a fresh runtime to its final prefix beneath
 `%LOCALAPPDATA%\LYS-IRM\releases`, relocates it, validates every included T2 choice,
 and executes `python -m lys_bbb_app.windows_smoke`. Only then does it update
