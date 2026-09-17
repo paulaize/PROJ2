@@ -400,9 +400,10 @@ def build_bundle(
     ) as archive:
         for path, content in sorted(entries.items(), key=lambda item: str(item[0])):
             if isinstance(content, Path):
-                archive.write(content, str(path), compress_type=(
-                    zipfile.ZIP_STORED if path.suffix == ".zip" else zipfile.ZIP_DEFLATED
-                ))
+                # conda-pack's Windows ZIP contains many stored entries. Compress
+                # the transport layer without changing the tested runtime bytes.
+                archive.write(content, str(path), compress_type=zipfile.ZIP_DEFLATED,
+                              compresslevel=6)
                 continue
             info = zipfile.ZipInfo(str(path), date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
