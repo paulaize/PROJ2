@@ -9,11 +9,37 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
+from scripts.packaging.build_windows_handoff import _bundle_runtime, build_bundle
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BUILDER = PROJECT_ROOT / "scripts" / "packaging" / "build_windows_handoff.py"
 BUNDLE_ROOT = "LYS-IRM-Windows/"
 NATIVE_BUNDLE_ROOT = "LYS-IRM-Windows-Native/"
+
+
+def test_native_colleague_build_requires_runtime_and_excludes_t1(tmp_path) -> None:
+    with pytest.raises(RuntimeError, match="requires --runtime-directory"):
+        build_bundle(PROJECT_ROOT, tmp_path, allow_dirty=True,
+                     bundle_checked_in_t2_models=True)
+    with pytest.raises(RuntimeError, match="must not contain a T1"):
+        build_bundle(PROJECT_ROOT, tmp_path, allow_dirty=True, t1_model_release=tmp_path)
+
+
+def test_runtime_cannot_be_reused_after_dependency_changes(tmp_path) -> None:
+    from pathlib import PurePosixPath
+
+    (tmp_path / "windows-runtime.zip").write_bytes(b"fixture runtime")
+    manifest = {
+        "platform": "win-64", "profile": "t2-only", "relocation_test": "passed",
+        "pip_check": "passed", "environment_sha256": "old-dependency-specification",
+    }
+    (tmp_path / "runtime-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(RuntimeError, match="environment_sha256"):
+        _bundle_runtime({}, source=PROJECT_ROOT, bundle_root=PurePosixPath("test"),
+                        runtime_directory=tmp_path)
 
 
 def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
@@ -58,6 +84,7 @@ def test_windows_handoff_builder_creates_a_verified_one_click_bundle(
         assert "antspyx==0.6.3" in environment
         assert "pyside6-fluent-widgets==1.11.2" in environment
         assert "scipy=1.15.2" in environment
+        assert "numpy=1.26.4" in environment
         assert "\n  - ants=" not in environment
         installer = archive.read(BUNDLE_ROOT + "Install-LYS-IRM.sh").decode()
         assert "assert scipy.__version__ == '1.15.2'" in installer
@@ -114,34 +141,34 @@ def test_native_antspyx_bundle_is_windows_only_and_pinned(
         environment = archive.read(environment_path).decode().casefold()
         assert "\n  - ants=" not in environment
         assert "pyside6-fluent-widgets==1.11.2" in environment
-        assert "scipy=1.15.2" in environment
-        assert "\n  - statsmodels" in environment
-        assert "\n  - scikit-learn" in environment
-        assert "\n  - pyyaml" in environment
-        assert "\n  - webcolors" in environment
-        assert "\n  - pillow" in environment
-        assert "\n  - requests" in environment
+        assert "scipy==1.15.2" in environment
+        assert "torch==2.13.0" in environment
+        assert "torchvision==0.28.0" in environment
+        assert "pytorch-cpu" not in environment
+        assert "monai" not in environment
+        assert "gdown" not in environment
         assert "vc14_runtime" in environment
         setup = archive.read(
             NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.ps1"
         ).decode()
-        assert "assert scipy.__version__ == '1.15.2'" in setup
+        assert 'Join-Path $env:LOCALAPPDATA "LYS-IRM"' in setup
+        assert 'Join-Path $env:LOCALAPPDATA "LYS IRM"' not in setup
+        assert "lys_bbb_app.windows_smoke" in setup
         setup = archive.read(
             NATIVE_BUNDLE_ROOT + "Setup-LYS-IRM.ps1"
         ).decode().casefold()
-        assert "antspyx==0.6.3" in setup
-        assert "antspyx-0.6.3-cp311-cp311-win_amd64.whl" in setup
-        assert (
-            "39a29ba5abbf3475dea70cf0d0a2472e34a5c854f99d2f08204a288f1f5aeac4"
-            in setup
-        )
-        assert "install-bundledmodelrelease" in setup
-        assert "rs2net-m-seam-v1" in setup
-        assert "lys_v3_standard3d_nnunet" in setup
-        assert "lys_v1_small_ratlesnetv2" in setup
+        assert "antspyx==0.6.3" in environment
+        assert "invoke-webrequest" not in setup
+        assert "pip install" not in setup
+        assert "conda env" not in setup
+        assert "t1_brain_mask_setup_cli" not in setup
+        assert "start-transcript" in setup
+        assert "conda-unpack-script.py" in setup
+        assert "--models-directory" in setup
         assert "nnunetv2==2.8.1" in environment
-        assert "import ants, scipy, simpleitk, torch, statsmodels" in setup
-        assert "import sklearn, yaml, webcolors, pil, requests" in setup
+        assert "acvl-utils==0.2.6" in environment
+        assert "acvl-utils==0.2.1" not in environment
+        assert "assert features.atlas_mapping" not in setup
 
         manifest = json.loads(
             archive.read(
@@ -150,12 +177,43 @@ def test_native_antspyx_bundle_is_windows_only_and_pinned(
         )
         assert manifest["application"] == "LYS IRM"
         assert manifest["target"]["runtime"].startswith("native Windows")
-        assert manifest["target"]["feature_profile"] == "full"
+        assert manifest["target"]["feature_profile"] == "t2-only"
+        assert manifest["target"]["delivery"] == "validation-only"
+        assert "t1_brain_mask" not in manifest["models"]
         launcher = archive.read(
             NATIVE_BUNDLE_ROOT + "Launch-LYS-IRM.ps1"
         ).decode()
-        assert '$featureProfile = "full"' in launcher
+        assert "$InstallRoot = $PSScriptRoot" in launcher
+        assert '$env:LYS_IRM_FEATURE_PROFILE = "t2-only"' in launcher
         assert "wsl.exe" not in launcher.casefold()
+
+
+def test_native_builder_can_exclude_colleague_readme(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(BUILDER),
+            "--source",
+            str(PROJECT_ROOT),
+            "--output-directory",
+            str(tmp_path),
+            "--without-bundled-models",
+            "--without-readme",
+            "--allow-dirty",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    archive_path = Path(result.stdout.splitlines()[0])
+
+    with zipfile.ZipFile(archive_path) as archive:
+        names = set(archive.namelist())
+        assert NATIVE_BUNDLE_ROOT + "LISEZ-MOI.txt" not in names
+        checksums = archive.read(
+            NATIVE_BUNDLE_ROOT + "SHA256SUMS.txt"
+        ).decode()
+        assert "LISEZ-MOI.txt" not in checksums
 
 
 def test_native_builder_rejects_external_t2_model_sources(

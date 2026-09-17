@@ -5,7 +5,7 @@ dependencies:
   - python=3.11
   - matplotlib=3.10.9
   - nibabel=5.4.0
-  - numpy=2.3.5
+  - numpy=1.26.4
   - pandas>=1.5
   - pip
   - pyside6=6.11.1
@@ -23,7 +23,7 @@ dependencies:
   - xlsxwriter>=3.2,<4
   - pip:
       - antspyx==0.6.3
-      - acvl-utils==0.2.1
+      - acvl-utils>=0.2.6,<0.3
       - batchgenerators>=0.25,<1
       - brkraw==0.5.7
       - einops>=0.4

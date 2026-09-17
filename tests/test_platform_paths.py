@@ -8,6 +8,14 @@ from lys_bbb_app import platform_paths
 from lys_bbb_app.platform_paths import default_user_data_directory
 
 
+def test_offline_models_take_precedence_over_an_old_install(tmp_path, monkeypatch) -> None:
+    models = tmp_path / "release" / "models"
+    standard = models / "lys_v3_standard3d_nnunet"
+    standard.mkdir(parents=True)
+    monkeypatch.setenv("LYS_IRM_MODELS_DIRECTORY", str(models))
+    assert platform_paths.default_t2_model_release_path() == standard
+
+
 def test_default_user_data_directory_uses_macos_convention() -> None:
     assert default_user_data_directory(
         platform="darwin",
@@ -21,7 +29,7 @@ def test_default_user_data_directory_uses_windows_local_app_data() -> None:
         platform="win32",
         environ={"LOCALAPPDATA": r"C:\Users\researcher\AppData\Local"},
         home=Path("/unused"),
-    ) == Path(r"C:\Users\researcher\AppData\Local") / "LYS IRM"
+    ) == Path(r"C:\Users\researcher\AppData\Local") / "LYS-IRM"
 
 
 def test_default_user_data_directory_uses_linux_xdg_convention() -> None:

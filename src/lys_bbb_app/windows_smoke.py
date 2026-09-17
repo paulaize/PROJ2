@@ -5,6 +5,18 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import json
+import argparse
+from pathlib import Path
+
+
+def validate_models(root: Path) -> None:
+    from lys_bbb.t2_model_release import validate_t2_model_release
+
+    for relative in ("lys_v3_standard3d_nnunet",
+                     "lys_v3_standard3d_nnunet/variants/folds_0_1",
+                     "lys_v1_small_ratlesnetv2"):
+        release = validate_t2_model_release(root / relative)
+        print("Verified T2 model:", release.id, flush=True)
 
 
 def require(condition: bool, message: str) -> None:
@@ -13,6 +25,11 @@ def require(condition: bool, message: str) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--models-directory", type=Path)
+    args = parser.parse_args()
+    if args.models_directory is not None:
+        validate_models(args.models_directory)
     # Exercise inference imports as well as the desktop, not just pip metadata.
     import torch
     import ants

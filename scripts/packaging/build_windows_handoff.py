@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the source-bootstrap ZIP handed to a Windows 11 colleague."""
+"""Assemble the offline Windows T2 handoff, or the legacy WSL bootstrap."""
 
 from __future__ import annotations
 
@@ -65,10 +65,10 @@ TARGETS = {
             "LISEZ-MOI.txt",
         ),
         environment_file="packaging/windows-native/environment-win64.yml",
-        archive_label="LYS-IRM-Windows-Native",
+        archive_label="LYS-IRM-Windows-T2-Offline",
         runtime="native Windows CPython with ANTsPyx",
         graphics="native Windows desktop",
-        feature_profile="full",
+        feature_profile="t2-only",
     ),
 }
 
@@ -86,6 +86,19 @@ def _git(source: Path, *args: str) -> str:
 
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _entry_sha256(content: bytes | Path) -> str:
+    if isinstance(content, Path):
+        with content.open("rb") as stream:
+            return hashlib.file_digest(stream, "sha256").hexdigest()
+    return _sha256(content)
+
+
+def _text_hashes(path: Path) -> set[str]:
+    """Git's Windows checkout may use CRLF for the same reviewed source text."""
+    text = path.read_text(encoding="utf-8")
+    return {_sha256(text.encode()), _sha256(text.replace("\n", "\r\n").encode())}
 
 
 def _payload_files(source: Path, environment_file: str) -> tuple[str, ...]:
@@ -135,7 +148,7 @@ def _all_release_files(
 
 
 def _add_release_files(
-    entries: dict[PurePosixPath, bytes],
+    entries: dict[PurePosixPath, bytes | Path],
     *,
     bundle_root: PurePosixPath,
     bundle_directory: PurePosixPath,
@@ -147,11 +160,11 @@ def _add_release_files(
         destination = bundle_root / bundle_directory / PurePosixPath(relative)
         if destination in entries:
             raise RuntimeError(f"Duplicate model bundle path: {destination}")
-        entries[destination] = path.read_bytes()
+        entries[destination] = path
 
 
 def _bundle_t1_model_release(
-    entries: dict[PurePosixPath, bytes],
+    entries: dict[PurePosixPath, bytes | Path],
     *,
     source: Path,
     bundle_root: PurePosixPath,
@@ -181,7 +194,7 @@ def _bundle_t1_model_release(
         "delivery": "bundled",
         "bundle_path": str(T1_MODEL_BUNDLE_DIRECTORY),
         "install_path": (
-            r"%LOCALAPPDATA%\LYS IRM\models\rs2net-m-seam-v1"
+            r"%LOCALAPPDATA%\LYS-IRM\models\rs2net-m-seam-v1"
         ),
         "source_commit": release.source_commit,
         "weights_sha256": release.weights_sha256,
@@ -190,7 +203,7 @@ def _bundle_t1_model_release(
 
 
 def _bundle_checked_in_t2_resources(
-    entries: dict[PurePosixPath, bytes],
+    entries: dict[PurePosixPath, bytes | Path],
     *,
     source: Path,
     bundle_root: PurePosixPath,
@@ -243,6 +256,31 @@ def windows_icon_bytes(source: Path) -> bytes:
     return (source / "packaging" / "assets" / "lys-irm.ico").read_bytes()
 
 
+def _bundle_runtime(
+    entries: dict[PurePosixPath, bytes | Path], *, source: Path,
+    bundle_root: PurePosixPath, runtime_directory: Path,
+) -> None:
+    manifest_path = runtime_directory / "runtime-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected = {
+        "platform": "win-64", "profile": "t2-only",
+        "relocation_test": "passed", "pip_check": "passed",
+        "environment_sha256": _text_hashes(
+            source / "packaging/windows-native/environment-win64.yml"),
+        "smoke_sha256": _text_hashes(source / "src/lys_bbb_app/windows_smoke.py"),
+        "archive_sha256": _entry_sha256(runtime_directory / "windows-runtime.zip"),
+    }
+    for key, value in expected.items():
+        if manifest.get(key) not in (value if isinstance(value, set) else {value}):
+            raise RuntimeError(f"Windows runtime validation failed: {key}")
+    for name in ("windows-runtime.zip", "runtime-manifest.json",
+                 "pip-freeze.txt", "conda-explicit.txt"):
+        path = runtime_directory / name
+        if not path.is_file():
+            raise RuntimeError(f"Runtime build output missing: {path}")
+        entries[bundle_root / "runtime" / name] = path
+
+
 def build_bundle(
     source: Path,
     output_directory: Path,
@@ -251,10 +289,19 @@ def build_bundle(
     target_name: str = "native",
     t1_model_release: Path | None = None,
     bundle_checked_in_t2_models: bool = False,
+    include_readme: bool = True,
+    runtime_directory: Path | None = None,
 ) -> Path:
     source = source.resolve()
     output_directory = output_directory.resolve()
     target = TARGETS[target_name]
+    if target_name == "native":
+        if t1_model_release is not None:
+            raise RuntimeError("The Windows colleague edition must not contain a T1 model.")
+        if bundle_checked_in_t2_models and runtime_directory is None:
+            raise RuntimeError("An offline Windows build requires --runtime-directory.")
+        if runtime_directory is not None and not bundle_checked_in_t2_models:
+            raise RuntimeError("An offline Windows build must include its T2 models.")
     status = _git(source, "status", "--porcelain", "--untracked-files=all")
     if status and not allow_dirty:
         raise RuntimeError(
@@ -266,16 +313,19 @@ def build_bundle(
     branch = _git(source, "branch", "--show-current") or "detached"
     project = tomllib.loads((source / "pyproject.toml").read_text())
     version = str(project["project"]["version"])
+    variant = "" if include_readme else "-no-readme"
     suffix = "-dirty" if status else ""
     bundle_name = (
-        f"{target.archive_label}-{version}-{commit[:8]}{suffix}.zip"
+        f"{target.archive_label}-{version}-{commit[:8]}{variant}{suffix}.zip"
     )
     output_directory.mkdir(parents=True, exist_ok=True)
     output_path = output_directory / bundle_name
 
-    entries: dict[PurePosixPath, bytes] = {}
+    entries: dict[PurePosixPath, bytes | Path] = {}
     template_directory = source / target.template_directory
     for name in target.template_files:
+        if not include_readme and name == "LISEZ-MOI.txt":
+            continue
         entries[target.bundle_root / name] = (
             template_directory / name
         ).read_bytes()
@@ -286,6 +336,11 @@ def build_bundle(
             source / relative
         ).read_bytes()
     bundled_models: dict[str, dict[str, object]] = {}
+    if runtime_directory is not None:
+        if target_name != "native":
+            raise RuntimeError("A packed Windows runtime is only valid for the native target.")
+        _bundle_runtime(entries, source=source, bundle_root=target.bundle_root,
+                        runtime_directory=runtime_directory.resolve())
     if t1_model_release is not None:
         bundled_models["t1_brain_mask"] = _bundle_t1_model_release(
             entries,
@@ -303,7 +358,7 @@ def build_bundle(
         )
 
     tracked_hashes = {
-        str(path.relative_to(target.bundle_root)): _sha256(content)
+        str(path.relative_to(target.bundle_root)): _entry_sha256(content)
         for path, content in sorted(entries.items(), key=lambda item: str(item[0]))
     }
     manifest = {
@@ -320,6 +375,8 @@ def build_bundle(
             "graphics": target.graphics,
             "ml_device": "CPU",
             "feature_profile": target.feature_profile,
+            "delivery": "offline" if runtime_directory else "validation-only"
+            if target_name == "native" else "bootstrap",
         },
         "models": bundled_models,
         "files": tracked_hashes,
@@ -328,7 +385,7 @@ def build_bundle(
     entries[target.bundle_root / "handoff-manifest.json"] = manifest_content
 
     checksum_lines = tuple(
-        f"{_sha256(content)}  {path.relative_to(target.bundle_root)}"
+        f"{_entry_sha256(content)}  {path.relative_to(target.bundle_root)}"
         for path, content in sorted(entries.items(), key=lambda item: str(item[0]))
     )
     entries[target.bundle_root / "SHA256SUMS.txt"] = (
@@ -342,6 +399,11 @@ def build_bundle(
         compresslevel=9,
     ) as archive:
         for path, content in sorted(entries.items(), key=lambda item: str(item[0])):
+            if isinstance(content, Path):
+                archive.write(content, str(path), compress_type=(
+                    zipfile.ZIP_STORED if path.suffix == ".zip" else zipfile.ZIP_DEFLATED
+                ))
+                continue
             info = zipfile.ZipInfo(str(path), date_time=(2026, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = (
@@ -355,6 +417,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path.cwd())
     parser.add_argument("--output-directory", type=Path, default=Path("dist"))
+    parser.add_argument("--runtime-directory", type=Path,
+                        help="verified output from build_windows_runtime.py on Windows")
     parser.add_argument(
         "--target",
         choices=tuple(TARGETS),
@@ -376,6 +440,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="explicitly create a native test archive without local model releases",
     )
+    parser.add_argument(
+        "--without-readme",
+        action="store_true",
+        help="exclude the colleague-facing LISEZ-MOI.txt file",
+    )
     return parser.parse_args(argv)
 
 
@@ -393,12 +462,14 @@ def main(argv: list[str] | None = None) -> int:
                 native_target
                 and not args.without_bundled_models
             ),
+            include_readme=not args.without_readme,
+            runtime_directory=args.runtime_directory,
         )
     except (OSError, KeyError, RuntimeError, subprocess.CalledProcessError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(output)
-    print(f"sha256: {_sha256(output.read_bytes())}")
+    print(f"sha256: {_entry_sha256(output)}")
     return 0
 
 

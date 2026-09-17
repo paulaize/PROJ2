@@ -1,598 +1,144 @@
 [CmdletBinding()]
 param(
-    [switch]$SkipT1ModelDownload,
-    [switch]$SkipITKSnapInstall
+    [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA "LYS-IRM"),
+    [switch]$Unattended,
+    [switch]$NoShortcuts
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-
-$InstallRoot = Join-Path $env:LOCALAPPDATA "LYS IRM"
-$MiniforgeDirectory = Join-Path $InstallRoot "miniforge"
-$EnvironmentDirectory = Join-Path $InstallRoot "env"
-$ApplicationDirectory = Join-Path $InstallRoot "app"
-$LogDirectory = Join-Path $InstallRoot "logs"
-$MinimumFreeSpaceGiB = 8
-$FeatureProfile = "full"
-$EnvironmentFileName = "environment-win64.yml"
-$ShortcutName = "LYS IRM"
-$ShortcutDescription = "LYS IRM - native Windows with ANTsPyx"
-$AntsPyxWheelName = "antspyx-0.6.3-cp311-cp311-win_amd64.whl"
-$AntsPyxWheelSha256 = (
-    "39a29ba5abbf3475dea70cf0d0a2472e34a5c854f99d2f08204a288f1f5aeac4"
-)
-
-$MiniforgeVersion = "26.1.1-3"
-$MiniforgeInstallerName = "Miniforge3-$MiniforgeVersion-Windows-x86_64.exe"
-$MiniforgeUri = (
-    "https://github.com/conda-forge/miniforge/releases/download/" +
-    "$MiniforgeVersion/$MiniforgeInstallerName"
-)
-$MiniforgeSha256 = "4d987034d25684fbed0fe7c691227067e37f7443061e2732c3b726c0c5dd45c2"
-
-$ITKSnapInstallerName = "itksnap-4.4.0-20250909-win64-AMD64.exe"
-$ITKSnapUri = (
-    "https://downloads.sourceforge.net/project/itk-snap/itk-snap/4.4.0/" +
-    $ITKSnapInstallerName
-)
-$ITKSnapSha256 = "4ccbb2d53e57d70edee3772d0ec02ff843ec6afa95fd0b5f00e49ba90fa624a0"
+$transcriptStarted = $false
+$exitCode = 1
+$releaseDirectory = $null
 
 function Write-Step {
     param([string]$Message)
-    Write-Host ""
-    Write-Host "==> $Message" -ForegroundColor Cyan
-}
-
-function Show-Information {
-    param(
-        [string]$Title,
-        [string]$Message
-    )
-    Add-Type -AssemblyName PresentationFramework
-    [System.Windows.MessageBox]::Show(
-        $Message,
-        $Title,
-        [System.Windows.MessageBoxButton]::OK,
-        [System.Windows.MessageBoxImage]::Information
-    ) | Out-Null
+    Write-Host "`n==> $Message" -ForegroundColor Cyan
 }
 
 function Test-BundleIntegrity {
-    $checksumFile = Join-Path $PSScriptRoot "SHA256SUMS.txt"
-    if (-not (Test-Path -LiteralPath $checksumFile -PathType Leaf)) {
-        throw "Le fichier de controle SHA256SUMS.txt est absent."
-    }
-    foreach ($line in Get-Content -LiteralPath $checksumFile) {
-        if (-not $line.Trim()) {
-            continue
-        }
+    $root = [IO.Path]::GetFullPath($PSScriptRoot) + [IO.Path]::DirectorySeparatorChar
+    foreach ($line in Get-Content -LiteralPath (Join-Path $PSScriptRoot "SHA256SUMS.txt")) {
+        if (-not $line.Trim()) { continue }
         if ($line -notmatch "^([0-9a-fA-F]{64})  (.+)$") {
             throw "Ligne de controle invalide: $line"
         }
-        $expected = $Matches[1].ToUpperInvariant()
-        $relative = $Matches[2].Replace("/", [IO.Path]::DirectorySeparatorChar)
-        $target = Join-Path $PSScriptRoot $relative
-        if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-            throw "Fichier du paquet absent: $relative"
+        $expected = $Matches[1]
+        $target = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $Matches[2]))
+        if (-not $target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Chemin de paquet invalide: $target"
         }
-        $actual = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash
-        if ($actual -ne $expected) {
-            throw "Le controle d'integrite a echoue pour $relative."
+        if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash -ne $expected) {
+            throw "Le controle d'integrite a echoue: $target. Telechargez a nouveau le ZIP."
         }
     }
-}
-
-function Get-VerifiedDownload {
-    param(
-        [string]$Uri,
-        [string]$Destination,
-        [string]$ExpectedSha256
-    )
-    Invoke-WebRequest -Uri $Uri -OutFile $Destination -UseBasicParsing
-    $actual = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
-    if ($actual -ne $ExpectedSha256.ToUpperInvariant()) {
-        throw "Le controle SHA256 du telechargement a echoue: $Destination"
-    }
-}
-
-function Find-ITKSnap {
-    $candidates = @(
-        (Join-Path $env:ProgramFiles "ITK-SNAP 4.4\bin\ITK-SNAP.exe"),
-        (Join-Path $env:ProgramFiles "ITK-SNAP 4.4\ITK-SNAP.exe"),
-        (Join-Path $env:ProgramFiles "ITK-SNAP\bin\ITK-SNAP.exe"),
-        (Join-Path $env:ProgramFiles "ITK-SNAP\ITK-SNAP.exe")
-    )
-    return $candidates |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
-        Select-Object -First 1
 }
 
 function New-LysShortcut {
-    param([string]$ShortcutPath)
-
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($ShortcutPath)
-    $powerShell = Join-Path $PSHOME "powershell.exe"
+    param([string]$Path)
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Path)
+    $shortcut.TargetPath = Join-Path $PSHOME "powershell.exe"
     $launcher = Join-Path $InstallRoot "Launch-LYS-IRM.ps1"
-    $icon = Join-Path $InstallRoot "lys-irm.ico"
-    $shortcut.TargetPath = $powerShell
-    $shortcut.Arguments = (
-        "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden " +
-        "-File `"$launcher`""
-    )
+    $shortcut.Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcher`""
     $shortcut.WorkingDirectory = $InstallRoot
-    $shortcut.IconLocation = "$icon,0"
-    $shortcut.Description = $ShortcutDescription
+    $shortcut.IconLocation = "$(Join-Path $InstallRoot 'lys-irm.ico'),0"
+    $shortcut.Description = "LYS IRM - modeles T2"
     $shortcut.Save()
 }
 
-function Test-ModelRelease {
-    param(
-        [string]$Python,
-        [string]$ReleasePath,
-        [ValidateSet("T1", "T2")]
-        [string]$Kind
-    )
-
-    if ($Kind -eq "T1") {
-        $validation = (
-            "import sys; from pathlib import Path; " +
-            "from lys_bbb.t1_brain_mask_release import " +
-            "validate_t1_brain_mask_release as validate; " +
-            "validate(Path(sys.argv[1]))"
-        )
-    }
-    else {
-        $validation = (
-            "import sys; from pathlib import Path; " +
-            "from lys_bbb.t2_model_release import " +
-            "validate_t2_model_release as validate; " +
-            "validate(Path(sys.argv[1]))"
-        )
-    }
-    & $Python -c $validation $ReleasePath
-    return ($LASTEXITCODE -eq 0)
-}
-
-function Install-BundledModelRelease {
-    param(
-        [string]$Python,
-        [string]$Source,
-        [string]$Destination,
-        [ValidateSet("T1", "T2")]
-        [string]$Kind,
-        [string[]]$IdentityFiles
-    )
-
-    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
-        return $false
-    }
-    $sameRelease = Test-Path -LiteralPath $Destination -PathType Container
-    if ($sameRelease) {
-        foreach ($relative in $IdentityFiles) {
-            $bundledFile = Join-Path $Source $relative
-            $installedFile = Join-Path $Destination $relative
-            if (-not (Test-Path -LiteralPath $installedFile -PathType Leaf)) {
-                $sameRelease = $false
-                break
-            }
-            $bundledHash = (
-                Get-FileHash -LiteralPath $bundledFile -Algorithm SHA256
-            ).Hash
-            $installedHash = (
-                Get-FileHash -LiteralPath $installedFile -Algorithm SHA256
-            ).Hash
-            if ($bundledHash -ne $installedHash) {
-                $sameRelease = $false
-                break
-            }
-        }
-    }
-    if (
-        $sameRelease -and
-        (Test-ModelRelease `
-            -Python $Python `
-            -ReleasePath $Destination `
-            -Kind $Kind)
-    ) {
-        return $true
-    }
-
-    $parent = Split-Path $Destination -Parent
-    $name = Split-Path $Destination -Leaf
-    New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    $staged = Join-Path $parent (".$name-new-" + [guid]::NewGuid().ToString("N"))
-    try {
-        Copy-Item -LiteralPath $Source -Destination $staged -Recurse
-        if (
-            -not (Test-ModelRelease `
-                -Python $Python `
-                -ReleasePath $staged `
-                -Kind $Kind)
-        ) {
-            throw "Le modele $Kind inclus n'a pas passe sa validation."
-        }
-        if (Test-Path -LiteralPath $Destination -PathType Container) {
-            $backup = (
-                "$Destination.previous." +
-                (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
-            )
-            Move-Item -LiteralPath $Destination -Destination $backup
-        }
-        Move-Item -LiteralPath $staged -Destination $Destination
-        return $true
-    }
-    finally {
-        if (Test-Path -LiteralPath $staged -PathType Container) {
-            Remove-Item -LiteralPath $staged -Recurse -Force
-        }
-    }
-}
-
-$TemporaryDirectory = Join-Path (
-    [IO.Path]::GetTempPath()
-) ("LYS-IRM-Setup-" + [guid]::NewGuid().ToString("N"))
-$StagedApplication = $null
-
 try {
-    Write-Step "Controle du paquet et de la machine"
-    if (-not [Environment]::Is64BitOperatingSystem) {
-        throw "LYS IRM requiert Windows 64 bits."
-    }
-    $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-    if ($architecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
-        throw "Ce paquet requiert un processeur Intel/AMD x86-64: $architecture."
+    $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
+    $logDirectory = Join-Path $InstallRoot "logs"
+    New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+    $logPath = Join-Path $logDirectory ("setup-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
+    Start-Transcript -LiteralPath $logPath -Force | Out-Null
+    $transcriptStarted = $true
+    Write-Step "Verification du paquet Windows T2 hors ligne"
+    if (-not [Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
+        throw "Utilisez Windows x86-64 et PowerShell 64 bits."
     }
     Test-BundleIntegrity
-    $manifestPath = Join-Path $PSScriptRoot "handoff-manifest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw "Le manifeste du paquet est absent."
+    $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot "handoff-manifest.json") -Raw | ConvertFrom-Json
+    if ($manifest.target.feature_profile -ne "t2-only" -or $manifest.target.delivery -ne "offline") {
+        throw "Ce paquet n'est pas une distribution Windows T2 hors ligne complete."
     }
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw |
-        ConvertFrom-Json
-    $FeatureProfile = [string]$manifest.target.feature_profile
-    if ($FeatureProfile -ne "full") {
-        throw "Profil Windows natif non pris en charge: $FeatureProfile"
+    $runtimeArchive = Join-Path $PSScriptRoot "runtime\windows-runtime.zip"
+    $runtimeManifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot "runtime\runtime-manifest.json") -Raw | ConvertFrom-Json
+    if ($runtimeManifest.platform -ne "win-64" -or $runtimeManifest.relocation_test -ne "passed") {
+        throw "Le runtime Windows n'a pas passe sa validation."
     }
-
-    $systemDrive = Get-CimInstance `
-        Win32_LogicalDisk `
-        -Filter "DeviceID='$($env:SystemDrive)'"
-    $freeSpaceGiB = [math]::Round($systemDrive.FreeSpace / 1GB, 1)
-    if ($freeSpaceGiB -lt $MinimumFreeSpaceGiB) {
-        throw (
-            "Espace insuffisant: $freeSpaceGiB Gio libres; " +
-            "$MinimumFreeSpaceGiB Gio requis."
-        )
+    if ((Get-FileHash -LiteralPath $runtimeArchive -Algorithm SHA256).Hash -ne $runtimeManifest.archive_sha256) {
+        throw "Le runtime Windows est incomplet ou corrompu."
     }
-    $memory = Get-CimInstance Win32_ComputerSystem
-    $memoryGiB = [math]::Round($memory.TotalPhysicalMemory / 1GB, 1)
-    if ($memoryGiB -lt 7) {
-        Write-Warning (
-            "Seulement $memoryGiB Gio de RAM detectes. " +
-            "Les traitements ML seront limites."
-        )
+    $drive = [IO.DriveInfo]::new([IO.Path]::GetPathRoot($InstallRoot))
+    if ($drive.AvailableFreeSpace -lt 8GB) {
+        throw "Au moins 8 Gio libres sont necessaires sur le disque d'installation."
     }
 
-    New-Item -ItemType Directory -Path $TemporaryDirectory -Force | Out-Null
-    New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    # Each install has its own final prefix. Never update the colleague's pip/conda
+    # environment in place, and never move a prefix after conda-unpack.
+    $releaseId = [guid]::NewGuid().ToString("N").Substring(0, 12)
+    $releaseDirectory = Join-Path $InstallRoot "releases\$releaseId"
+    $environmentDirectory = Join-Path $releaseDirectory "env"
+    $applicationDirectory = Join-Path $releaseDirectory "app"
+    $modelDirectory = Join-Path $releaseDirectory "models"
+    New-Item -ItemType Directory -Path $environmentDirectory -Force | Out-Null
+    Write-Step "Extraction du runtime inclus (aucun telechargement)"
+    & (Join-Path $env:SystemRoot "System32\tar.exe") -xf $runtimeArchive -C $environmentDirectory
+    if ($LASTEXITCODE -ne 0) { throw "L'extraction du runtime a echoue: $LASTEXITCODE" }
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "app") -Destination $applicationDirectory -Recurse
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "models") -Destination $modelDirectory -Recurse
+    $python = Join-Path $environmentDirectory "python.exe"
+    $env:PATH = "$environmentDirectory;$(Join-Path $environmentDirectory 'Library\bin');$env:PATH"
+    $env:PYTHONPATH = Join-Path $applicationDirectory "src"
+    $env:PYTHONHOME = $environmentDirectory
+    $env:PYTHONNOUSERSITE = "1"
+    $env:LYS_IRM_FEATURE_PROFILE = "t2-only"
+    $env:LYS_IRM_MODELS_DIRECTORY = $modelDirectory
+    $env:QT_QPA_PLATFORM = "offscreen"
+    $env:QT_QPA_FONTDIR = Join-Path $env:WINDIR "Fonts"
+    $env:ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS = "2"
+    $env:OMP_NUM_THREADS = "2"
+    $env:MKL_NUM_THREADS = "2"
+    & $python (Join-Path $environmentDirectory "Scripts\conda-unpack-script.py")
+    if ($LASTEXITCODE -ne 0) { throw "La configuration des chemins du runtime a echoue." }
 
-    $conda = Join-Path $MiniforgeDirectory "Scripts\conda.exe"
-    if (-not (Test-Path -LiteralPath $conda -PathType Leaf)) {
-        Write-Step "Installation de Miniforge pour Windows"
-        $miniforgeInstaller = Join-Path $TemporaryDirectory $MiniforgeInstallerName
-        Get-VerifiedDownload `
-            -Uri $MiniforgeUri `
-            -Destination $miniforgeInstaller `
-            -ExpectedSha256 $MiniforgeSha256
-        $arguments = @(
-            "/InstallationType=JustMe",
-            "/RegisterPython=0",
-            "/S",
-            "/D=$MiniforgeDirectory"
-        )
-        $process = Start-Process `
-            -FilePath $miniforgeInstaller `
-            -ArgumentList $arguments `
-            -Wait `
-            -PassThru
-        if ($process.ExitCode -ne 0) {
-            throw "Miniforge n'a pas pu etre installe: code $($process.ExitCode)."
-        }
-    }
-    if (-not (Test-Path -LiteralPath $conda -PathType Leaf)) {
-        throw "Miniforge est termine mais conda.exe est absent."
-    }
+    Write-Step "Verification des modeles inclus, du runtime et du demarrage T2"
+    & $python -m lys_bbb_app.windows_smoke --models-directory $modelDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Le test de demarrage T2 a echoue: code $LASTEXITCODE. Consultez $logPath" }
 
-    Write-Step "Installation des dependances Windows natives"
-    Write-Host "Cette etape telecharge plusieurs Gio et peut durer 15 a 40 minutes."
-    $StagedApplication = Join-Path (
-        Split-Path $ApplicationDirectory -Parent
-    ) ("app-new-" + [guid]::NewGuid().ToString("N"))
-    Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "app") `
-        -Destination $StagedApplication `
-        -Recurse
-    $environmentFile = Join-Path (
-        $StagedApplication
-    ) "packaging\windows-native\$EnvironmentFileName"
-    if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
-        throw "Le fichier d'environnement Windows est absent."
+    # Publish the selected install only after every required validation passes.
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-IRM.ps1") -Destination $InstallRoot -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "lys-irm.ico") -Destination $InstallRoot -Force
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "handoff-manifest.json") -Destination $releaseDirectory
+    $active = @{ schema_version = 1; release_id = $releaseId; feature_profile = "t2-only" }
+    $activePath = Join-Path $InstallRoot "active-install.json"
+    $stagedActive = Join-Path $InstallRoot "active-install.new.json"
+    $active | ConvertTo-Json | Set-Content -LiteralPath $stagedActive -Encoding UTF8
+    if (Test-Path -LiteralPath $activePath) {
+        Copy-Item -LiteralPath $activePath -Destination (Join-Path $InstallRoot "active-install.previous.json") -Force
     }
-    if (Test-Path -LiteralPath (
-        Join-Path $EnvironmentDirectory "python.exe"
-    ) -PathType Leaf) {
-        & $conda env update `
-            --prefix $EnvironmentDirectory `
-            --file $environmentFile `
-            --prune
+    Move-Item -LiteralPath $stagedActive -Destination $activePath -Force
+    if (-not $NoShortcuts) {
+        Write-Step "Creation des raccourcis"
+        New-LysShortcut (Join-Path ([Environment]::GetFolderPath("Desktop")) "LYS IRM.lnk")
+        New-LysShortcut (Join-Path ([Environment]::GetFolderPath("Programs")) "LYS IRM.lnk")
     }
-    else {
-        & $conda env create `
-            --prefix $EnvironmentDirectory `
-            --file $environmentFile
+    Write-Host "`nLYS IRM est pret. Modeles T2 uniquement; aucun modele T1 installe." -ForegroundColor Green
+    Write-Host "Journal: $logPath"
+    Write-Host "ITK-SNAP est facultatif et peut etre installe separement pour l'edition manuelle."
+    if (-not $Unattended) {
+        Add-Type -AssemblyName PresentationFramework
+        [System.Windows.MessageBox]::Show("Installation terminee. Lancez LYS IRM depuis le Bureau.", "LYS IRM") | Out-Null
     }
-    if ($LASTEXITCODE -ne 0) {
-        throw "Conda n'a pas pu installer les dependances: code $LASTEXITCODE."
-    }
-
-    $python = Join-Path $EnvironmentDirectory "python.exe"
-    $env:PATH = (
-        "$EnvironmentDirectory;" +
-        (Join-Path $EnvironmentDirectory "Library\bin") +
-        ";$env:PATH"
-    )
-    Write-Step "Telechargement et verification de la roue ANTsPyx Windows"
-    $wheelDirectory = Join-Path $TemporaryDirectory "antspyx-wheel"
-    New-Item -ItemType Directory -Path $wheelDirectory -Force | Out-Null
-    & $python -m pip download `
-        --dest $wheelDirectory `
-        --only-binary=:all: `
-        --no-deps `
-        "antspyx==0.6.3"
-    if ($LASTEXITCODE -ne 0) {
-        throw "La roue ANTsPyx Windows n'a pas pu etre telechargee."
-    }
-    $wheelPath = Join-Path $wheelDirectory $AntsPyxWheelName
-    if (-not (Test-Path -LiteralPath $wheelPath -PathType Leaf)) {
-        throw "La roue ANTsPyx attendue est absente: $AntsPyxWheelName"
-    }
-    $wheelHash = (
-        Get-FileHash -LiteralPath $wheelPath -Algorithm SHA256
-    ).Hash
-    if ($wheelHash -ne $AntsPyxWheelSha256.ToUpperInvariant()) {
-        throw "Le controle SHA256 de la roue ANTsPyx a echoue."
-    }
-    & $python -m pip install --no-deps $wheelPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "ANTsPyx n'a pas pu etre installe: code $LASTEXITCODE."
-    }
-
-    $backupApplication = $null
-    if (Test-Path -LiteralPath $ApplicationDirectory -PathType Container) {
-        $backupApplication = (
-            "$ApplicationDirectory.previous." +
-            (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
-        )
-        Move-Item -LiteralPath $ApplicationDirectory -Destination $backupApplication
-    }
-    Move-Item -LiteralPath $StagedApplication -Destination $ApplicationDirectory
-    $StagedApplication = $null
-
-    & $python -m pip install --no-deps --editable $ApplicationDirectory
-    if ($LASTEXITCODE -ne 0) {
-        $failedApplication = (
-            "$ApplicationDirectory.failed." +
-            (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
-        )
-        Move-Item -LiteralPath $ApplicationDirectory -Destination $failedApplication
-        if ($backupApplication) {
-            Move-Item `
-                -LiteralPath $backupApplication `
-                -Destination $ApplicationDirectory
-        }
-        throw "L'application n'a pas pu etre installee: code $LASTEXITCODE."
-    }
-
-    $modelInstallRoot = Join-Path $InstallRoot "models"
-    $bundledModelRoot = Join-Path $PSScriptRoot "models"
-    $t1ModelDirectory = Join-Path $modelInstallRoot "rs2net-m-seam-v1"
-    $bundledT1Model = Join-Path $bundledModelRoot "rs2net-m-seam-v1"
-    if (Test-Path -LiteralPath $bundledT1Model -PathType Container) {
-        Write-Step "Installation du modele T1 inclus et verifie"
-        Install-BundledModelRelease `
-            -Python $python `
-            -Source $bundledT1Model `
-            -Destination $t1ModelDirectory `
-            -Kind "T1" `
-            -IdentityFiles @("release.json") | Out-Null
-    }
-    elseif (-not $SkipT1ModelDownload) {
-        Write-Step "Telechargement du modele T1 examine"
-        if (-not (Test-Path -LiteralPath $t1ModelDirectory -PathType Container)) {
-            & $python `
-                -m lys_bbb.t1_brain_mask_setup_cli `
-                --destination $t1ModelDirectory
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning (
-                    "Le modele T1 n'a pas pu etre telecharge. " +
-                    "L'application reste utilisable; consultez le journal."
-                )
-            }
-        }
-    }
-
-    $bundledT2Standard = Join-Path $bundledModelRoot "lys_v3_standard3d_nnunet"
-    if (Test-Path -LiteralPath $bundledT2Standard -PathType Container) {
-        Write-Step "Installation du modele T2 LYS v3 fold 1 et de l'ensemble fold 0+1"
-        Install-BundledModelRelease `
-            -Python $python `
-            -Source $bundledT2Standard `
-            -Destination (
-                Join-Path $modelInstallRoot "lys_v3_standard3d_nnunet"
-            ) `
-            -Kind "T2" `
-            -IdentityFiles @(
-                "model_metadata.json",
-                "SHA256SUMS",
-                "dataset.json",
-                "plans.json"
-            ) | Out-Null
-    }
-    else {
-        Write-Warning (
-            "Le modele T2 LYS v3 fold 1 par defaut n'est pas inclus."
-        )
-    }
-
-    $bundledT2Small = Join-Path $bundledModelRoot "lys_v1_small_ratlesnetv2"
-    if (Test-Path -LiteralPath $bundledT2Small -PathType Container) {
-        Write-Step "Installation du petit modele T2 historique"
-        Install-BundledModelRelease `
-            -Python $python `
-            -Source $bundledT2Small `
-            -Destination (
-                Join-Path $modelInstallRoot "lys_v1_small_ratlesnetv2"
-            ) `
-            -Kind "T2" `
-            -IdentityFiles @(
-                "bundle_manifest.json",
-                "frozen_spec.json",
-                "selected_threshold.json",
-                "SHA256SUMS"
-            ) | Out-Null
-    }
-
-    if (-not $SkipITKSnapInstall -and -not (Find-ITKSnap)) {
-        Write-Step "Installation facultative d'ITK-SNAP 4.4"
-        Write-Host (
-            "Windows demandera une autorisation administrateur uniquement " +
-            "pour installer l'editeur ITK-SNAP."
-        )
-        try {
-            $itkSnapInstaller = Join-Path $TemporaryDirectory $ITKSnapInstallerName
-            Get-VerifiedDownload `
-                -Uri $ITKSnapUri `
-                -Destination $itkSnapInstaller `
-                -ExpectedSha256 $ITKSnapSha256
-            $process = Start-Process `
-                -FilePath $itkSnapInstaller `
-                -ArgumentList @("/S") `
-                -Verb RunAs `
-                -Wait `
-                -PassThru
-            if ($process.ExitCode -ne 0) {
-                throw "Code d'installation ITK-SNAP: $($process.ExitCode)."
-            }
-        }
-        catch {
-            Write-Warning (
-                "ITK-SNAP n'a pas ete installe. L'application fonctionnera, " +
-                "mais l'edition manuelle externe restera indisponible. " +
-                "Detail: $($_.Exception.Message)"
-            )
-        }
-    }
-
-    Write-Step "Test de demarrage natif avec ANTsPyx"
-    $smokeScript = (
-        "import ants, scipy, SimpleITK, torch, statsmodels; " +
-        "import sklearn, yaml, webcolors, PIL, requests; " +
-        "assert ants.__version__ == '0.6.3'; " +
-        "assert scipy.__version__ == '1.15.2'; " +
-        "from PySide6.QtWidgets import QApplication; " +
-        "from lys_bbb_app.features import active_features; " +
-        "from lys_bbb_app.ui.main_window import MainWindow; " +
-        "app=QApplication([]); features=active_features(); " +
-        "window=MainWindow(features=features); " +
-        "assert features.atlas_mapping; " +
-        "assert features.ants_backend == 'antspyx'; " +
-        "assert window.workspace_page.atlas_mapping_panel is not None; " +
-        "window.close()"
-    )
-    $previousProfile = $env:LYS_IRM_FEATURE_PROFILE
-    $previousQtPlatform = $env:QT_QPA_PLATFORM
-    try {
-        $env:LYS_IRM_FEATURE_PROFILE = $FeatureProfile
-        $env:QT_QPA_PLATFORM = "offscreen"
-        & $python -c $smokeScript
-        if ($LASTEXITCODE -ne 0) {
-            throw "Le test de demarrage natif a echoue: code $LASTEXITCODE."
-        }
-    }
-    finally {
-        $env:LYS_IRM_FEATURE_PROFILE = $previousProfile
-        $env:QT_QPA_PLATFORM = $previousQtPlatform
-    }
-
-    Write-Step "Creation de l'icone Windows"
-    Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "Launch-LYS-IRM.ps1") `
-        -Destination $InstallRoot `
-        -Force
-    Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "lys-irm.ico") `
-        -Destination $InstallRoot `
-        -Force
-    Copy-Item `
-        -LiteralPath (Join-Path $PSScriptRoot "handoff-manifest.json") `
-        -Destination $InstallRoot `
-        -Force
-
-    $desktopShortcut = Join-Path (
-        [Environment]::GetFolderPath("Desktop")
-    ) "$ShortcutName.lnk"
-    foreach ($legacyName in @(
-        "MRI Tool.lnk",
-        "LYS BBB.lnk",
-        "LYS BBB - test Windows.lnk",
-        "LYS BBB - apercu ANTsPyx.lnk"
-    )) {
-        Remove-Item `
-            -LiteralPath (Join-Path (
-                [Environment]::GetFolderPath("Desktop")
-            ) $legacyName) `
-            -Force `
-            -ErrorAction SilentlyContinue
-        Remove-Item `
-            -LiteralPath (Join-Path (
-                [Environment]::GetFolderPath("Programs")
-            ) $legacyName) `
-            -Force `
-            -ErrorAction SilentlyContinue
-    }
-    New-LysShortcut -ShortcutPath $desktopShortcut
-    $programs = [Environment]::GetFolderPath("Programs")
-    New-LysShortcut `
-        -ShortcutPath (Join-Path $programs "$ShortcutName.lnk")
-
-    Write-Host ""
-    Write-Host "Installation native terminee." -ForegroundColor Green
-    Write-Host "Aucun composant Ubuntu ou WSL2 n'a ete installe."
-    $completionMessage = (
-        "L'installation native ANTsPyx est terminee.`n`n" +
-        "Utilisez l'icone '$ShortcutName' du Bureau.`n" +
-        "Les registrations doivent toujours etre examinees dans leurs panneaux QC."
-    )
-    Show-Information `
-        -Title "LYS IRM est pret" `
-        -Message $completionMessage
-    exit 0
+    $exitCode = 0
 }
 catch {
-    Write-Host ""
-    Write-Host "ERREUR: $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
+    Write-Host "`nERREUR: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Journal disponible dans: $(Join-Path $InstallRoot 'logs')"
+    Write-Host "Les donnees d'etude et les installations precedentes sont conservees."
 }
 finally {
-    if (
-        $StagedApplication -and
-        (Test-Path -LiteralPath $StagedApplication -PathType Container)
-    ) {
-        Remove-Item -LiteralPath $StagedApplication -Recurse -Force
-    }
-    if (Test-Path -LiteralPath $TemporaryDirectory -PathType Container) {
-        Remove-Item -LiteralPath $TemporaryDirectory -Recurse -Force
-    }
+    if ($transcriptStarted) { Stop-Transcript | Out-Null }
 }
+exit $exitCode

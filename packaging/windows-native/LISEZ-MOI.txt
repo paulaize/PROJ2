@@ -1,40 +1,28 @@
-LYS IRM - WINDOWS NATIF AVEC ANTsPyx
-=====================================
+LYS IRM - WINDOWS - MODELES T2
+============================
 
-Ce paquet fonctionne directement sous Windows 11. Il n'installe ni Ubuntu, ni WSL2,
-ni executables ANTs separes. Il installe ANTsPyx 0.6.3 dans l'environnement prive
-de l'application.
+1. Telechargez le ZIP complet sur le disque local.
+2. Clic droit sur le ZIP > Extraire tout. Attendez la fin de l'extraction.
+3. Ouvrez le dossier extrait et double-cliquez sur Setup-LYS-IRM.cmd.
+4. Attendez le message "LYS IRM est pret", puis utilisez l'icone du Bureau.
 
-1. Decompressez completement le fichier ZIP.
-2. Double-cliquez sur Setup-LYS-IRM.cmd.
-3. Laissez la fenetre ouverte pendant le telechargement des dependances.
-4. ITK-SNAP est facultatif. Si vous acceptez son installation, Windows demandera
-   une autorisation administrateur pour ce logiciel uniquement.
-5. A la fin, double-cliquez sur "LYS IRM" sur le Bureau.
+L'installation fonctionne hors ligne. Python, les dependances et les modeles T2
+sont inclus. Aucun Conda, pip, Git, modele T1 ou compte GitHub n'est necessaire.
+Ne modifiez pas les versions de paquets et ne lancez pas setup depuis le ZIP.
+Prevoir 8 Gio libres pour l'installation, en plus du ZIP et du dossier extrait.
 
-Prevoir une connexion Internet, 8 Gio d'espace libre et environ 15 a 40 minutes
-pour la premiere installation. Les lancements suivants utilisent l'icone.
+Trois choix T2 sont inclus : modele standard (fold 1), petit modele historique,
+et modele plus grand (ensemble fold 0+1). La generation par modele T1 est desactivee.
+Les nouveaux projets proposent T2 par defaut. Les donnees des etudes existantes
+ne sont pas supprimees. Toute segmentation doit etre examinee avant approbation.
 
-REGISTRATIONS SCIENTIFIQUES
-----------------------------
+ITK-SNAP est facultatif, pour l'edition manuelle externe. Si necessaire, installez-le
+separement depuis son site officiel : https://www.itksnap.org/
+Son absence n'empeche pas l'installation de LYS IRM.
 
-ANTsPyx est le moteur de registration officiel de LYS IRM sur macOS et Windows.
-Le paquet conserve les validations de geometrie, les masques examines, les deux
-candidats atlas-vers-T1, la registration rigide T1-vers-T2, la propagation directe
-des etiquettes et toutes les approbations humaines.
-
-Un calcul termine n'est jamais automatiquement approuve. Examinez toujours les
-candidats et toutes les coupes QC demandees par l'application.
-
-Les versions gelees courantes des modeles T1 RS2-Net/M-seam et T2 RatLesNetV2 sont
-incluses dans ce paquet. L'installateur verifie chaque fichier, les installe dans le
-dossier de modeles de l'utilisateur et l'application les detecte automatiquement.
-Aucun transfert manuel de poids n'est necessaire.
-
-Les donnees et le logiciel sont stockes dans:
-  %LOCALAPPDATA%\LYS IRM
-
-Les modeles sont installes dans:
-  %LOCALAPPDATA%\LYS IRM\models
-
+Le programme et les journaux se trouvent dans :
+  %LOCALAPPDATA%\LYS-IRM
+En cas d'erreur, transmettez le fichier setup-*.log du sous-dossier logs.
+Les installations precedentes sont conservees lors d'une mise a jour.
+Les dossiers d'etude restent aux emplacements que vous avez choisis.
 Ne jamais ouvrir le meme dossier d'etude simultanement sur deux ordinateurs.

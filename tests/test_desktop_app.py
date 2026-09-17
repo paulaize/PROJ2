@@ -49,6 +49,7 @@ from lys_bbb_app.domain.view_models import (  # noqa: E402
 )
 from lys_bbb_app.features import (  # noqa: E402
     FULL_FEATURES,
+    T2_FEATURES,
     active_features,
     features_for_profile,
 )
@@ -155,6 +156,36 @@ def test_full_profile_uses_antspyx_and_hides_unvalidated_atlas_entry_points(
     assert window.workspace_page.atlas_mapping_panel is None
     assert set(window.reviews_page.modality_tab_indices) == {"T1", "T2"}
     assert window.reviews_page.reviews == (t1_review,)
+    window.close()
+
+
+def test_t2_edition_blocks_t1_models_in_existing_mixed_studies(
+    qt_app: QApplication, tmp_path: Path, monkeypatch,
+) -> None:
+    service = StudyService(features=T2_FEATURES)
+    service.create_study(CreateStudyRequest(
+        tmp_path / "mixed", "Existing mixed study", "mixed",
+        analysis_scope=AnalysisScope.T1_T2, actor="QA",
+    ))
+    snapshot = service.add_subject(CreateSubjectRequest("Mouse-001", True, True, actor="QA"))
+    window = MainWindow(study_service=service, features=T2_FEATURES,
+                        recent_studies=RecentStudiesService(tmp_path / "recent.json"))
+    window._set_study(present_study(snapshot))
+    window.open_subject(snapshot.subjects[0].id)
+    workspace = window.workspace_page
+    assert not workspace.tabs.isTabVisible(workspace._t1_brain_mask_tab)
+    assert not workspace.t1_brain_mask_panel.isEnabled()
+    assert workspace.tabs.isTabVisible(workspace._t2_tab)
+    assert workspace.t2_panel.isEnabled()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("T1 selection/generation must not reach a dialog or service")
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", unexpected)
+    monkeypatch.setattr(service, "t1_brain_mask_readiness", unexpected)
+    assert window.select_t1_brain_mask_release() is False
+    assert window._register_t1_brain_mask_release(tmp_path) is False
+    window.run_t1_brain_mask_for_subject(snapshot.subjects[0].id)
     window.close()
 
 
