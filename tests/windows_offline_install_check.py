@@ -190,6 +190,7 @@ def main() -> int:
         actual_env = dict(env, PYTHONHOME=str(release / "env"),
                           PYTHONPATH=str(release / "app/src"),
                           LYS_IRM_FEATURE_PROFILE="t2-only", QT_QPA_PLATFORM="windows",
+                          LYS_IRM_ICON=str(installed / "lys-irm.ico"),
                           LYS_IRM_MODELS_DIRECTORY=str(release / "models"))
         actual_env["PATH"] = f"{release / 'env'};{release / 'env/Library/bin'};{os.environ['PATH']}"
         run([str(release / "env/python.exe"), "-m", "lys_bbb_app.windows_smoke",
@@ -206,9 +207,15 @@ def main() -> int:
             actual_env["PYTHONPATH"] += os.pathsep + str(args.test_tools_directory.resolve())
             actual_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
             run([str(release / "env/python.exe"), "-c",
-                 "import lys_bbb_app; print('Testing installed source:', lys_bbb_app.__file__)"],
+                 "import lys_bbb_app; print('Testing installed source:', lys_bbb_app.__file__); "
+                 "from lys_bbb_app.main import application_icon_path; "
+                 "from PySide6.QtGui import QIcon; from PySide6.QtWidgets import QApplication; "
+                 "app=QApplication([]); assert not QIcon(str(application_icon_path())).isNull()"],
                 env=actual_env, cwd=work).check_returncode()
+            # The checkout-only PNG path test does not apply to the installed ICO
+            # override checked above; the rest exercise the actual installed app.
             run([str(release / "env/python.exe"), "-m", "pytest", "-o", "pythonpath=", "-q",
+                 "-k", "not test_launcher_uses_the_lys_logo_without_a_platform_override",
                  *[str(source / "tests" / name) for name in (
                      "test_mri_preview.py", "test_orientation_correction.py",
                      "test_desktop_app.py", "test_scan_import.py", "test_windows_t2_profile.py",
