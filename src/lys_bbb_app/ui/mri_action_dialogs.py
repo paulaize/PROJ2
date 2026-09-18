@@ -69,48 +69,38 @@ class MRIInputSelectionDialog(QDialog):
 
 
 class BulkFlipDialog(QDialog):
-    """Collect one explicit, versioned storage-axis operation for a subject batch."""
+    """Collect an explicit correction of the saved anatomical orientation."""
 
-    def __init__(self, subject_count: int, parent: QWidget | None = None) -> None:
+    def __init__(self, subject_count: int, parent: QWidget | None = None, *, inputs: tuple[ScanInputRecord, ...] = ()) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Create flipped MRI versions")
+        self._inputs = inputs
+        self.setWindowTitle("Correct MRI orientation")
         self.setModal(True)
         self.setMinimumWidth(600)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(14)
-        title = QLabel(f"Create flipped MRI versions for {subject_count} subject(s)")
+        title = QLabel(f"Correct orientation · {subject_count} subject(s)")
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
-        detail = QLabel(
-            "This creates new versioned NIfTI inputs from the recorded sources. Existing "
-            "versions and raw MRI remain unchanged. Storage axes and affines are updated "
-            "without interpolation."
-        )
-        detail.setObjectName("infoBanner")
-        detail.setWordWrap(True)
-        layout.addWidget(detail)
         self.scope = QComboBox()
-        self.scope.addItem(
-            "All active MRI inputs",
-            (ScanRole.T1_PRE.value, ScanRole.T1_POST.value, ScanRole.T2.value),
-        )
-        self.scope.addItem(
-            "T1 pre/post only",
-            (ScanRole.T1_PRE.value, ScanRole.T1_POST.value),
-        )
-        self.scope.addItem("T2 only", (ScanRole.T2.value,))
+        roles = tuple(dict.fromkeys(record.role for record in inputs))
+        if len(roles) > 1:
+            self.scope.addItem("All selected MRI inputs", tuple(role.value for role in roles))
+        for role in roles:
+            self.scope.addItem(MRIInputSelectionDialog.ROLE_LABELS[role], (role.value,))
         axes = QHBoxLayout()
         self.axis_boxes = tuple(QCheckBox(axis) for axis in ("X", "Y", "Z"))
         for box in self.axis_boxes:
+            box.setToolTip("Image axis, not screen direction.")
             axes.addWidget(box)
         axes.addStretch()
         form = QFormLayout()
         form.addRow("MRI inputs", self.scope)
-        form.addRow("Flip storage axes", axes)
+        form.addRow("Correct image axes", axes)
         layout.addLayout(form)
         warning = QLabel(
-            "Review the new versions visually before using them in scientific workflows."
+            "Original kept. Check and validate the new image before rerunning analysis."
         )
         warning.setObjectName("muted")
         warning.setWordWrap(True)
@@ -125,6 +115,19 @@ class BulkFlipDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        self.scope.currentIndexChanged.connect(self._update_axes)
+        self._update_axes()
+
+    def _update_axes(self) -> None:
+        orientations = {record.output_axis_codes for record in self._inputs if record.role in self.roles()}
+        codes = next(iter(orientations)) if len(orientations) == 1 else ()
+        opposite = {"L": "R", "R": "L", "A": "P", "P": "A", "I": "S", "S": "I"}
+        for axis, box in enumerate(self.axis_boxes):
+            label = "XYZ"[axis]
+            if codes and codes[axis] in opposite:
+                code = codes[axis]
+                label += f" ({code} → {opposite[code]})"
+            box.setText(label)
 
     def flip_axes(self) -> tuple[int, ...]:
         return tuple(
@@ -132,7 +135,7 @@ class BulkFlipDialog(QDialog):
         )
 
     def roles(self) -> tuple[ScanRole, ...]:
-        return tuple(ScanRole(value) for value in self.scope.currentData())
+        return tuple(ScanRole(value) for value in (self.scope.currentData() or ()))
 
     def accept(self) -> None:
         if not self.flip_axes():
@@ -140,4 +143,3 @@ class BulkFlipDialog(QDialog):
             self.error.show()
             return
         super().accept()
-

@@ -94,6 +94,8 @@ class ScanImportAssignment:
     animal_identifier: str | None = None
     time_identifier: str | None = None
     flip_axes: tuple[int, ...] = ()
+    orientation_correction: bool = False
+    expected_source_sha256: str | None = None
 
 
 @dataclass(frozen=True)

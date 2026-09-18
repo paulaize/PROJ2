@@ -14,12 +14,14 @@ from lys_bbb_app.domain.scan_import import (
     InputValidationIssue,
     InputValidationOutcome,
     InputValidationState,
+    OrientationPolicy,
     ScanConversionResult,
     ScanDiscoveryReport,
     ScanImportAssignment,
     ScanImportState,
     ScanInputRecord,
     ScanRole,
+    SourceFormat,
 )
 from lys_bbb_app.domain.study import StudySnapshot
 from lys_bbb_app.infrastructure.external_viewer import (
@@ -204,6 +206,41 @@ class MriInputService:
                 + ". Import or convert their scans before running the batch flip."
             )
         return tuple(assignments)
+
+    def plan_orientation_correction(
+        self,
+        subject_ids: tuple[str, ...],
+        flip_axes: tuple[int, ...],
+        roles: tuple[ScanRole, ...],
+        *,
+        scan_input_id: str | None = None,
+    ) -> tuple[ScanImportAssignment, ...]:
+        """Correct current managed images, never re-read an old raw acquisition."""
+        # Reuse the selection and role checks of the storage-reindexing planner.
+        self.plan_bulk_flip(subject_ids, flip_axes, roles)
+        records = tuple(
+            record for subject_id in dict.fromkeys(subject_ids)
+            for record in self.converted_inputs(subject_id)
+            if record.role in roles and (scan_input_id is None or record.id == scan_input_id)
+        )
+        if not records:
+            raise StudyStateError("The selected MRI is no longer available.")
+        if len({record.output_axis_codes for record in records}) > 1:
+            raise StudyStateError("These images have different axis orientations. Correct them separately.")
+        if any(record.output_path is None or not record.output_sha256 for record in records):
+            raise StudyStateError("The managed MRI is missing its image or checksum.")
+        return tuple(
+            replace(
+                _replacement_assignment(record, set(flip_axes)),
+                proposal_id=f"orientation-correction-{uuid4()}",
+                source_path=record.output_path,
+                source_format=SourceFormat.NIFTI,
+                orientation_policy=OrientationPolicy.NATIVE,
+                flip_axes=tuple(sorted(set(flip_axes))),
+                orientation_correction=True,
+                expected_source_sha256=record.output_sha256,
+            ) for record in records
+        )
 
     def discover_folder(
         self,

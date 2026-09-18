@@ -19,6 +19,7 @@ def connect_main_window_signals(window: Any) -> None:
             return_page="subjects",
         )
     )
+    window.subjects_page.subjects_validation_requested.connect(window.validate_selected_subjects)
     window.subjects_page.subjects_flip_requested.connect(window.bulk_flip_subjects)
     window.subjects_page.subject_remove_requested.connect(window.remove_subject)
     window.subjects_page.subject_restore_requested.connect(window.restore_subject)
@@ -55,7 +56,7 @@ def connect_main_window_signals(window: Any) -> None:
         window.validate_subject_inputs
     )
     window.workspace_page.input_flip_requested.connect(
-        lambda subject_id: window.bulk_flip_subjects((subject_id,))
+        lambda subject_id, scan_id: window.bulk_flip_subjects((subject_id,), scan_input_id=scan_id)
     )
     window.workspace_page.input_import_requested.connect(
         window.select_mri_source_folder

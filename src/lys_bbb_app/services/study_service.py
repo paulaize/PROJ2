@@ -1231,6 +1231,18 @@ class StudyService:
     ) -> tuple[ScanImportAssignment, ...]:
         return self.mri_inputs.plan_bulk_flip(subject_ids, flip_axes, roles)
 
+    def plan_orientation_correction(
+        self,
+        subject_ids: tuple[str, ...],
+        flip_axes: tuple[int, ...],
+        roles: tuple[ScanRole, ...],
+        *,
+        scan_input_id: str | None = None,
+    ) -> tuple[ScanImportAssignment, ...]:
+        return self.mri_inputs.plan_orientation_correction(
+            subject_ids, flip_axes, roles, scan_input_id=scan_input_id,
+        )
+
     def unblind(self, *, reviewer: str) -> StudySnapshot:
         return self._require_repository().unblind(actor=reviewer)
 

@@ -74,6 +74,7 @@ from lys_bbb_app.ui.widgets import StatusBadge, secondary_button
 from lys_bbb_app.ui.workers import (
     AtlasMappingThread,
     InputValidationThread,
+    BatchInputValidationThread,
     ScanImportThread,
     T1BrainMaskThread,
     T1EnhancementThread,
@@ -649,6 +650,50 @@ class MainWindow(QMainWindow):
             f"Opened {launch.image_path.name} in ITK-SNAP.",
             7000,
         )
+
+    def validate_selected_subjects(self, subject_ids: tuple[str, ...]) -> None:
+        if self.current_study is None or self.study_service.current_study is None:
+            return
+        if self._background_job_running():
+            self._show_status_message("Another MRI background job is already running.")
+            return
+        eligible = tuple(
+            sid for sid in dict.fromkeys(subject_ids)
+            if (subject := self.current_study.subject(sid)) is not None and subject.needs_input_validation
+        )
+        if not eligible:
+            return
+        thread = BatchInputValidationThread(self.study_service, eligible, actor=self._reviewer_identity())
+        thread.validation_completed.connect(self._batch_input_validation_completed)
+        thread.validation_failed.connect(self._input_validation_failed)
+        thread.progress_changed.connect(
+            lambda current, total, message: self.statusBar().showMessage(f"{message}: {current}/{total}")
+        )
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._clear_input_validation_thread)
+        self._batch_validation_ids = eligible
+        self._background_jobs.register("input_validation", thread)
+        self._set_job_status("Input validation running")
+        thread.start()
+
+    def _batch_input_validation_completed(self, snapshot: StudySnapshot, errors: dict[str, str]) -> None:
+        self._set_study(present_study(snapshot), page_key="subjects")
+        subjects = [self.current_study.subject(sid) for sid in self._batch_validation_ids]
+        failed = sum(
+            subject is None or subject.subject_id in errors or subject.needs_input_validation
+            for subject in subjects
+        )
+        self._notify(
+            "Validation complete",
+            f"{len(subjects) - failed} subject(s) validated; {failed} need attention.",
+            kind="warning" if failed else "success",
+        )
+        if errors:
+            details = "\n".join(
+                f"{subject.label}: {errors[subject.subject_id]}"
+                for subject in subjects if subject is not None and subject.subject_id in errors
+            )
+            self._show_error("Some MRI inputs could not be validated.", StudyStateError(details))
 
     def validate_subject_inputs(
         self,
@@ -2158,25 +2203,44 @@ class MainWindow(QMainWindow):
             kind="success",
         )
 
-    def bulk_flip_subjects(self, subject_ids: tuple[str, ...]) -> None:
+    def bulk_flip_subjects(self, subject_ids: tuple[str, ...], *, scan_input_id: str | None = None) -> None:
         if self.current_study is None or not subject_ids:
             return
         if self.study_service.current_study is None:
             self._show_status_message("Open a study before creating flipped MRI versions.")
             return
-        dialog = BulkFlipDialog(len(subject_ids), self)
+        if self._background_job_running():
+            self._show_status_message("Another MRI background job is already running.")
+            return
+        try:
+            inputs = tuple(
+                record for sid in subject_ids
+                for record in self.study_service.converted_mri_inputs(sid)
+                if scan_input_id is None or record.id == scan_input_id
+                if self.features.t1_brain_mask or record.role is ScanRole.T2
+            )
+            if not inputs:
+                raise StudyStateError("No converted MRI is available.")
+        except StudyStateError as exc:
+            self._show_error("The orientation correction could not be prepared.", exc)
+            return
+        dialog = BulkFlipDialog(len(subject_ids), self, inputs=inputs)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
-            assignments = self.study_service.plan_bulk_flip(
+            assignments = self.study_service.plan_orientation_correction(
                 subject_ids,
                 dialog.flip_axes(),
                 dialog.roles(),
+                scan_input_id=scan_input_id,
             )
         except StudyStateError as exc:
             self._show_error("The batch flip could not be prepared.", exc)
             return
-        self._start_scan_import(assignments, operation_name="MRI batch flip")
+        self._start_scan_import(
+            assignments, operation_name="MRI orientation correction",
+            return_subject_id=subject_ids[0] if scan_input_id is not None else None,
+        )
 
     def manage_groups(self) -> None:
         if self.current_study is None:
@@ -2305,6 +2369,7 @@ class MainWindow(QMainWindow):
         assignments: tuple[ScanImportAssignment, ...],
         *,
         operation_name: str = "MRI import",
+        return_subject_id: str | None = None,
     ) -> None:
         if self._background_job_running():
             self._show_status_message("Another MRI background job is already running.")
@@ -2321,6 +2386,7 @@ class MainWindow(QMainWindow):
         thread.finished.connect(self._clear_scan_import_thread)
         self._background_jobs.register("scan_import", thread)
         self._scan_operation_name = operation_name
+        self._scan_return_subject_id = return_subject_id
         self._set_job_status(f"{operation_name} running")
         self.statusBar().showMessage(
             f"{operation_name}: creating {len(assignments)} versioned NIfTI input(s)…"
@@ -2338,6 +2404,11 @@ class MainWindow(QMainWindow):
     ) -> None:
         self._set_study(present_study(snapshot), page_key="subjects")
         self._set_job_status()
+        return_subject_id = getattr(self, "_scan_return_subject_id", None)
+        if return_subject_id is not None:
+            self.open_subject(return_subject_id)
+            self.workspace_page.tabs.setCurrentWidget(self.workspace_page.inputs_panel)
+            QTimer.singleShot(0, self._show_input_preview)
         if failed:
             self._notify(
                 f"{self._scan_operation_name} needs attention",
@@ -2345,11 +2416,10 @@ class MainWindow(QMainWindow):
                 "inspect the recorded error.",
                 kind="warning",
             )
-        elif self._scan_operation_name == "MRI batch flip":
+        elif self._scan_operation_name == "MRI orientation correction":
             self._notify(
-                "MRI batch flip complete",
-                "New versioned inputs and provenance were saved; previous versions "
-                "were retained.",
+                "Orientation corrected",
+                "Check the new image's orientation, then validate it.",
                 kind="success",
             )
         else:
@@ -2359,6 +2429,13 @@ class MainWindow(QMainWindow):
                 kind="success",
             )
 
+    def _show_input_preview(self) -> None:
+        panel = self.workspace_page.inputs_panel
+        if panel.isVisible() and panel.previews:
+            preview = panel.previews[0]
+            panel.ensureWidgetVisible(preview, 0, 12)
+            self.workspace_page.ensureWidgetVisible(preview, 0, 12)
+
     def _scan_import_failed(self, error: str) -> None:
         self._set_job_status()
         self._show_error("The MRI import plan could not be started.", StudyStateError(error))
@@ -2366,6 +2443,7 @@ class MainWindow(QMainWindow):
     def _clear_scan_import_thread(self) -> None:
         self._background_jobs.clear("scan_import")
         self._scan_operation_name = "MRI import"
+        self._scan_return_subject_id = None
 
     def _handle_blinding_toggle(self, blinded: bool) -> None:
         if self.current_study is None:

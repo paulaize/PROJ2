@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+      - name: Fetch the coworker's previous source version
+        run: git fetch --depth=1 origin 936829df46b53fde37e1699b0bff9e1353deb98c
+      - name: Install isolated test tools (not part of the app runtime)
+        run: python -m pip install --target "${{ runner.temp }}/lys-test-tools" pytest==8.4.2
       - name: Check Windows PowerShell 5 syntax
         shell: powershell
         run: |
@@ -39,4 +43,4 @@ jobs:
           run-id: 35277637679
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Check offline installation, quiet output, logs, native Qt and safe failure
-        run: python tests/windows_offline_install_check.py --runtime-directory dist/runtime
+        run: python tests/windows_offline_install_check.py --runtime-directory dist/runtime --previous-commit 936829df46b53fde37e1699b0bff9e1353deb98c --test-tools-directory "${{ runner.temp }}/lys-test-tools"

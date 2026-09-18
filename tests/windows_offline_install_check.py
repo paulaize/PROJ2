@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import zipfile
 
@@ -47,12 +49,38 @@ def write_fixture(root: Path) -> None:
         (root / name).write_text(json.dumps(data), encoding="utf-8")
 
 
-def run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess:
-    completed = subprocess.run(command, env=env, text=True, encoding="utf-8",
+def run(command: list[str], *, env: dict[str, str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+    completed = subprocess.run(command, env=env, cwd=cwd, text=True, encoding="utf-8",
                                errors="replace", stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT)
     print(completed.stdout, flush=True)
     return completed
+
+
+def previous_source_payload(source: Path, extracted: Path, commit: str) -> None:
+    """Use the real previous app source for the first installation in the test."""
+    payload = subprocess.check_output([
+        "git", "archive", commit, "src", "pyproject.toml", "README.md",
+        "packaging/windows-native/environment-win64.yml",
+    ], cwd=source)
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        archive.extractall(extracted / "app", filter="data")
+    manifest_path = extracted / "handoff-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["source_commit"] = commit
+    manifest["files"] = {
+        name: digest for name, digest in manifest["files"].items()
+        if not name.startswith("app/")
+    }
+    for path in (extracted / "app").rglob("*"):
+        if path.is_file():
+            manifest["files"][path.relative_to(extracted).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    hashes = dict(manifest["files"])
+    hashes["handoff-manifest.json"] = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    (extracted / "SHA256SUMS.txt").write_text(
+        "".join(f"{digest}  {name}\n" for name, digest in sorted(hashes.items())), encoding="utf-8",
+    )
 
 
 def main() -> int:
@@ -60,6 +88,8 @@ def main() -> int:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-directory", type=Path, required=True)
+    parser.add_argument("--previous-commit")
+    parser.add_argument("--test-tools-directory", type=Path)
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("This check requires Windows.")
@@ -90,6 +120,13 @@ def main() -> int:
                 raise RuntimeError("The colleague package must not contain LISEZ-MOI.txt")
             archive.extractall(work / "extracted")
         extracted = work / "extracted/LYS-IRM-Windows-Native"
+        current_metadata = {
+            name: (extracted / name).read_bytes()
+            for name in ("handoff-manifest.json", "SHA256SUMS.txt")
+        }
+        if args.previous_commit:
+            (extracted / "app").rename(work / "current-app")
+            previous_source_payload(source, extracted, args.previous_commit)
         installed = work / "colleague with spaces"
         command = ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
                    "-File", str(extracted / "Setup-LYS-IRM.ps1"), "-InstallRoot", str(installed),
@@ -115,6 +152,39 @@ def main() -> int:
         record = json.loads(previous.decode("utf-8-sig"))
         if record["feature_profile"] != "t2-only":
             raise RuntimeError("Installer selected the wrong feature profile")
+        if args.previous_commit:
+            # Create a real study with the previous application's code, then upgrade.
+            old_release = installed / "releases" / record["release_id"]
+            old_env = dict(env, PYTHONHOME=str(old_release / "env"),
+                           PYTHONPATH=str(old_release / "app/src"),
+                           LYS_IRM_FEATURE_PROFILE="t2-only")
+            old_env["PATH"] = f"{old_release / 'env'};{old_release / 'env/Library/bin'};{os.environ['PATH']}"
+            study = work / "existing colleague study"
+            create_study = (
+                "from pathlib import Path; from lys_bbb_app.services.study_service import StudyService; "
+                "from lys_bbb_app.domain.study import CreateStudyRequest, CreateSubjectRequest, AnalysisScope; "
+                "s=StudyService(); s.create_study(CreateStudyRequest(Path(__import__('sys').argv[1]), "
+                "'Existing study','existing',analysis_scope=AnalysisScope.T2_ONLY,actor='Tester')); "
+                "s.add_subject(CreateSubjectRequest('Mouse-existing',False,True,actor='Tester'))"
+            )
+            run([str(old_release / "env/python.exe"), "-c", create_study, str(study)], env=old_env, cwd=work).check_returncode()
+            study_hashes = {p.relative_to(study): hashlib.sha256(p.read_bytes()).hexdigest()
+                            for p in study.rglob("*") if p.is_file()}
+            (extracted / "app").rename(work / "previous-app")
+            (work / "current-app").rename(extracted / "app")
+            for name, content in current_metadata.items():
+                (extracted / name).write_bytes(content)
+            run(command, env=env).check_returncode()
+            if (installed / "active-install.previous.json").read_bytes() != previous:
+                raise RuntimeError("Upgrade did not preserve the previous active release")
+            updated = active.read_bytes()
+            if updated == previous or not (old_release / "env/python.exe").is_file():
+                raise RuntimeError("Upgrade did not create a separate release")
+            if study_hashes != {p.relative_to(study): hashlib.sha256(p.read_bytes()).hexdigest()
+                                for p in study.rglob("*") if p.is_file()}:
+                raise RuntimeError("Installation modified the existing study")
+            previous = updated
+            record = json.loads(previous.decode("utf-8-sig"))
         # Also exercise the native Windows Qt plugin from the installed prefix.
         release = installed / "releases" / record["release_id"]
         actual_env = dict(env, PYTHONHOME=str(release / "env"),
@@ -124,6 +194,25 @@ def main() -> int:
         actual_env["PATH"] = f"{release / 'env'};{release / 'env/Library/bin'};{os.environ['PATH']}"
         run([str(release / "env/python.exe"), "-m", "lys_bbb_app.windows_smoke",
              "--models-directory", str(release / "models")], env=actual_env).check_returncode()
+        if args.previous_commit:
+            open_study = (
+                "from pathlib import Path; from lys_bbb_app.services.study_service import StudyService; "
+                "s=StudyService().open_study(Path(__import__('sys').argv[1])); "
+                "assert s.subjects[0].subject_code == 'Mouse-existing'; print('Previous-version study reopened')"
+            )
+            run([str(release / "env/python.exe"), "-c", open_study, str(study)], env=actual_env, cwd=work).check_returncode()
+        if args.test_tools_directory:
+            # Test installed source, not the checkout. No pip changes to its runtime.
+            actual_env["PYTHONPATH"] += os.pathsep + str(args.test_tools_directory.resolve())
+            actual_env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+            run([str(release / "env/python.exe"), "-c",
+                 "import lys_bbb_app; print('Testing installed source:', lys_bbb_app.__file__)"],
+                env=actual_env, cwd=work).check_returncode()
+            run([str(release / "env/python.exe"), "-m", "pytest", "-o", "pythonpath=", "-q",
+                 *[str(source / "tests" / name) for name in (
+                     "test_mri_preview.py", "test_orientation_correction.py",
+                     "test_desktop_app.py", "test_scan_import.py", "test_windows_t2_profile.py",
+                 )]], env=actual_env, cwd=work).check_returncode()
         # A corrupt subsequent package must fail without changing the active install.
         (extracted / "app/src/lys_bbb_app/features.py").write_text("# corrupt\n", encoding="utf-8")
         failed = run(command, env=env)
@@ -134,7 +223,7 @@ def main() -> int:
         if "Traceback" in failed.stdout:
             raise RuntimeError("Technical failure details leaked into the console")
     shutil.rmtree(models)  # Only the test fixtures just created in this CI checkout.
-    print("Offline setup and failed-reinstall preservation passed on Windows.", flush=True)
+    print("Offline setup, upgrade, installed app checks and failed-reinstall preservation passed on Windows.", flush=True)
     return 0
 
 

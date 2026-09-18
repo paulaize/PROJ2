@@ -618,6 +618,8 @@ def _insert_assignment(
             "scan_id": assignment.scan_id,
             "confidence": assignment.confidence.value,
             "orientation_policy": assignment.orientation_policy.value,
+            "orientation_correction": assignment.orientation_correction,
+            "expected_source_sha256": assignment.expected_source_sha256,
             "flip_axes": sorted(set(assignment.flip_axes)),
             "predecessor_input_id": previous["id"] if previous is not None else None,
         },

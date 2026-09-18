@@ -107,6 +107,35 @@ class InputValidationThread(QThread):
         self.validation_completed.emit(snapshot)
 
 
+class BatchInputValidationThread(QThread):
+    validation_completed = Signal(object, object)
+    validation_failed = Signal(str)
+    progress_changed = Signal(int, int, str)
+
+    def __init__(self, service: StudyService, subject_ids: tuple[str, ...], *, actor: str) -> None:
+        super().__init__()
+        self._service = service
+        self._subject_ids = tuple(dict.fromkeys(subject_ids))
+        self._actor = actor
+
+    def run(self) -> None:
+        errors: dict[str, str] = {}
+        try:
+            for index, subject_id in enumerate(self._subject_ids, start=1):
+                try:
+                    self._service.validate_subject_inputs(subject_id, actor=self._actor)
+                except Exception as exc:
+                    errors[subject_id] = str(exc)
+                self.progress_changed.emit(index, len(self._subject_ids), "Validating MRI inputs")
+            snapshot = self._service.current_study
+            if snapshot is None:
+                raise RuntimeError("The study is no longer open.")
+        except Exception as exc:
+            self.validation_failed.emit(str(exc))
+            return
+        self.validation_completed.emit(snapshot, errors)
+
+
 class T2InferenceThread(_DeviceJobThread):
     progress_changed = Signal(int, int, str)
     inference_completed = Signal(object)

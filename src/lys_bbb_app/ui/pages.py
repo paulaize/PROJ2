@@ -6,7 +6,7 @@ import calendar
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QModelIndex, Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -287,6 +287,7 @@ class SubjectsPage(QWidget):
     subject_open_requested = Signal(str)
     subject_mri_open_requested = Signal(str)
     subject_validation_requested = Signal(str)
+    subjects_validation_requested = Signal(object)
     subjects_flip_requested = Signal(object)
     subject_remove_requested = Signal(str)
     subject_restore_requested = Signal()
@@ -401,10 +402,10 @@ class SubjectsPage(QWidget):
         )
         self.validate_selected.setEnabled(False)
         self.validate_selected.clicked.connect(self._validate_selected)
-        self.flip_subjects = secondary_button("Create flipped versions…")
+        self.flip_subjects = secondary_button("Correct orientation…")
         self.flip_subjects.setEnabled(False)
         self.flip_subjects.clicked.connect(self._flip_selected)
-        footer.addWidget(self.count_label)
+        layout.addWidget(self.count_label)
         footer.addStretch()
         footer.addWidget(self.restore_subjects)
         footer.addWidget(self.open_mri)
@@ -418,6 +419,10 @@ class SubjectsPage(QWidget):
         self.state_filter.currentTextChanged.connect(self._apply_filters)
 
     def set_study(self, study: StudyViewModel) -> None:
+        selected = {
+            subject.subject_id for subject in self._selected_subjects()
+        } if getattr(self, "_study_root", None) == study.root_path else set()
+        self._study_root = study.root_path
         self.model.set_subjects(study.subjects)
         self.table.setColumnHidden(4, not study.analysis_scope.includes_t1)
         self.table.setColumnHidden(5, not study.analysis_scope.includes_t2)
@@ -456,6 +461,14 @@ class SubjectsPage(QWidget):
             else "Validate a compatible T2 input before running segmentation."
         )
         self._apply_filters()
+        for row in range(self.proxy.rowCount()):
+            index = self.proxy.index(row, 0)
+            subject = self.model.subject_at(self.proxy.mapToSource(index).row())
+            if subject is not None and subject.subject_id in selected:
+                self.table.selectionModel().select(
+                    index, QItemSelectionModel.Select | QItemSelectionModel.Rows,
+                )
+        self._selection_changed()
 
     def set_blinded_review(self, blinded: bool) -> None:
         self.blinded_review = blinded
@@ -487,16 +500,14 @@ class SubjectsPage(QWidget):
         self.open_mri.setEnabled(
             one_subject is not None and one_subject.mri_input_count > 0
         )
-        self.validate_selected.setEnabled(
-            one_subject is not None and one_subject.needs_input_validation
-        )
-        self.validate_selected.setVisible(
-            one_subject is not None and one_subject.needs_input_validation
-        )
+        eligible = sum(subject.needs_input_validation for subject in subjects)
+        self.validate_selected.setEnabled(eligible > 0)
+        self.validate_selected.setVisible(True)
+        self.validate_selected.setText(f"Validate selected ({eligible})" if eligible else "Validate selected")
         self.validate_selected.setToolTip(
-            "Checks the selected subject's converted MRI geometry and provenance."
+            "Checks selected subjects needing validation; already validated subjects are skipped."
             if self.validate_selected.isEnabled()
-            else "Select one subject whose converted MRI requires validation."
+            else "Select subjects whose converted MRI requires validation."
         )
         self.flip_subjects.setEnabled(
             bool(subjects) and all(subject.mri_input_count > 0 for subject in subjects)
@@ -531,9 +542,9 @@ class SubjectsPage(QWidget):
             self.subject_mri_open_requested.emit(subject.subject_id)
 
     def _validate_selected(self) -> None:
-        subject = self._selected_subject()
-        if subject is not None and subject.needs_input_validation:
-            self.subject_validation_requested.emit(subject.subject_id)
+        subject_ids = tuple(subject.subject_id for subject in self._selected_subjects() if subject.needs_input_validation)
+        if subject_ids:
+            self.subjects_validation_requested.emit(subject_ids)
 
     def _flip_selected(self) -> None:
         subject_ids = tuple(

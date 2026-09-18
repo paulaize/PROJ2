@@ -28,9 +28,8 @@ def convert_scan_assignment(
 ) -> ScanConversionResult:
     """Create one immutable quantitative NIfTI and its provenance manifest.
 
-    Bruker and direct-NIfTI sources are read only.  Axis flips are storage-axis
-    reversals with a corresponding affine update, so they do not silently relabel the
-    anatomy in world coordinates.
+    Sources are read only. Import flips preserve anatomy in world coordinates;
+    explicit manual orientation corrections change its anatomical mapping.
     """
 
     output_directory = Path(output_directory)
@@ -43,12 +42,17 @@ def convert_scan_assignment(
     staging.mkdir(parents=True)
     try:
         image, source_hash = _load_source(assignment)
+        if assignment.expected_source_sha256 and source_hash != assignment.expected_source_sha256:
+            raise ValueError("The managed MRI has changed since import. Restore it before correcting orientation.")
         image = _validate_three_dimensional(image)
         if assignment.orientation_policy is OrientationPolicy.T1_CORONAL:
             from lys_bbb.image_orientation import to_coronal
 
             image = to_coronal(image)
-        image = _apply_storage_axis_flips(image, assignment.flip_axes)
+        if assignment.orientation_correction:
+            image = _correct_orientation(image, assignment.flip_axes)
+        else:
+            image = _apply_storage_axis_flips(image, assignment.flip_axes)
         _validate_image_geometry(image)
 
         filename = f"{assignment.role.value.casefold()}.nii.gz"
@@ -73,7 +77,8 @@ def convert_scan_assignment(
             },
             "transform": {
                 "orientation_policy": assignment.orientation_policy.value,
-                "storage_axis_flips": list(assignment.flip_axes),
+                "storage_axis_flips": [] if assignment.orientation_correction else list(assignment.flip_axes),
+                "orientation_correction_axes": list(assignment.flip_axes) if assignment.orientation_correction else [],
                 "interpolation": "none",
                 "affine_updated": True,
             },
@@ -179,6 +184,29 @@ def _validate_three_dimensional(
     raise ValueError(
         f"Expected one three-dimensional MRI volume; received shape {image.shape}."
     )
+
+
+def _correct_orientation(
+    image: nib.spatialimages.SpatialImage,
+    flip_axes: tuple[int, ...],
+) -> nib.Nifti1Image:
+    """Relabel misoriented anatomy about the volume centre, without resampling.
+
+    Unlike storage reindexing, voxel order is unchanged: an orientation-aware
+    viewer will display reflected anatomy. The original file is never modified.
+    """
+    if not flip_axes or not set(flip_axes) <= {0, 1, 2}:
+        raise ValueError("Select valid axes for orientation correction.")
+    transform = np.eye(4)
+    for axis in set(flip_axes):
+        transform[axis, axis] = -1
+        transform[axis, 3] = image.shape[axis] - 1
+    affine = image.affine @ transform
+    corrected = nib.Nifti1Image(np.asanyarray(image.dataobj), affine, image.header.copy())
+    # Refuse shear rather than write disagreeing qform/sform orientations.
+    corrected.set_qform(affine, code=1, strip_shears=False)
+    corrected.set_sform(affine, code=2)
+    return corrected
 
 
 def _apply_storage_axis_flips(

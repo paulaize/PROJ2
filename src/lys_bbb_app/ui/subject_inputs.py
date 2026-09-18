@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from lys_bbb_app.domain.view_models import InputScanViewModel, SubjectViewModel
 from lys_bbb_app.ui.layout_helpers import clear_layout
+from lys_bbb_app.ui.mri_preview import CoronalPreviewWidget
 from lys_bbb_app.ui.widgets import (
     CollapsibleSection,
     ElidedLabel,
@@ -27,7 +28,7 @@ from lys_bbb_app.ui.widgets import (
 class SubjectInputsPanel(QScrollArea):
     validation_requested = Signal(str)
     open_input_requested = Signal(str, str)
-    flip_requested = Signal(str)
+    flip_requested = Signal(str, str)
     import_requested = Signal()
 
     def __init__(self) -> None:
@@ -42,6 +43,8 @@ class SubjectInputsPanel(QScrollArea):
         self.setWidget(self.content)
         self.current_subject: SubjectViewModel | None = None
         self.scan_cards: list[QFrame] = []
+        self._preview_positions: dict[tuple[str, str], int] = {}
+        self.previews: list[CoronalPreviewWidget] = []
 
         header = QHBoxLayout()
         title = QLabel("MRI inputs")
@@ -79,6 +82,9 @@ class SubjectInputsPanel(QScrollArea):
             else "Import and convert at least one MRI input first."
         )
         self._set_readiness(subject)
+        for preview in self.previews:
+            preview.cancel()
+        self.previews.clear()
         clear_layout(self.cards_layout)
         self.scan_cards.clear()
         if subject.inputs:
@@ -126,6 +132,17 @@ class SubjectInputsPanel(QScrollArea):
         header.addWidget(StatusBadge(scan.conversion))
         header.addWidget(StatusBadge(scan.validation))
         layout.addLayout(header)
+
+        if scan.role_label == "T2-weighted" and scan.can_open and scan.managed_path:
+            key = (subject_id, scan.role_label)
+            preview = CoronalPreviewWidget(
+                scan.managed_path, position=self._preview_positions.get(key, 50),
+            )
+            preview.position_changed.connect(
+                lambda position, key=key: self._preview_positions.__setitem__(key, position)
+            )
+            self.previews.append(preview)
+            layout.addWidget(preview)
 
         technical_details = CollapsibleSection()
         paths = QGridLayout()
@@ -183,10 +200,10 @@ class SubjectInputsPanel(QScrollArea):
                 self.open_input_requested.emit(sid, input_id)
             )
         )
-        flip_button = secondary_button("Create flipped version…")
+        flip_button = secondary_button("Correct orientation…")
         flip_button.setEnabled(scan.can_open)
         flip_button.clicked.connect(
-            lambda _checked=False, sid=subject_id: self.flip_requested.emit(sid)
+            lambda _checked=False, sid=subject_id, iid=scan.scan_input_id: self.flip_requested.emit(sid, iid)
         )
         actions.addWidget(open_button)
         actions.addWidget(flip_button)

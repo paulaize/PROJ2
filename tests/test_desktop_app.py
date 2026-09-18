@@ -839,6 +839,9 @@ def test_persistent_study_adds_reopens_unblinds_and_groups_subjects(
     window.open_subject(subject_id)
     assert window.workspace_page.animal_identifier.text() == "C23S2"
     assert window.workspace_page.time_identifier.text() == "D7"
+    assert window.workspace_page.longitudinal_card.parentWidget() is window.workspace_page.content
+    assert not window.workspace_page.longitudinal_card.isHidden()
+    assert window.workspace_page.workflow_summary.parentWidget() is window.workspace_page.content
     assert window.workspace_page.next_action_title.text() == "Add MRI inputs"
     assert window.workspace_page.next_action_button.text() == "Add MRI inputs"
     assert not window.workspace_page.technical_details.is_expanded
@@ -986,6 +989,9 @@ def test_scan_review_can_exclude_and_restore_an_entire_discovered_subject(
             source_root / f"{subject}_t2w.nii.gz",
         )
     dialog = ScanImportReviewDialog(discover_mri_source(source_root))
+    explanations = [label.text() for label in dialog.findChildren(QLabel)]
+    assert "Check the subject IDs and MRI types, then confirm to import.\nReview and validate the converted images before analysis." in explanations
+    assert not any("normalize" in text or "interpolation" in text for text in explanations)
     excluded_row = next(
         row
         for row, edit in dialog._subject_edits.items()

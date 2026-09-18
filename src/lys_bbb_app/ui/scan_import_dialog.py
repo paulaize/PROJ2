@@ -75,22 +75,17 @@ class ScanImportReviewDialog(QDialog):
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
         summary = QLabel(
-            f"Found {report.session_count} acquisition folder(s), "
-            f"{len(report.proposed_subject_codes)} proposed subject(s), and "
-            f"{len(report.scans) - report.ignored_scan_count} proposed MRI input(s). "
-            "Nothing is imported until you confirm this table."
+            f"{report.session_count} acquisition folder(s) · "
+            f"{len(report.proposed_subject_codes)} subject(s) · "
+            f"{len(report.scans) - report.ignored_scan_count} MRI input(s) proposed"
         )
         summary.setObjectName("infoBanner")
         summary.setWordWrap(True)
         layout.addWidget(summary)
 
         help_text = QLabel(
-            "Edit subject IDs and scan roles where needed. T1 coronal conversion uses the "
-            "NIfTI affine without interpolation. Proposed T2 storage-axis flips normalize "
-            "coronal direction labels to LIP; an already-LIP T2 receives no flips. X/Y/Z "
-            "flips reverse the stored voxel axis and update the affine; every choice is "
-            "recorded in provenance. Automatic outputs remain inputs awaiting later "
-            "scientific QC."
+            "Check the subject IDs and MRI types, then confirm to import.\n"
+            "Review and validate the converted images before analysis."
         )
         help_text.setObjectName("muted")
         help_text.setWordWrap(True)
@@ -183,6 +178,10 @@ class ScanImportReviewDialog(QDialog):
             flip_layout.setContentsMargins(2, 0, 2, 0)
             boxes = tuple(QCheckBox(axis) for axis in ("X", "Y", "Z"))
             for axis, box in enumerate(boxes):
+                box.setToolTip(
+                    "Reorders stored voxels without changing anatomical orientation. "
+                    "To correct a misoriented image, use Correct orientation after import."
+                )
                 box.setChecked(axis in scan.suggested_flip_axes)
                 flip_layout.addWidget(box)
             flip_layout.addStretch()
